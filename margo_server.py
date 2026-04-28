@@ -109,6 +109,8 @@ class BancoMargo:
                  dados.get("musica",""), dados.get("comida",""), dados.get("hobbies",""),
                  dados.get("extra",""), user_id, agora, agora))
             conn.commit()
+        finally:
+            conn.close()
 
     def buscar_perfil(self, user_id):
         conn = self._get_conn()
@@ -136,6 +138,8 @@ class BancoMargo:
                  1 if dados.get("onboarding_completo") else 0,
                  user_id, agora, agora))
             conn.commit()
+        finally:
+            conn.close()
 
     def buscar_config(self, user_id):
         conn = self._get_conn()
@@ -157,6 +161,8 @@ class BancoMargo:
             c.execute('INSERT INTO resumos_sessao (user_id, resumo, criado_em) VALUES (?,?,?)',
                       (user_id, resumo[:100], datetime.now().isoformat()))
             conn.commit()
+        finally:
+            conn.close()
 
     def buscar_resumos(self, user_id):
         conn = self._get_conn()
@@ -179,6 +185,8 @@ class BancoMargo:
                 'INSERT INTO agenda (user_id, titulo, descricao, data_hora, criado_em) VALUES (?,?,?,?,?)',
                 (user_id, titulo, descricao, data_hora, datetime.now().isoformat()))
             conn.commit()
+        finally:
+            conn.close()
 
     def buscar_lembretes(self, user_id):
         conn = self._get_conn()
@@ -188,6 +196,8 @@ class BancoMargo:
             c.execute('SELECT * FROM agenda WHERE user_id=? AND data_hora > ? ORDER BY data_hora ASC',
                       (user_id, datetime.now().isoformat()))
             return [dict(r) for r in c.fetchall()]
+        finally:
+            conn.close()
 
     def lembretes_proximos(self, user_id):
         agora = datetime.now()
@@ -211,6 +221,8 @@ class BancoMargo:
                 except:
                     pass
             conn.commit()
+        finally:
+            conn.close()
         return res
 
 banco = BancoMargo()
@@ -591,6 +603,7 @@ async def reset(req: Request):
         conn.execute('DELETE FROM perfil_usuario WHERE user_id=?', (u,))
         conn.execute('DELETE FROM resumos_sessao WHERE user_id=?', (u,))
         conn.commit()
+        conn.close()
     sessoes.limpar(u)
     return {"ok": True, "msg": "Onboarding resetado"}
 
