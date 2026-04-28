@@ -605,12 +605,13 @@ async def reset(req: Request):
     data = await req.json()
     u = data.get("user_id", "default")
     conn = banco._get_conn()
-            try:
-                conn_cur =
-        conn.execute('DELETE FROM config_assistente WHERE user_id=?', (u,))
-        conn.execute('DELETE FROM perfil_usuario WHERE user_id=?', (u,))
-        conn.execute('DELETE FROM resumos_sessao WHERE user_id=?', (u,))
+    try:
+        c = conn.cursor()
+        c.execute('DELETE FROM config_assistente WHERE user_id=?', (u,))
+        c.execute('DELETE FROM perfil_usuario WHERE user_id=?', (u,))
+        c.execute('DELETE FROM resumos_sessao WHERE user_id=?', (u,))
         conn.commit()
+    finally:
         conn.close()
     sessoes.limpar(u)
     return {"ok": True, "msg": "Onboarding resetado"}
