@@ -665,4 +665,5 @@ if __name__ == "__main__":
     print("=" * 50)
     threading.Thread(target=verificar_lembretes, daemon=True).start()
     print("  Scheduler: ativo")
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
