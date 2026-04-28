@@ -1,0 +1,13 @@
+.env
+*.db
+logs/
+__pycache__/
+*.pyc
+.DS_Store
+margo_server_backup*.py
+margo_server_backup_final.py
+vad_bridge.py
+vad_bridge_bkp.py
+voice.py
+index_orbiby.html
+estado/
