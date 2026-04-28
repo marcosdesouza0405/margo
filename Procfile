@@ -1,1 +1,1 @@
-web: python margo_server.py
+web: python3 margo_server.py
