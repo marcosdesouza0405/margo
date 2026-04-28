@@ -45,47 +45,60 @@ def log(msg, arquivo="geral"):
 class BancoMargo:
     def __init__(self):
         self.db_path = DB_FILE
+        self.database_url = os.environ.get("DATABASE_URL", "")
+        self.usar_postgres = bool(self.database_url)
         self._inicializar()
 
+    def _get_conn(self):
+        if self.usar_postgres:
+            import psycopg2
+            return psycopg2.connect(self.database_url)
+        return sqlite3.connect(self.db_path)
+
     def _inicializar(self):
-        with sqlite3.connect(self.db_path) as conn:
+        conn = self._get_conn()
+        try:
             c = conn.cursor()
-            c.execute('''CREATE TABLE IF NOT EXISTS perfil_usuario (
+            PK = "SERIAL PRIMARY KEY" if self.usar_postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
+            c.execute(f'''CREATE TABLE IF NOT EXISTS perfil_usuario (
                 user_id TEXT PRIMARY KEY,
                 nome TEXT, idade TEXT, profissao TEXT, musica TEXT,
                 comida TEXT, hobbies TEXT, extra TEXT,
                 criado_em TEXT, atualizado_em TEXT
             )''')
-            c.execute('''CREATE TABLE IF NOT EXISTS config_assistente (
+            c.execute(f'''CREATE TABLE IF NOT EXISTS config_assistente (
                 user_id TEXT PRIMARY KEY,
-                nome_assistente TEXT DEFAULT "Margo",
-                genero TEXT DEFAULT "F",
+                nome_assistente TEXT DEFAULT 'Margo',
+                genero TEXT DEFAULT 'F',
                 personalidade TEXT,
-                voz_provider TEXT DEFAULT "edge_tts",
+                voz_provider TEXT DEFAULT 'edge_tts',
                 voz_chave TEXT,
                 voz_id TEXT,
                 onboarding_completo INTEGER DEFAULT 0,
                 criado_em TEXT, atualizado_em TEXT
             )''')
-            c.execute('''CREATE TABLE IF NOT EXISTS resumos_sessao (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+            c.execute(f'''CREATE TABLE IF NOT EXISTS resumos_sessao (
+                id {PK},
                 user_id TEXT, resumo TEXT, criado_em TEXT
             )''')
-            c.execute('''CREATE TABLE IF NOT EXISTS meta_resumos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+            c.execute(f'''CREATE TABLE IF NOT EXISTS meta_resumos (
+                id {PK},
                 user_id TEXT, resumo TEXT, criado_em TEXT
             )''')
-            c.execute('''CREATE TABLE IF NOT EXISTS agenda (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+            c.execute(f'''CREATE TABLE IF NOT EXISTS agenda (
+                id {PK},
                 user_id TEXT, titulo TEXT, descricao TEXT, data_hora TEXT,
                 lembrado_1d INTEGER DEFAULT 0, lembrado_3h INTEGER DEFAULT 0,
                 criado_em TEXT
             )''')
             conn.commit()
+        finally:
+            conn.close()
 
     def salvar_perfil(self, user_id, dados):
         agora = datetime.now().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
+        conn = self._get_conn()
+        try:
             c = conn.cursor()
             c.execute('''INSERT OR REPLACE INTO perfil_usuario
                 (user_id, nome, idade, profissao, musica, comida, hobbies, extra, criado_em, atualizado_em)
@@ -98,7 +111,8 @@ class BancoMargo:
             conn.commit()
 
     def buscar_perfil(self, user_id):
-        with sqlite3.connect(self.db_path) as conn:
+        conn = self._get_conn()
+        try:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute('SELECT * FROM perfil_usuario WHERE user_id=?', (user_id,))
@@ -107,7 +121,8 @@ class BancoMargo:
 
     def salvar_config(self, user_id, dados):
         agora = datetime.now().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
+        conn = self._get_conn()
+        try:
             c = conn.cursor()
             c.execute('''INSERT OR REPLACE INTO config_assistente
                 (user_id, nome_assistente, genero, personalidade, voz_provider,
@@ -123,7 +138,8 @@ class BancoMargo:
             conn.commit()
 
     def buscar_config(self, user_id):
-        with sqlite3.connect(self.db_path) as conn:
+        conn = self._get_conn()
+        try:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute('SELECT * FROM config_assistente WHERE user_id=?', (user_id,))
@@ -131,7 +147,8 @@ class BancoMargo:
             return dict(row) if row else {}
 
     def salvar_resumo(self, user_id, resumo):
-        with sqlite3.connect(self.db_path) as conn:
+        conn = self._get_conn()
+        try:
             c = conn.cursor()
             c.execute('SELECT COUNT(*) FROM resumos_sessao WHERE user_id=?', (user_id,))
             if c.fetchone()[0] >= 5:
@@ -142,26 +159,30 @@ class BancoMargo:
             conn.commit()
 
     def buscar_resumos(self, user_id):
-        with sqlite3.connect(self.db_path) as conn:
+        conn = self._get_conn()
+        try:
             c = conn.cursor()
             c.execute('SELECT resumo FROM resumos_sessao WHERE user_id=? ORDER BY criado_em DESC LIMIT 10', (user_id,))
             return [r[0] for r in c.fetchall()]
 
     def buscar_meta_resumos(self, user_id):
-        with sqlite3.connect(self.db_path) as conn:
+        conn = self._get_conn()
+        try:
             c = conn.cursor()
             c.execute('SELECT resumo FROM meta_resumos WHERE user_id=? ORDER BY criado_em DESC LIMIT 5', (user_id,))
             return [r[0] for r in c.fetchall()]
 
     def salvar_lembrete(self, user_id, titulo, descricao, data_hora):
-        with sqlite3.connect(self.db_path) as conn:
+        conn = self._get_conn()
+        try:
             conn.cursor().execute(
                 'INSERT INTO agenda (user_id, titulo, descricao, data_hora, criado_em) VALUES (?,?,?,?,?)',
                 (user_id, titulo, descricao, data_hora, datetime.now().isoformat()))
             conn.commit()
 
     def buscar_lembretes(self, user_id):
-        with sqlite3.connect(self.db_path) as conn:
+        conn = self._get_conn()
+        try:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute('SELECT * FROM agenda WHERE user_id=? AND data_hora > ? ORDER BY data_hora ASC',
@@ -171,7 +192,8 @@ class BancoMargo:
     def lembretes_proximos(self, user_id):
         agora = datetime.now()
         res = []
-        with sqlite3.connect(self.db_path) as conn:
+        conn = self._get_conn()
+        try:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute('SELECT * FROM agenda WHERE user_id=?', (user_id,))
@@ -562,7 +584,9 @@ def agenda(user_id: str):
 async def reset(req: Request):
     data = await req.json()
     u = data.get("user_id", "default")
-    with sqlite3.connect(DB_FILE) as conn:
+    conn = banco._get_conn()
+            try:
+                conn_cur =
         conn.execute('DELETE FROM config_assistente WHERE user_id=?', (u,))
         conn.execute('DELETE FROM perfil_usuario WHERE user_id=?', (u,))
         conn.execute('DELETE FROM resumos_sessao WHERE user_id=?', (u,))
@@ -637,7 +661,9 @@ async def falar(req: Request):
 def verificar_lembretes():
     while True:
         try:
-            with sqlite3.connect(DB_FILE) as conn:
+            conn = banco._get_conn()
+            try:
+                conn_cur =
                 conn.row_factory = sqlite3.Row
                 c = conn.cursor()
                 c.execute("SELECT DISTINCT user_id FROM agenda")
