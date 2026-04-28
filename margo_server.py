@@ -120,6 +120,8 @@ class BancoMargo:
             c.execute('SELECT * FROM perfil_usuario WHERE user_id=?', (user_id,))
             row = c.fetchone()
             return dict(row) if row else {}
+        finally:
+            conn.close()
 
     def salvar_config(self, user_id, dados):
         agora = datetime.now().isoformat()
@@ -149,6 +151,8 @@ class BancoMargo:
             c.execute('SELECT * FROM config_assistente WHERE user_id=?', (user_id,))
             row = c.fetchone()
             return dict(row) if row else {}
+        finally:
+            conn.close()
 
     def salvar_resumo(self, user_id, resumo):
         conn = self._get_conn()
@@ -170,6 +174,8 @@ class BancoMargo:
             c = conn.cursor()
             c.execute('SELECT resumo FROM resumos_sessao WHERE user_id=? ORDER BY criado_em DESC LIMIT 10', (user_id,))
             return [r[0] for r in c.fetchall()]
+        finally:
+            conn.close()
 
     def buscar_meta_resumos(self, user_id):
         conn = self._get_conn()
@@ -177,6 +183,8 @@ class BancoMargo:
             c = conn.cursor()
             c.execute('SELECT resumo FROM meta_resumos WHERE user_id=? ORDER BY criado_em DESC LIMIT 5', (user_id,))
             return [r[0] for r in c.fetchall()]
+        finally:
+            conn.close()
 
     def salvar_lembrete(self, user_id, titulo, descricao, data_hora):
         conn = self._get_conn()
