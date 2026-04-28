@@ -256,7 +256,7 @@
     </div>
     <div class="setting-group">
       <div class="setting-label">Backend</div>
-      <input class="setting-input" id="backendUrl" value="http://localhost:8000">
+      <input class="setting-input" id="backendUrl" value="https://margo-production-98a9.up.railway.app">
     </div>
     <button class="save-btn" onclick="saveSettings()">Salvar configurações</button>
   </div>
@@ -264,7 +264,7 @@
 
 <script>
 const USER_ID = 'user_' + (localStorage.getItem('margo_uid') || (()=>{const id=Math.random().toString(36).slice(2,10);localStorage.setItem('margo_uid',id);return id;})());
-let settings = {assistantName:'Margo',nickname:'',micAlways:true,wakeWordOn:true,voiceGender:'edge_tts_f',voiceProvider:'edge',apiKey:'',backendUrl:'http://localhost:8000'};
+let settings = {assistantName:'Margo',nickname:'',micAlways:true,wakeWordOn:true,voiceGender:'edge_tts_f',voiceProvider:'edge',apiKey:'',backendUrl:'https://margo-production-98a9.up.railway.app'};
 try{Object.assign(settings,JSON.parse(localStorage.getItem('margo_settings')||'{}'));}catch(e){}
 let micActive=false,recognition=null,wakeWordDetected=false,silenceTimer=null,isThinking=false,typingRow=null;
 
