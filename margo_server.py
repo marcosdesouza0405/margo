@@ -685,11 +685,12 @@ def verificar_lembretes():
         try:
             conn = banco._get_conn()
             try:
-                conn_cur =
                 conn.row_factory = sqlite3.Row
                 c = conn.cursor()
                 c.execute("SELECT DISTINCT user_id FROM agenda")
                 users = [r[0] for r in c.fetchall()]
+            finally:
+                conn.close()
             for user_id in users:
                 lembretes = banco.lembretes_proximos(user_id)
                 for l in lembretes:
