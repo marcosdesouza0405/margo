@@ -55,6 +55,33 @@ class BancoMargo:
             return psycopg2.connect(self.database_url)
         return sqlite3.connect(self.db_path)
 
+
+    def _execute(self, query, params=(), fetchone=False, fetchall=False, commit=False):
+        """Executa query compatível com SQLite e PostgreSQL"""
+        if self.usar_postgres:
+            query = query.replace("?", "%s")
+            query = query.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+        conn = self._get_conn()
+        try:
+            if self.usar_postgres and (fetchone or fetchall):
+                from psycopg2.extras import RealDictCursor
+                c = conn.cursor(cursor_factory=RealDictCursor)
+            else:
+                if not self.usar_postgres:
+                    conn.row_factory = sqlite3.Row
+                c = conn.cursor()
+            c.execute(query, params)
+            if commit:
+                conn.commit()
+            if fetchone:
+                row = c.fetchone()
+                return dict(row) if row else {}
+            if fetchall:
+                return [dict(r) for r in c.fetchall()]
+            return None
+        finally:
+            conn.close()
+
     def _inicializar(self):
         conn = self._get_conn()
         try:
@@ -115,9 +142,14 @@ class BancoMargo:
     def buscar_perfil(self, user_id):
         conn = self._get_conn()
         try:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute('SELECT * FROM perfil_usuario WHERE user_id=?', (user_id,))
+            if self.usar_postgres:
+                from psycopg2.extras import RealDictCursor
+                c = conn.cursor(cursor_factory=RealDictCursor)
+                c.execute('SELECT * FROM perfil_usuario WHERE user_id=%s', (user_id,))
+            else:
+                conn.row_factory = sqlite3.Row
+                c = conn.cursor()
+                c.execute('SELECT * FROM perfil_usuario WHERE user_id=?', (user_id,))
             row = c.fetchone()
             return dict(row) if row else {}
         finally:
@@ -146,9 +178,14 @@ class BancoMargo:
     def buscar_config(self, user_id):
         conn = self._get_conn()
         try:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute('SELECT * FROM config_assistente WHERE user_id=?', (user_id,))
+            if self.usar_postgres:
+                from psycopg2.extras import RealDictCursor
+                c = conn.cursor(cursor_factory=RealDictCursor)
+                c.execute('SELECT * FROM config_assistente WHERE user_id=%s', (user_id,))
+            else:
+                conn.row_factory = sqlite3.Row
+                c = conn.cursor()
+                c.execute('SELECT * FROM config_assistente WHERE user_id=?', (user_id,))
             row = c.fetchone()
             return dict(row) if row else {}
         finally:
@@ -199,10 +236,16 @@ class BancoMargo:
     def buscar_lembretes(self, user_id):
         conn = self._get_conn()
         try:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute('SELECT * FROM agenda WHERE user_id=? AND data_hora > ? ORDER BY data_hora ASC',
-                      (user_id, datetime.now().isoformat()))
+            if self.usar_postgres:
+                from psycopg2.extras import RealDictCursor
+                c = conn.cursor(cursor_factory=RealDictCursor)
+                c.execute('SELECT * FROM agenda WHERE user_id=%s AND data_hora > %s ORDER BY data_hora ASC',
+                          (user_id, datetime.now().isoformat()))
+            else:
+                conn.row_factory = sqlite3.Row
+                c = conn.cursor()
+                c.execute('SELECT * FROM agenda WHERE user_id=? AND data_hora > ? ORDER BY data_hora ASC',
+                          (user_id, datetime.now().isoformat()))
             return [dict(r) for r in c.fetchall()]
         finally:
             conn.close()
@@ -669,13 +712,7 @@ async def falar(req: Request):
         return FileResponse(tmp, media_type="audio/mpeg", filename="margo.mp3")
     except Exception as e:
         log(f"Voz erro ({provider}): {e}")
-        # Fallback para Edge TTS
-        try:
-            voz = "pt-BR-FranciscaNeural" if genero == "F" else "pt-BR-AntonioNeural"
-            subprocess.run(["edge-tts", "--voice", voz, "--text", texto, "--write-media", tmp], check=True, timeout=15)
-            return FileResponse(tmp, media_type="audio/mpeg", filename="margo.mp3")
-        except Exception as e2:
-            return JSONResponse({"erro": str(e2)}, status_code=500)
+        return JSONResponse({"erro": str(e), "voz_disponivel": False}, status_code=200)
 
 
 # ── SCHEDULER DE LEMBRETES ────────────────────────────────────────────────────
