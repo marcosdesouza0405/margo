@@ -339,8 +339,10 @@ async function sendMsg(){
   if(!msg||isThinking)return;
   input.value='';addMsg('user',msg);
   isThinking=true;showTyping();setStatus('pensando...');
-  const resp=await sendToBackend(msg);
+  const data=await sendToBackend(msg);
+  const resp=data.resposta||'Sem resposta.';
   hideTyping();isThinking=false;addMsg('margo',resp);setStatus('online');
+  if(data.ferramenta) executarFerramenta(data.ferramenta);
   try{const vr=await fetch(settings.backendUrl+'/falar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({texto:resp,genero:'F'})});const bl=await vr.blob();const ur=URL.createObjectURL(bl);const au=new Audio(ur);await au.play();}catch(e){console.log('voz:',e);}
 }
 
@@ -399,7 +401,7 @@ function startMic(){
         cur='';wakeWordDetected=settings.wakeWordOn?false:true;
         if(settings.wakeWordOn){document.getElementById('wakeBanner').style.display='flex';setStatus('ouvindo wake word');}
         addMsg('user',msg);isThinking=true;showTyping();setStatus('pensando...');
-        sendToBackend(msg).then(resp=>{hideTyping();isThinking=false;addMsg('margo',resp);setStatus(settings.wakeWordOn?'ouvindo wake word':'ouvindo...',!settings.wakeWordOn);});
+        sendToBackend(msg).then(data=>{const resp=data.resposta||'Sem resposta.';hideTyping();isThinking=false;addMsg('margo',resp);setStatus(settings.wakeWordOn?'ouvindo wake word':'ouvindo...',!settings.wakeWordOn);if(data.ferramenta)executarFerramenta(data.ferramenta);});
       },2200);
     }
   };
@@ -419,6 +421,29 @@ function stopMic(){
 
 function clearChat(){document.getElementById('chat').innerHTML='';addMsg('sistema','Conversa reiniciada');}
 
+
+function executarFerramenta(tool) {
+  if (!tool) return;
+  const f = tool.ferramenta;
+  if (f === 'maps_navigate') {
+    window.open('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(tool.destino), '_blank');
+  } else if (f === 'maps_search') {
+    window.open('https://www.google.com/maps/search/' + encodeURIComponent(tool.query), '_blank');
+  } else if (f === 'spotify_play') {
+    window.open('https://open.spotify.com/search/' + encodeURIComponent(tool.query), '_blank');
+  } else if (f === 'soundcloud_play') {
+    window.open('https://soundcloud.com/search?q=' + encodeURIComponent(tool.query), '_blank');
+  } else if (f === 'youtube_search') {
+    window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(tool.query), '_blank');
+  } else if (f === 'phone_call') {
+    window.open('tel:' + tool.contato, '_self');
+  } else if (f === 'web_search') {
+    window.open('https://www.google.com/search?q=' + encodeURIComponent(tool.query), '_blank');
+  } else if (f === 'smart_home') {
+    // Tuya/Smart Life — abre o app via deeplink
+    window.open('tuyasmart://', '_self');
+  }
+}
 function init(){
   applySettings();
   addMsg('margo','Olá! Sou a Margo. Pode falar ou digitar o que precisar.');
