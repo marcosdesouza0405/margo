@@ -330,7 +330,7 @@ async function sendToBackend(msg){
   try{
     const resp=await fetch(settings.backendUrl+'/mensagem',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:USER_ID,mensagem:msg})});
     const data=await resp.json();return data.resposta||'Sem resposta.';
-  }catch(e){return 'Não consegui conectar ao servidor. Verifique se o backend está rodando em '+settings.backendUrl;}
+  }catch(e){return {resposta:"Sem resposta.",ferramenta:null};}
 }
 
 async function sendMsg(){
