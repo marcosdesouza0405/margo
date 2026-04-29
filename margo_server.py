@@ -590,7 +590,7 @@ FERRAMENTAS — OBRIGATORIO usar JSON quando detectar a intenção. Coloque o JS
 
 # ── FASTAPI ───────────────────────────────────────────────────────────────────
 app = FastAPI(title="Margo Server v1.2")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=True, expose_headers=["*"])
 
 @app.get("/ping")
 def ping():
