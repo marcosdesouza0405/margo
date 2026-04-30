@@ -675,8 +675,9 @@ async def reset(req: Request):
 
 @app.post("/falar")
 async def falar(req: Request):
-    import edge_tts, aiofiles, tempfile, base64
+    import edge_tts, aiofiles, tempfile
     from asyncio import timeout as asyncio_timeout
+    from fastapi.responses import FileResponse
     data = await req.json()
     texto = data.get("texto", "").strip()
     if not texto:
@@ -695,13 +696,7 @@ async def falar(req: Request):
             async with asyncio_timeout(30):
                 communicate = edge_tts.Communicate(texto, voz_id)
                 await communicate.save(caminho)
-            async with aiofiles.open(caminho, "rb") as f:
-                audio_bytes = await f.read()
-            os.unlink(caminho)
-            if len(audio_bytes) < 100:
-                log(f"Audio vazio gerado: {len(audio_bytes)} bytes")
-                return JSONResponse({"erro": "audio gerado vazio"}, status_code=500)
-            return JSONResponse({"ok": True, "audio_base64": base64.b64encode(audio_bytes).decode("utf-8")})
+            return FileResponse(caminho, media_type="audio/mpeg", filename="margo.mp3")
         except Exception as e:
             log(f"Voz erro: {e}")
             return JSONResponse({"erro": str(e)}, status_code=500)
