@@ -596,6 +596,20 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 def ping():
     return {"pong": True, "ts": datetime.now().isoformat()}
 
+@app.get("/testar_voz")
+def testar_voz():
+    import subprocess, tempfile, os
+    tmp = tempfile.mktemp(suffix=".mp3")
+    try:
+        result = subprocess.run(
+            ["edge-tts", "--voice", "pt-BR-FranciscaNeural", "--text", "teste", "--write-media", tmp],
+            capture_output=True, text=True, timeout=30
+        )
+        tamanho = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+        return {"ok": result.returncode == 0, "tamanho": tamanho, "stderr": result.stderr[:200]}
+    except Exception as e:
+        return {"erro": str(e)}
+
 @app.post("/mensagem")
 async def mensagem(req: Request):
     try:
