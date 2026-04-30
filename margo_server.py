@@ -390,10 +390,16 @@ def extrair_valor(chave, resposta, pergunta):
         if any(w in resposta.lower() for w in ["não", "nao", "nada", "pular", "skip", "passar"]):
             return "-"
         return resposta.strip() or "-"
+    # Valida se a resposta faz sentido para a pergunta
     val = chamar_deepseek_simples(
-        f"Pergunta: '{pergunta}'\nResposta: '{resposta}'\n"
-        f"Extraia apenas o valor pedido, conciso (máx 50 chars). Só o valor.", max_tokens=40)
-    return (val or resposta).strip()[:100]
+        f"Pergunta feita ao usuário: '{pergunta}'\n"
+        f"Resposta do usuário: '{resposta}'\n"
+        f"A resposta faz sentido para a pergunta? Se sim, extraia o valor de forma concisa (máx 50 chars). "
+        f"Se não faz sentido (ex: resposta ofensiva, aleatória ou sem relação), responda apenas: INVALIDO\n"
+        f"Responda APENAS com o valor extraído ou INVALIDO.", max_tokens=40)
+    if not val or val.strip().upper() == "INVALIDO":
+        return None
+    return val.strip()[:100]
 
 def gerar_resposta_etapa(chave, valor, proxima_pergunta, perfil, fim=False):
     if fim:
@@ -507,6 +513,10 @@ def processar_mensagem(user_id, mensagem):
         if idx < len(ETAPAS):
             chave, pergunta = ETAPAS[idx]
             valor = extrair_valor(chave, mensagem, pergunta)
+            if valor is None:
+                resp = f"Hmm, não entendi bem. {pergunta}"
+                sessoes.adicionar(user_id, mensagem, resp)
+                return {"resposta": resp, "onboarding": True, "ferramenta": None}
             if chave in ["nome_assistente", "genero", "personalidade"]:
                 config_atual = banco.buscar_config(user_id)
                 config_atual[chave] = valor
