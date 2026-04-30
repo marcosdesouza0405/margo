@@ -343,7 +343,7 @@ async function sendMsg(){
   const resp=data.resposta||'Sem resposta.';
   hideTyping();isThinking=false;addMsg('margo',resp);setStatus('online');
   if(data.ferramenta) executarFerramenta(data.ferramenta);
-  try{if(resp){const u=new SpeechSynthesisUtterance(resp);u.lang="pt-BR";u.rate=1.0;u.pitch=1.1;speechSynthesis.speak(u);}}catch(e){console.log("voz:",e);}
+  try{if(resp){const u=new SpeechSynthesisUtterance(resp);u.lang="pt-BR";u.rate=1.0;u.pitch=settings.voiceGender.includes('_f')?1.2:0.9;speechSynthesis.speak(u);}}catch(e){console.log("voz:",e);}
 }
 
 function onKey(e){if(e.key==='Enter')sendMsg();}
