@@ -252,7 +252,8 @@
         <div class="voice-opt" onclick="selectProvider(this,'eleven')">ElevenLabs</div>
         <div class="voice-opt" onclick="selectProvider(this,'fish')">Fish Audio</div>
       </div>
-      <input class="setting-input" id="apiKeyInput" placeholder="Chave de API (se usar premium)" style="margin-top:4px">
+      <input class="setting-input" id="apiKeyInput" placeholder="Chave de API (ElevenLabs ou Fish Audio)" style="margin-top:4px">
+      <input class="setting-input" id="voiceIdInput" placeholder="ID da voz (ex: rachel, pt_BR_female...)" style="margin-top:4px">
     </div>
     <div class="setting-group">
       <div class="setting-label">Backend</div>
@@ -264,7 +265,7 @@
 
 <script>
 const USER_ID = 'user_' + (localStorage.getItem('margo_uid') || (()=>{const id=Math.random().toString(36).slice(2,10);localStorage.setItem('margo_uid',id);return id;})());
-let settings = {assistantName:'Margo',nickname:'',micAlways:false,wakeWordOn:true,voiceGender:'edge_tts_f',voiceProvider:'edge',apiKey:'',backendUrl:'https://margo-production-98a9.up.railway.app'};
+let settings = {assistantName:'Margo',nickname:'',micAlways:false,wakeWordOn:true,voiceGender:'edge_tts_f',voiceProvider:'edge',apiKey:'',voiceId:'',backendUrl:'https://margo-production-98a9.up.railway.app'};
 try{Object.assign(settings,JSON.parse(localStorage.getItem('margo_settings')||'{}'));}catch(e){}
 let micActive=false,recognition=null,wakeWordDetected=false,silenceTimer=null,isThinking=false,typingRow=null;
 
@@ -277,6 +278,7 @@ function applySettings(){
   document.getElementById('nicknameInput').value=settings.nickname||'';
   document.getElementById('backendUrl').value=settings.backendUrl;
   document.getElementById('apiKeyInput').value=settings.apiKey||'';
+  document.getElementById('voiceIdInput').value=settings.voiceId||'';
   document.getElementById('toggleMicAlways').className='toggle '+(settings.micAlways?'on':'');
   document.getElementById('toggleWakeWord').className='toggle '+(settings.wakeWordOn?'on':'');
 }
@@ -286,6 +288,7 @@ function saveSettings(){
   settings.nickname=document.getElementById('nicknameInput').value.trim();
   settings.backendUrl=document.getElementById('backendUrl').value.trim();
   settings.apiKey=document.getElementById('apiKeyInput').value.trim();
+  settings.voiceId=document.getElementById('voiceIdInput').value.trim();
   settings.micAlways=document.getElementById('toggleMicAlways').classList.contains('on');
   settings.wakeWordOn=document.getElementById('toggleWakeWord').classList.contains('on');
   saveToStorage();applySettings();closePanel();
