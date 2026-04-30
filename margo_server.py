@@ -5,8 +5,6 @@ Assistente de IA com personalidade — produto comercial da Orbiby
 """
 
 import os, re, json, time, sqlite3, threading
-import nest_asyncio
-nest_asyncio.apply()
 from datetime import datetime
 from collections import deque
 from fastapi import FastAPI, Request
@@ -683,12 +681,20 @@ async def falar(req: Request):
     try:
         # Edge TTS (gratuito)
         if provider == "edge_tts" or not voz_chave:
-            import edge_tts, asyncio
+            import edge_tts, asyncio, threading
             voz = voz_id if voz_id else ("pt-BR-FranciscaNeural" if genero == "F" else "pt-BR-AntonioNeural")
-            async def _tts():
-                communicate = edge_tts.Communicate(texto, voz)
-                await communicate.save(tmp)
-            asyncio.run(_tts())
+            result = []
+            def _run():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                async def _tts():
+                    communicate = edge_tts.Communicate(texto, voz)
+                    await communicate.save(tmp)
+                loop.run_until_complete(_tts())
+                loop.close()
+            t = threading.Thread(target=_run)
+            t.start()
+            t.join(timeout=20)
 
         # ElevenLabs
         elif provider == "elevenlabs":
