@@ -681,13 +681,13 @@ async def falar(req: Request):
     try:
         # Edge TTS (gratuito)
         if provider == "edge_tts" or not voz_chave:
-            import asyncio
-            import edge_tts
+            import edge_tts, asyncio, concurrent.futures
             voz = voz_id if voz_id else ("pt-BR-FranciscaNeural" if genero == "F" else "pt-BR-AntonioNeural")
             async def _tts():
                 communicate = edge_tts.Communicate(texto, voz)
                 await communicate.save(tmp)
-            asyncio.run(_tts())
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                pool.submit(asyncio.run, _tts()).result()
 
         # ElevenLabs
         elif provider == "elevenlabs":
