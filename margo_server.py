@@ -707,6 +707,28 @@ async def falar(req: Request):
             return JSONResponse({"erro": str(e)}, status_code=500)
     return JSONResponse({"erro": "provedor nao implementado"}, status_code=501)
 
+def verificar_lembretes():
+    while True:
+        try:
+            import sqlite3 as _sq
+            with _sq.connect(DB_FILE) as conn:
+                c = conn.cursor()
+                c.execute("SELECT DISTINCT user_id FROM agenda")
+                users = [r[0] for r in c.fetchall()]
+            for user_id in users:
+                lembretes = banco.lembretes_proximos(user_id)
+                for l in lembretes:
+                    tipo = l.get("tipo")
+                    titulo = l.get("titulo","Compromisso")
+                    if tipo == "1d":
+                        msg = f"Lembrete: amanha voce tem {titulo}."
+                    else:
+                        msg = f"Atencao: em 3 horas voce tem {titulo}!"
+                    log(f"Lembrete disparado: {user_id} - {titulo} ({tipo})", "agenda")
+        except Exception as e:
+            log(f"Scheduler erro: {e}", "agenda")
+        time.sleep(300)
+
 if __name__ == "__main__":
     print("=" * 50)
     print("  MARGO SERVER v1.2 — by Orbiby")
