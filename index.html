@@ -343,8 +343,8 @@ async function sendMsg(){
   const resp=data.resposta||'Sem resposta.';
   hideTyping();isThinking=false;addMsg('margo',resp);setStatus('online');
   if(data.ferramenta) executarFerramenta(data.ferramenta);
-  try{const vr=await fetch(settings.backendUrl+'/falar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({texto:resp,genero:'F'})});const bl=await vr.blob();const ur=URL.createObjectURL(bl);const au=new Audio(ur);await au.play();}catch(e){console.log('voz:',e);}
   try{if(resp){const u=new SpeechSynthesisUtterance(resp);u.lang="pt-BR";u.rate=1.0;u.pitch=1.1;speechSynthesis.speak(u);}}catch(e){console.log("voz:",e);}
+}
 
 function onKey(e){if(e.key==='Enter')sendMsg();}
 
