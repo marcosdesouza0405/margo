@@ -675,98 +675,37 @@ async def reset(req: Request):
 
 @app.post("/falar")
 async def falar(req: Request):
-    import subprocess, tempfile
-    from fastapi.responses import FileResponse
+    import edge_tts, aiofiles, tempfile, base64
+    from asyncio import timeout as asyncio_timeout
     data = await req.json()
     texto = data.get("texto", "").strip()
-    user_id = data.get("user_id", "default")
-    genero = data.get("genero", "F")
     if not texto:
         return JSONResponse({"erro": "texto vazio"}, status_code=400)
-
-    # Busca config de voz do usuario
+    user_id = data.get("user_id", "default")
     config = banco.buscar_config(user_id)
     provider = config.get("voz_provider", "edge_tts")
-    voz_chave = config.get("voz_chave", "")
-    voz_id = config.get("voz_id", "")
-
-    tmp = tempfile.mktemp(suffix=".mp3")
-
-    try:
-        # Edge TTS (gratuito)
-        if provider == "edge_tts" or not voz_chave:
-            import edge_tts, asyncio, threading
-            voz = voz_id if voz_id else ("pt-BR-FranciscaNeural" if genero == "F" else "pt-BR-AntonioNeural")
-            result = []
-            def _run():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                async def _tts():
-                    communicate = edge_tts.Communicate(texto, voz)
-                    await communicate.save(tmp)
-                loop.run_until_complete(_tts())
-                loop.close()
-            t = threading.Thread(target=_run)
-            t.start()
-            t.join(timeout=60)
-
-        # ElevenLabs
-        elif provider == "elevenlabs":
-            voice_id = voz_id or "21m00Tcm4TlvDq8ikWAM"
-            body = json.dumps({"text": texto, "model_id": "eleven_multilingual_v2",
-                               "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}).encode()
-            req2 = urllib.request.Request(
-                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
-                data=body,
-                headers={"Content-Type": "application/json", "xi-api-key": voz_chave})
-            resp = urllib.request.urlopen(req2, timeout=20)
-            with open(tmp, "wb") as f:
-                f.write(resp.read())
-
-        # Fish Audio
-        elif provider == "fishaudio":
-            voice_id = voz_id or ""
-            body = json.dumps({"text": texto, "reference_id": voice_id, "format": "mp3"}).encode()
-            req2 = urllib.request.Request(
-                "https://api.fish.audio/v1/tts",
-                data=body,
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {voz_chave}"})
-            resp = urllib.request.urlopen(req2, timeout=20)
-            with open(tmp, "wb") as f:
-                f.write(resp.read())
-
-        return FileResponse(tmp, media_type="audio/mpeg", filename="margo.mp3")
-    except Exception as e:
-        log(f"Voz erro ({provider}): {e}")
-        return JSONResponse({"erro": str(e), "voz_disponivel": False}, status_code=200)
-
-
-# ── SCHEDULER DE LEMBRETES ────────────────────────────────────────────────────
-
-def verificar_lembretes():
-    while True:
+    voz_id = config.get("voz_id", "") or ("pt-BR-FranciscaNeural" if config.get("genero","F") == "F" else "pt-BR-AntonioNeural")
+    genero = data.get("genero", config.get("genero", "F"))
+    if not voz_id:
+        voz_id = "pt-BR-FranciscaNeural" if genero == "F" else "pt-BR-AntonioNeural"
+    if provider == "edge_tts" or not config.get("voz_chave"):
         try:
-            conn = banco._get_conn()
-            try:
-                conn.row_factory = sqlite3.Row
-                c = conn.cursor()
-                c.execute("SELECT DISTINCT user_id FROM agenda")
-                users = [r[0] for r in c.fetchall()]
-            finally:
-                conn.close()
-            for user_id in users:
-                lembretes = banco.lembretes_proximos(user_id)
-                for l in lembretes:
-                    tipo = l.get("tipo")
-                    titulo = l.get("titulo","Compromisso")
-                    if tipo == "1d":
-                        msg = f"Oi! So passando pra lembrar: amanha voce tem {titulo}."
-                    else:
-                        msg = f"Atencao! Em 3 horas voce tem {titulo}. Nao esquece!"
-                    log(f"Lembrete disparado: {user_id} — {titulo} ({tipo})", "agenda")
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+                caminho = tmp.name
+            async with asyncio_timeout(30):
+                communicate = edge_tts.Communicate(texto, voz_id)
+                await communicate.save(caminho)
+            async with aiofiles.open(caminho, "rb") as f:
+                audio_bytes = await f.read()
+            os.unlink(caminho)
+            if len(audio_bytes) < 100:
+                log(f"Audio vazio gerado: {len(audio_bytes)} bytes")
+                return JSONResponse({"erro": "audio gerado vazio"}, status_code=500)
+            return JSONResponse({"ok": True, "audio_base64": base64.b64encode(audio_bytes).decode("utf-8")})
         except Exception as e:
-            log(f"Scheduler erro: {e}", "agenda")
-        time.sleep(300)
+            log(f"Voz erro: {e}")
+            return JSONResponse({"erro": str(e)}, status_code=500)
+    return JSONResponse({"erro": "provedor nao implementado"}, status_code=501)
 
 if __name__ == "__main__":
     print("=" * 50)
