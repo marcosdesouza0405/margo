@@ -694,23 +694,60 @@ async def falar(req: Request):
         return JSONResponse({"erro": "texto vazio"}, status_code=400)
     user_id = data.get("user_id", "default")
     config = banco.buscar_config(user_id)
-    provider = config.get("voz_provider", "edge_tts")
-    voz_id = config.get("voz_id", "") or ("pt-BR-FranciscaNeural" if config.get("genero","F") == "F" else "pt-BR-AntonioNeural")
-    genero = data.get("genero", config.get("genero", "F"))
+    genero  = data.get("genero", config.get("genero", "F"))
+    provider = data.get("provider") or config.get("voz_provider", "edge_tts")
+    voz_chave = data.get("chave") or config.get("voz_chave", "")
+    voz_id = data.get("voz_id") or config.get("voz_id", "")
     if not voz_id:
         voz_id = "pt-BR-FranciscaNeural" if genero == "F" else "pt-BR-AntonioNeural"
-    if provider == "edge_tts" or not config.get("voz_chave"):
+
+    # ElevenLabs
+    if provider == "elevenlabs" and voz_chave:
         try:
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-                caminho = tmp.name
-            async with asyncio_timeout(30):
-                communicate = edge_tts.Communicate(texto, voz_id)
-                await communicate.save(caminho)
-            return FileResponse(caminho, media_type="audio/mpeg", filename="margo.mp3")
+            voice_id = voz_id or "21m00Tcm4TlvDq8ikWAM"
+            body = json.dumps({"text": texto, "model_id": "eleven_multilingual_v2",
+                               "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}).encode()
+            req2 = urllib.request.Request(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                data=body,
+                headers={"Content-Type": "application/json", "xi-api-key": voz_chave})
+            resp2 = urllib.request.urlopen(req2, timeout=20)
+            tmp = tempfile.mktemp(suffix=".mp3")
+            with open(tmp, "wb") as f:
+                f.write(resp2.read())
+            return FileResponse(tmp, media_type="audio/mpeg", filename="margo.mp3")
         except Exception as e:
-            log(f"Voz erro: {e}")
+            log(f"ElevenLabs erro: {e}")
             return JSONResponse({"erro": str(e)}, status_code=500)
-    return JSONResponse({"erro": "provedor nao implementado"}, status_code=501)
+
+    # Fish Audio
+    if provider == "fishaudio" and voz_chave:
+        try:
+            body = json.dumps({"text": texto, "reference_id": voz_id, "format": "mp3"}).encode()
+            req2 = urllib.request.Request(
+                "https://api.fish.audio/v1/tts",
+                data=body,
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {voz_chave}"})
+            resp2 = urllib.request.urlopen(req2, timeout=20)
+            tmp = tempfile.mktemp(suffix=".mp3")
+            with open(tmp, "wb") as f:
+                f.write(resp2.read())
+            return FileResponse(tmp, media_type="audio/mpeg", filename="margo.mp3")
+        except Exception as e:
+            log(f"Fish Audio erro: {e}")
+            return JSONResponse({"erro": str(e)}, status_code=500)
+
+    # Edge TTS (padrão) — só funciona local
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            caminho = tmp.name
+        async with asyncio_timeout(30):
+            communicate = edge_tts.Communicate(texto, voz_id)
+            await communicate.save(caminho)
+        return FileResponse(caminho, media_type="audio/mpeg", filename="margo.mp3")
+    except Exception as e:
+        log(f"Edge TTS erro: {e}")
+        return JSONResponse({"erro": str(e)}, status_code=500)
 
 def verificar_lembretes():
     while True:
