@@ -694,7 +694,7 @@ async def falar(req: Request):
                 loop.close()
             t = threading.Thread(target=_run)
             t.start()
-            t.join(timeout=20)
+            t.join(timeout=60)
 
         # ElevenLabs
         elif provider == "elevenlabs":
