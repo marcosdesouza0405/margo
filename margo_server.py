@@ -723,16 +723,15 @@ async def falar(req: Request):
     # Fish Audio
     if provider == "fishaudio" and voz_chave:
         try:
+            import base64
             body = json.dumps({"text": texto, "reference_id": voz_id, "format": "mp3"}).encode()
             req2 = urllib.request.Request(
                 "https://api.fish.audio/v1/tts",
                 data=body,
                 headers={"Content-Type": "application/json", "Authorization": f"Bearer {voz_chave}"})
             resp2 = urllib.request.urlopen(req2, timeout=20)
-            tmp = tempfile.mktemp(suffix=".mp3")
-            with open(tmp, "wb") as f:
-                f.write(resp2.read())
-            return FileResponse(tmp, media_type="audio/mpeg", filename="margo.mp3")
+            audio_bytes = resp2.read()
+            return JSONResponse({"ok": True, "audio_base64": base64.b64encode(audio_bytes).decode("utf-8")})
         except Exception as e:
             log(f"Fish Audio erro: {e}")
             return JSONResponse({"erro": str(e)}, status_code=500)
