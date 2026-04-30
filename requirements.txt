@@ -2,3 +2,4 @@ fastapi==0.111.0
 uvicorn==0.30.1
 edge-tts==6.1.9
 psycopg2-binary==2.9.9
+nest_asyncio==1.6.0
