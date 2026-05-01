@@ -355,7 +355,7 @@ async function sendMsg(){
   hideTyping();isThinking=false;addMsg('margo',resp);setStatus('online');
   if(data.ferramenta) executarFerramenta(data.ferramenta);
   try{
-    if(true){
+    if(settings.apiKey && settings.voiceProvider !== 'edge'){
       const vr=await fetch(settings.backendUrl+'/falar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({texto:resp,genero:settings.voiceGender.includes('_f')?'F':'M',user_id:USER_ID,provider:settings.voiceProvider,chave:settings.apiKey,voz_id:settings.voiceId})});
       const vd=await vr.json();
       if(vd.audio_base64){const bytes=atob(vd.audio_base64);const arr=new Uint8Array(bytes.length);for(let i=0;i<bytes.length;i++)arr[i]=bytes.charCodeAt(i);const bl=new Blob([arr],{type:'audio/mpeg'});const ur=URL.createObjectURL(bl);new Audio(ur).play();}
