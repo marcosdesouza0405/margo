@@ -301,10 +301,16 @@ function selectProvider(el,val){
   el.closest('.setting-group').querySelectorAll('.voice-opt').forEach(e=>e.classList.remove('active'));
   el.classList.add('active');
   settings.voiceProvider=val;
-  document.getElementById('apiKeyInput').value='';
-  document.getElementById('voiceIdInput').value='';
-  settings.apiKey='';
-  settings.voiceId='';
+  if(val === 'edge_tts'){
+    settings.apiKey = '';
+    settings.voiceId = '';
+    document.getElementById('apiKeyInput').value = '';
+    document.getElementById('voiceIdInput').value = '';
+  }
+  saveToStorage();
+  if(val === 'edge_tts'){addMsg('sistema','Voz alterada para padrao (sem chave).');}
+  else if(val === 'fishaudio'){addMsg('sistema','Fish Audio selecionado. Preencha sua chave e ID da voz.');}
+  else if(val === 'elevenlabs'){addMsg('sistema','ElevenLabs selecionado. Preencha sua chave e ID da voz.');}
 }
 function openPanel(){document.getElementById('settingsPanel').classList.add('open');document.getElementById('overlay').classList.add('open');}
 function closePanel(){document.getElementById('settingsPanel').classList.remove('open');document.getElementById('overlay').classList.remove('open');}
