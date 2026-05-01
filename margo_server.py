@@ -60,7 +60,7 @@ class BancoMargo:
         """Executa query compatível com SQLite e PostgreSQL"""
         if self.usar_postgres:
             sql = sql.replace("?", "%s")
-            sql = sql.replace("INSERT OR REPLACE", "INSERT")
+            sql = sql.replace("INSERT OR REPLACE INTO", "INSERT INTO")
             sql = sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
         conn = self._get_conn()
         try:
