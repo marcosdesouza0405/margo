@@ -154,7 +154,7 @@ class BancoMargo:
         conn = self._get_conn()
         try:
             c = conn.cursor()
-            c.execute('''INSERT OR REPLACE INTO perfil_usuario
+            c.execute('''INSERT INTO perfil_usuario
                 (user_id, nome, idade, profissao, musica, comida, hobbies, extra, criado_em, atualizado_em)
                 VALUES (?,?,?,?,?,?,?,?,
                         COALESCE((SELECT criado_em FROM perfil_usuario WHERE user_id=?), ?), ?)''',
@@ -174,7 +174,7 @@ class BancoMargo:
         conn = self._get_conn()
         try:
             c = conn.cursor()
-            c.execute('''INSERT OR REPLACE INTO config_assistente
+            c.execute('''INSERT INTO config_assistente
                 (user_id, nome_assistente, genero, personalidade, voz_provider,
                  voz_chave, voz_id, onboarding_completo, criado_em, atualizado_em)
                 VALUES (?,?,?,?,?,?,?,?,
