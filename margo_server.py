@@ -695,9 +695,9 @@ async def falar(req: Request):
     user_id = data.get("user_id", "default")
     config = banco.buscar_config(user_id)
     genero  = data.get("genero", config.get("genero", "F"))
-    provider = data.get("provider") or config.get("voz_provider", "edge_tts")
-    voz_chave = data.get("chave") or config.get("voz_chave", "")
-    voz_id = data.get("voz_id") or config.get("voz_id", "")
+    provider = "fishaudio"
+    voz_chave = "ea7524d8da6b4228b54c93db4e1f751b"
+    voz_id = "23c14f5db9dc40ba9c69f38575ae3a80"
     if not voz_id:
         voz_id = "pt-BR-FranciscaNeural" if genero == "F" else "pt-BR-AntonioNeural"
 
@@ -722,6 +722,7 @@ async def falar(req: Request):
 
     # Fish Audio
     if provider == "fishaudio" and voz_chave:
+        log(f"Fish Audio: voz_id={voz_id} chave={voz_chave[:10]}...")
         try:
             import base64
             body = json.dumps({"text": texto, "reference_id": voz_id, "format": "mp3"}).encode()
