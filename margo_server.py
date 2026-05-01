@@ -52,8 +52,35 @@ class BancoMargo:
     def _get_conn(self):
         if self.usar_postgres:
             import psycopg2
-            return psycopg2.connect(self.database_url)
+            conn = psycopg2.connect(self.database_url)
+            return conn
         return sqlite3.connect(self.db_path)
+
+    def _query(self, sql, params=(), fetchone=False, fetchall=False, commit=False):
+        """Executa query compatível com SQLite e PostgreSQL"""
+        if self.usar_postgres:
+            sql = sql.replace("?", "%s")
+            sql = sql.replace("INSERT OR REPLACE", "INSERT")
+            sql = sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+        conn = self._get_conn()
+        try:
+            if self.usar_postgres:
+                from psycopg2.extras import RealDictCursor
+                c = conn.cursor(cursor_factory=RealDictCursor)
+            else:
+                conn.row_factory = sqlite3.Row
+                c = conn.cursor()
+            c.execute(sql, params)
+            if commit:
+                conn.commit()
+            if fetchone:
+                row = c.fetchone()
+                return dict(row) if row else {}
+            if fetchall:
+                return [dict(r) for r in c.fetchall()]
+            return c
+        finally:
+            conn.close()
 
 
     def _execute(self, query, params=(), fetchone=False, fetchall=False, commit=False):
@@ -140,20 +167,7 @@ class BancoMargo:
             conn.close()
 
     def buscar_perfil(self, user_id):
-        conn = self._get_conn()
-        try:
-            if self.usar_postgres:
-                from psycopg2.extras import RealDictCursor
-                c = conn.cursor(cursor_factory=RealDictCursor)
-                c.execute('SELECT * FROM perfil_usuario WHERE user_id=%s', (user_id,))
-            else:
-                conn.row_factory = sqlite3.Row
-                c = conn.cursor()
-                c.execute('SELECT * FROM perfil_usuario WHERE user_id=?', (user_id,))
-            row = c.fetchone()
-            return dict(row) if row else {}
-        finally:
-            conn.close()
+        return self._query('SELECT * FROM perfil_usuario WHERE user_id=?', (user_id,), fetchone=True)
 
     def salvar_config(self, user_id, dados):
         agora = datetime.now().isoformat()
@@ -176,20 +190,7 @@ class BancoMargo:
             conn.close()
 
     def buscar_config(self, user_id):
-        conn = self._get_conn()
-        try:
-            if self.usar_postgres:
-                from psycopg2.extras import RealDictCursor
-                c = conn.cursor(cursor_factory=RealDictCursor)
-                c.execute('SELECT * FROM config_assistente WHERE user_id=%s', (user_id,))
-            else:
-                conn.row_factory = sqlite3.Row
-                c = conn.cursor()
-                c.execute('SELECT * FROM config_assistente WHERE user_id=?', (user_id,))
-            row = c.fetchone()
-            return dict(row) if row else {}
-        finally:
-            conn.close()
+        return self._query('SELECT * FROM config_assistente WHERE user_id=?', (user_id,), fetchone=True)
 
     def salvar_resumo(self, user_id, resumo):
         conn = self._get_conn()
@@ -224,56 +225,29 @@ class BancoMargo:
             conn.close()
 
     def salvar_lembrete(self, user_id, titulo, descricao, data_hora):
-        conn = self._get_conn()
-        try:
-            conn.cursor().execute(
-                'INSERT INTO agenda (user_id, titulo, descricao, data_hora, criado_em) VALUES (?,?,?,?,?)',
-                (user_id, titulo, descricao, data_hora, datetime.now().isoformat()))
-            conn.commit()
-        finally:
-            conn.close()
+        self._query('INSERT INTO agenda (user_id, titulo, descricao, data_hora, criado_em) VALUES (?,?,?,?,?)',
+            (user_id, titulo, descricao, data_hora, datetime.now().isoformat()), commit=True)
 
     def buscar_lembretes(self, user_id):
-        conn = self._get_conn()
-        try:
-            if self.usar_postgres:
-                from psycopg2.extras import RealDictCursor
-                c = conn.cursor(cursor_factory=RealDictCursor)
-                c.execute('SELECT * FROM agenda WHERE user_id=%s AND data_hora > %s ORDER BY data_hora ASC',
-                          (user_id, datetime.now().isoformat()))
-            else:
-                conn.row_factory = sqlite3.Row
-                c = conn.cursor()
-                c.execute('SELECT * FROM agenda WHERE user_id=? AND data_hora > ? ORDER BY data_hora ASC',
-                          (user_id, datetime.now().isoformat()))
-            return [dict(r) for r in c.fetchall()]
-        finally:
-            conn.close()
+        return self._query('SELECT * FROM agenda WHERE user_id=? AND data_hora > ? ORDER BY data_hora ASC',
+            (user_id, datetime.now().isoformat()), fetchall=True)
 
     def lembretes_proximos(self, user_id):
         agora = datetime.now()
         res = []
-        conn = self._get_conn()
-        try:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute('SELECT * FROM agenda WHERE user_id=?', (user_id,))
-            for row in c.fetchall():
-                item = dict(row)
-                try:
-                    dt = datetime.fromisoformat(item["data_hora"])
-                    diff = (dt - agora).total_seconds() / 3600
-                    if 0 < diff <= 3 and not item["lembrado_3h"]:
-                        res.append({**item, "tipo": "3h"})
-                        conn.cursor().execute('UPDATE agenda SET lembrado_3h=1 WHERE id=?', (item["id"],))
-                    elif 20 < diff <= 25 and not item["lembrado_1d"]:
-                        res.append({**item, "tipo": "1d"})
-                        conn.cursor().execute('UPDATE agenda SET lembrado_1d=1 WHERE id=?', (item["id"],))
-                except:
-                    pass
-            conn.commit()
-        finally:
-            conn.close()
+        rows = self._query('SELECT * FROM agenda WHERE user_id=?', (user_id,), fetchall=True)
+        for item in rows:
+            try:
+                dt = datetime.fromisoformat(item["data_hora"])
+                diff = (dt - agora).total_seconds() / 3600
+                if 0 < diff <= 3 and not item["lembrado_3h"]:
+                    res.append({**item, "tipo": "3h"})
+                    self._query('UPDATE agenda SET lembrado_3h=1 WHERE id=?', (item["id"],), commit=True)
+                elif 20 < diff <= 25 and not item["lembrado_1d"]:
+                    res.append({**item, "tipo": "1d"})
+                    self._query('UPDATE agenda SET lembrado_1d=1 WHERE id=?', (item["id"],), commit=True)
+            except:
+                pass
         return res
 
 banco = BancoMargo()
@@ -671,15 +645,9 @@ def agenda(user_id: str):
 async def reset(req: Request):
     data = await req.json()
     u = data.get("user_id", "default")
-    conn = banco._get_conn()
-    try:
-        c = conn.cursor()
-        c.execute('DELETE FROM config_assistente WHERE user_id=?', (u,))
-        c.execute('DELETE FROM perfil_usuario WHERE user_id=?', (u,))
-        c.execute('DELETE FROM resumos_sessao WHERE user_id=?', (u,))
-        conn.commit()
-    finally:
-        conn.close()
+    banco._query('DELETE FROM config_assistente WHERE user_id=?', (u,), commit=True)
+    banco._query('DELETE FROM perfil_usuario WHERE user_id=?', (u,), commit=True)
+    banco._query('DELETE FROM resumos_sessao WHERE user_id=?', (u,), commit=True)
     sessoes.limpar(u)
     return {"ok": True, "msg": "Onboarding resetado"}
 
