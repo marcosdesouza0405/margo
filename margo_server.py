@@ -689,4 +689,5 @@ if __name__ == "__main__":
     print("  GET  /agenda/{user_id} — lembretes futuros")
     print("  POST /reset_onboarding — reseta (dev)")
     print("=" * 55)
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
