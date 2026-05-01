@@ -362,7 +362,7 @@ ETAPAS = [
     ("extra",           "Mais algo que queira contar? (opcional, pode pular)"),
     ("nome_assistente", "Como quer me chamar? (pode ser Margo)"),
     ("genero",          "Prefere voz feminina ou masculina?"),
-    ("personalidade",   "Me descreva em até 3 palavras (ex: divertida, objetiva, carinhosa)")
+    ("personalidade",   "Me descreva com até 3 características ou escreva uma frase curta de como quer que eu seja (ex: divertida, objetiva e um pouco flertadora)")
 ]
 
 def etapa_atual(perfil, config={}):
