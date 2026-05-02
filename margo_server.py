@@ -672,6 +672,80 @@ async def reset_onboarding(request: Request):
 
 # ── MAIN ───────────────────────────────────────────────────────────────────────
 
+@app.post("/falar")
+async def falar(req: Request):
+    import edge_tts, aiofiles, tempfile
+    from asyncio import timeout as asyncio_timeout
+    from fastapi.responses import FileResponse
+    data = await req.json()
+    texto = data.get("texto", "").strip()
+    if not texto:
+        return JSONResponse({"erro": "texto vazio"}, status_code=400)
+    user_id = data.get("user_id", "default")
+    config = banco.buscar_config(user_id)
+    genero = data.get("genero", config.get("genero", "F"))
+    provider = data.get("provider") or config.get("voz_provider", "edge_tts")
+    voz_chave = data.get("chave") or config.get("voz_chave", "")
+    voz_id = data.get("voz_id") or config.get("voz_id", "")
+    if not voz_id:
+        voz_id = "pt-BR-FranciscaNeural" if genero == "F" else "pt-BR-AntonioNeural"
+
+    # ElevenLabs
+    if provider == "elevenlabs" and voz_chave:
+        try:
+            import base64
+            voice_id = voz_id or "21m00Tcm4TlvDq8ikWAM"
+            body = json.dumps({"text": texto, "model_id": "eleven_multilingual_v2",
+                               "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}).encode()
+            req2 = urllib.request.Request(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                data=body,
+                headers={"Content-Type": "application/json", "xi-api-key": voz_chave})
+            resp2 = urllib.request.urlopen(req2, timeout=20)
+            audio_bytes = resp2.read()
+            return JSONResponse({"ok": True, "audio_base64": base64.b64encode(audio_bytes).decode("utf-8")})
+        except Exception as e:
+            log(f"ElevenLabs erro: {e}")
+            return JSONResponse({"erro": str(e)}, status_code=500)
+
+    # Fish Audio
+    if provider == "fishaudio" and voz_chave:
+        try:
+            import base64, os
+            os.environ["FISH_API_KEY"] = voz_chave
+            from fish_audio_sdk import FishAudio
+            client = FishAudio()
+            audio_bytes = b"".join(client.tts({"text": texto, "reference_id": voz_id, "format": "mp3"}))
+            if len(audio_bytes) < 100:
+                return JSONResponse({"erro": f"audio vazio"}, status_code=500)
+            return JSONResponse({"ok": True, "audio_base64": base64.b64encode(audio_bytes).decode("utf-8")})
+        except Exception as e:
+            log(f"Fish Audio erro: {e}")
+            return JSONResponse({"erro": str(e)}, status_code=500)
+
+    # Sem provedor premium — app usa Web Speech API
+    return JSONResponse({"erro": "sem_provedor", "usar_web_speech": True}, status_code=200)
+
+def verificar_lembretes():
+    while True:
+        try:
+            rows = banco._query("SELECT DISTINCT user_id FROM agenda", fetchall=True)
+            users = [r["user_id"] for r in rows]
+            for user_id in users:
+                lembretes = banco.lembretes_proximos(user_id)
+                for l in lembretes:
+                    tipo = l.get("tipo")
+                    titulo = l.get("titulo", "Compromisso")
+                    if tipo == "1d":
+                        msg = f"Lembrete: amanha voce tem {titulo}."
+                    else:
+                        msg = f"Atencao: em 3 horas voce tem {titulo}!"
+                    log(f"Lembrete disparado: {user_id} - {titulo} ({tipo})", "agenda")
+        except Exception as e:
+            log(f"Scheduler erro: {e}", "agenda")
+        import time as _time
+        _time.sleep(300)
+
 if __name__ == "__main__":
     print("=" * 55)
     print("  MARGO SERVER v1.0 — by Orbiby")
