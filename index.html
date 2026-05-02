@@ -153,8 +153,14 @@
   .voice-options { display:flex; gap:8px; }
   .voice-opt { flex:1; padding:9px; border-radius:var(--radius-sm); border:0.5px solid var(--border); background:var(--bg3); font-size:12px; color:var(--text2); text-align:center; cursor:pointer; transition:all 0.15s; }
   .voice-opt.active { border-color:var(--cyan); color:var(--cyan); background:var(--cyan-dim); }
+  .voice-section { background:var(--bg3); border:0.5px solid var(--border); border-radius:var(--radius-sm); padding:12px; display:flex; flex-direction:column; gap:8px; }
+  .voice-section-title { font-size:11px; color:var(--text3); }
+  .voice-badge { display:inline-block; font-size:10px; padding:2px 7px; border-radius:20px; background:var(--cyan-dim); color:var(--cyan); border:0.5px solid var(--cyan); margin-left:6px; }
   .save-btn { width:100%; padding:12px; border-radius:26px; border:none; background:var(--cyan); color:#000; font-family:var(--font); font-size:14px; font-weight:700; cursor:pointer; margin-top:4px; }
   .save-btn:active { transform:scale(0.97); }
+  /* Área de chave — esconde quando device */
+  .key-area { display:flex; flex-direction:column; gap:8px; }
+  .key-area.hidden { display:none; }
 </style>
 </head>
 <body>
@@ -211,6 +217,7 @@
   <div class="input-hint" id="inputHint">microfone desligado — toque no ícone para ativar</div>
 </div>
 
+<!-- PAINEL DE CONFIGURAÇÕES -->
 <div class="panel" id="settingsPanel">
   <div class="panel-header">
     <div class="panel-title">Configurações</div>
@@ -219,14 +226,15 @@
     </div>
   </div>
   <div class="panel-body">
+
+    <!-- Assistente -->
     <div class="setting-group">
       <div class="setting-label">Assistente</div>
       <input class="setting-input" id="nameInput" placeholder="Margo" value="Margo">
-      <div class="setting-row" style="margin-top:-4px">
-        <div><div class="setting-row-label">Apelido (wake word extra)</div><div class="setting-row-sub">Ex: amor, chefe, ei...</div></div>
-      </div>
-      <input class="setting-input" id="nicknameInput" placeholder="opcional">
+      <input class="setting-input" id="nicknameInput" placeholder="Apelido (wake word extra, opcional)">
     </div>
+
+    <!-- Microfone -->
     <div class="setting-group">
       <div class="setting-label">Microfone</div>
       <div class="setting-row">
@@ -238,241 +246,413 @@
         <div class="toggle on" id="toggleWakeWord" onclick="toggleSetting(this)"></div>
       </div>
     </div>
+
+    <!-- Gênero da voz -->
     <div class="setting-group">
-      <div class="setting-label">Voz</div>
-      <div class="voice-options">
-        <div class="voice-opt active" onclick="selectVoice(this,'edge_tts_f')">Feminina</div>
-        <div class="voice-opt" onclick="selectVoice(this,'edge_tts_m')">Masculina</div>
+      <div class="setting-label">Gênero da voz</div>
+      <div class="voice-options" id="genderOpts">
+        <div class="voice-opt active" data-gender="F" onclick="selectGender(this,'F')">Feminina</div>
+        <div class="voice-opt" data-gender="M" onclick="selectGender(this,'M')">Masculina</div>
       </div>
     </div>
+
+    <!-- Provedor de voz -->
     <div class="setting-group">
-      <div class="setting-label">Voz Premium</div>
-      <div class="voice-options">
-        <div class="voice-opt active" onclick="selectProvider(this,'edge')">Edge TTS</div>
-        <div class="voice-opt" onclick="selectProvider(this,'eleven')">ElevenLabs</div>
-        <div class="voice-opt" onclick="selectProvider(this,'fish')">Fish Audio</div>
+      <div class="setting-label">Provedor de voz</div>
+
+      <!-- Opção: voz do dispositivo -->
+      <div class="voice-section" id="providerDevice" onclick="selectProvider('device')" style="cursor:pointer">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span class="setting-row-label">Voz do dispositivo</span>
+          <span class="voice-badge" id="badgeDevice" style="display:none">ativo</span>
+        </div>
+        <span class="voice-section-title">Usa a voz nativa do seu celular/navegador. Gratuito, sem configuração.</span>
       </div>
-      <input class="setting-input" id="apiKeyInput" placeholder="Chave de API (ElevenLabs ou Fish Audio)" style="margin-top:4px">
-      <input class="setting-input" id="voiceIdInput" placeholder="ID da voz (ex: rachel, pt_BR_female...)" style="margin-top:4px">
+
+      <!-- Opção: Fish Audio -->
+      <div class="voice-section" id="providerFish" onclick="selectProvider('fishaudio')" style="cursor:pointer;margin-top:6px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span class="setting-row-label">Fish Audio</span>
+          <span class="voice-badge" id="badgeFish" style="display:none">ativo</span>
+        </div>
+        <span class="voice-section-title">TTS neural de alta qualidade. Requer chave e ID da voz.</span>
+      </div>
+
+      <!-- Opção: ElevenLabs -->
+      <div class="voice-section" id="providerEleven" onclick="selectProvider('elevenlabs')" style="cursor:pointer;margin-top:6px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span class="setting-row-label">ElevenLabs</span>
+          <span class="voice-badge" id="badgeEleven" style="display:none">ativo</span>
+        </div>
+        <span class="voice-section-title">TTS premium. Requer chave e ID da voz.</span>
+      </div>
+
+      <!-- Campos de chave — visíveis só quando não é device -->
+      <div class="key-area hidden" id="keyArea">
+        <input class="setting-input" id="apiKeyInput" placeholder="Chave de API">
+        <input class="setting-input" id="voiceIdInput" placeholder="ID da voz (ex: rachel, pt_BR_female...)">
+      </div>
     </div>
+
+    <!-- Backend -->
     <div class="setting-group">
       <div class="setting-label">Backend</div>
       <input class="setting-input" id="backendUrl" value="https://margo-production-98a9.up.railway.app">
     </div>
+
     <button class="save-btn" onclick="saveSettings()">Salvar configurações</button>
   </div>
 </div>
 
 <script>
-const USER_ID = 'user_' + (localStorage.getItem('margo_uid') || (()=>{const id=Math.random().toString(36).slice(2,10);localStorage.setItem('margo_uid',id);return id;})());
-let settings = {assistantName:'Margo',nickname:'',micAlways:false,wakeWordOn:true,voiceGender:'edge_tts_f',voiceProvider:'edge',apiKey:'',voiceId:'',backendUrl:'https://margo-production-98a9.up.railway.app'};
-try{Object.assign(settings,JSON.parse(localStorage.getItem('margo_settings')||'{}'));}catch(e){}
-let micActive=false,recognition=null,wakeWordDetected=false,silenceTimer=null,isThinking=false,typingRow=null;
+// ── UID ──────────────────────────────────────────────────────────────────────
+const USER_ID = 'user_' + (localStorage.getItem('margo_uid') || (()=>{
+  const id = Math.random().toString(36).slice(2,10);
+  localStorage.setItem('margo_uid', id);
+  return id;
+})());
 
-function saveToStorage(){localStorage.setItem('margo_settings',JSON.stringify(settings));}
+// ── SETTINGS (valores padrão) ─────────────────────────────────────────────────
+// voiceProvider: 'device' | 'fishaudio' | 'elevenlabs'
+// voiceGender:   'F' | 'M'
+let settings = {
+  assistantName: 'Margo',
+  nickname: '',
+  micAlways: false,
+  wakeWordOn: true,
+  voiceGender: 'F',
+  voiceProvider: 'device',
+  apiKey: '',
+  voiceId: '',
+  backendUrl: 'https://margo-production-98a9.up.railway.app'
+};
+try { Object.assign(settings, JSON.parse(localStorage.getItem('margo_settings') || '{}')); } catch(e) {}
 
-function applySettings(){
-  document.getElementById('assistantName').textContent=settings.assistantName;
-  document.getElementById('wakeBannerText').textContent=`Ouvindo... diga "${settings.assistantName}"${settings.nickname?` ou "${settings.nickname}"`:''}`;
-  document.getElementById('nameInput').value=settings.assistantName;
-  document.getElementById('nicknameInput').value=settings.nickname||'';
-  document.getElementById('backendUrl').value=settings.backendUrl;
-  document.getElementById('apiKeyInput').value=settings.apiKey||'';
-  document.getElementById('voiceIdInput').value=settings.voiceId||'';
-  document.getElementById('toggleMicAlways').className='toggle '+(settings.micAlways?'on':'');
-  document.getElementById('toggleWakeWord').className='toggle '+(settings.wakeWordOn?'on':'');
+let micActive=false, recognition=null, wakeWordDetected=false, silenceTimer=null, isThinking=false, typingRow=null;
+
+function saveToStorage() { localStorage.setItem('margo_settings', JSON.stringify(settings)); }
+
+// ── APLICAR SETTINGS NA UI ────────────────────────────────────────────────────
+function applySettings() {
+  document.getElementById('assistantName').textContent = settings.assistantName;
+  document.getElementById('wakeBannerText').textContent =
+    `Ouvindo... diga "${settings.assistantName}"${settings.nickname ? ` ou "${settings.nickname}"` : ''}`;
+  document.getElementById('nameInput').value = settings.assistantName;
+  document.getElementById('nicknameInput').value = settings.nickname || '';
+  document.getElementById('backendUrl').value = settings.backendUrl;
+  document.getElementById('apiKeyInput').value = settings.apiKey || '';
+  document.getElementById('voiceIdInput').value = settings.voiceId || '';
+  document.getElementById('toggleMicAlways').className = 'toggle ' + (settings.micAlways ? 'on' : '');
+  document.getElementById('toggleWakeWord').className = 'toggle ' + (settings.wakeWordOn ? 'on' : '');
+
+  // Gênero
+  document.querySelectorAll('#genderOpts .voice-opt').forEach(el => {
+    el.classList.toggle('active', el.dataset.gender === settings.voiceGender);
+  });
+
+  // Provider
+  updateProviderUI(settings.voiceProvider);
 }
 
-function saveSettings(){
-  settings.assistantName=document.getElementById('nameInput').value.trim()||'Margo';
-  settings.nickname=document.getElementById('nicknameInput').value.trim();
-  settings.backendUrl=document.getElementById('backendUrl').value.trim();
-  settings.apiKey=document.getElementById('apiKeyInput').value.trim();
-  settings.voiceId=document.getElementById('voiceIdInput').value.trim();
-  settings.micAlways=document.getElementById('toggleMicAlways').classList.contains('on');
-  settings.wakeWordOn=document.getElementById('toggleWakeWord').classList.contains('on');
-  saveToStorage();applySettings();closePanel();
-  addMsg('sistema',`Salvo! Responderei quando ouvir "${settings.assistantName}".`);
+function updateProviderUI(provider) {
+  const sections = { device:'providerDevice', fishaudio:'providerFish', elevenlabs:'providerEleven' };
+  const badges   = { device:'badgeDevice',    fishaudio:'badgeFish',    elevenlabs:'badgeEleven'   };
+
+  Object.keys(sections).forEach(key => {
+    const el = document.getElementById(sections[key]);
+    const badge = document.getElementById(badges[key]);
+    const isActive = key === provider;
+    el.style.borderColor = isActive ? 'var(--cyan)' : 'var(--border)';
+    el.style.background  = isActive ? 'var(--cyan-dim)' : 'var(--bg3)';
+    badge.style.display  = isActive ? 'inline-block' : 'none';
+  });
+
+  // Mostra campos de chave só para providers premium
+  const keyArea = document.getElementById('keyArea');
+  keyArea.classList.toggle('hidden', provider === 'device');
 }
 
-function toggleSetting(el){el.classList.toggle('on');}
-function selectVoice(el,val){document.querySelectorAll('.voice-options .voice-opt').forEach(e=>e.classList.remove('active'));el.classList.add('active');settings.voiceGender=val;}
-function selectProvider(el,val){
-  el.closest('.setting-group').querySelectorAll('.voice-opt').forEach(e=>e.classList.remove('active'));
-  el.classList.add('active');
-  settings.voiceProvider=val;
-  if(val === 'edge_tts'){
+function selectProvider(provider) {
+  settings.voiceProvider = provider;
+  // Limpa chave/id se voltou para device
+  if (provider === 'device') {
     settings.apiKey = '';
     settings.voiceId = '';
     document.getElementById('apiKeyInput').value = '';
     document.getElementById('voiceIdInput').value = '';
   }
+  updateProviderUI(provider);
   saveToStorage();
-  if(val === 'edge_tts'){addMsg('sistema','Voz alterada para padrao (sem chave).');}
-  else if(val === 'fishaudio'){addMsg('sistema','Fish Audio selecionado. Preencha sua chave e ID da voz.');}
-  else if(val === 'elevenlabs'){addMsg('sistema','ElevenLabs selecionado. Preencha sua chave e ID da voz.');}
 }
-function openPanel(){document.getElementById('settingsPanel').classList.add('open');document.getElementById('overlay').classList.add('open');}
-function closePanel(){document.getElementById('settingsPanel').classList.remove('open');document.getElementById('overlay').classList.remove('open');}
-function now(){return new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}
 
-function addMsg(who,text){
-  const chat=document.getElementById('chat');
-  if(who==='sistema'){
-    const s=document.createElement('div');
-    s.style.cssText='text-align:center;font-size:11px;color:var(--text3);padding:4px 0;width:100%;';
-    s.textContent=text;chat.appendChild(s);chat.scrollTop=chat.scrollHeight;return;
+function selectGender(el, val) {
+  document.querySelectorAll('#genderOpts .voice-opt').forEach(e => e.classList.remove('active'));
+  el.classList.add('active');
+  settings.voiceGender = val;
+}
+
+function saveSettings() {
+  settings.assistantName = document.getElementById('nameInput').value.trim() || 'Margo';
+  settings.nickname      = document.getElementById('nicknameInput').value.trim();
+  settings.backendUrl    = document.getElementById('backendUrl').value.trim();
+  settings.apiKey        = document.getElementById('apiKeyInput').value.trim();
+  settings.voiceId       = document.getElementById('voiceIdInput').value.trim();
+  settings.micAlways     = document.getElementById('toggleMicAlways').classList.contains('on');
+  settings.wakeWordOn    = document.getElementById('toggleWakeWord').classList.contains('on');
+  // voiceProvider e voiceGender já foram salvos em tempo real via selectProvider/selectGender
+  saveToStorage();
+  applySettings();
+  closePanel();
+  addMsg('sistema', `Salvo! Responderei quando ouvir "${settings.assistantName}".`);
+}
+
+function toggleSetting(el) { el.classList.toggle('on'); }
+function openPanel()  { document.getElementById('settingsPanel').classList.add('open');  document.getElementById('overlay').classList.add('open'); }
+function closePanel() { document.getElementById('settingsPanel').classList.remove('open'); document.getElementById('overlay').classList.remove('open'); }
+function now() { return new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'}); }
+
+// ── CHAT ──────────────────────────────────────────────────────────────────────
+function addMsg(who, text) {
+  const chat = document.getElementById('chat');
+  if (who === 'sistema') {
+    const s = document.createElement('div');
+    s.style.cssText = 'text-align:center;font-size:11px;color:var(--text3);padding:4px 0;width:100%;';
+    s.textContent = text;
+    chat.appendChild(s);
+    chat.scrollTop = chat.scrollHeight;
+    return;
   }
-  const isUser=who==='user';
-  const row=document.createElement('div');row.className='msg-row '+(isUser?'user':'');
-  const av=document.createElement('div');av.className='msg-avatar '+(isUser?'user-av':'');
-  if(isUser){const sp=document.createElement('span');sp.textContent='EU';av.appendChild(sp);}
-  else{av.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="#00D4FF" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`;}
-  const bubble=document.createElement('div');bubble.className='bubble '+(isUser?'user':'margo');
-  const mt=document.createElement('div');mt.textContent=text;bubble.appendChild(mt);
-  const te=document.createElement('span');te.className='bubble-time';te.textContent=now();bubble.appendChild(te);
-  if(isUser){row.appendChild(bubble);row.appendChild(av);}else{row.appendChild(av);row.appendChild(bubble);}
-  chat.appendChild(row);chat.scrollTop=chat.scrollHeight;
+  const isUser = who === 'user';
+  const row = document.createElement('div'); row.className = 'msg-row ' + (isUser ? 'user' : '');
+  const av  = document.createElement('div'); av.className  = 'msg-avatar ' + (isUser ? 'user-av' : '');
+  if (isUser) { const sp = document.createElement('span'); sp.textContent = 'EU'; av.appendChild(sp); }
+  else { av.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#00D4FF" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`; }
+  const bubble = document.createElement('div'); bubble.className = 'bubble ' + (isUser ? 'user' : 'margo');
+  const mt = document.createElement('div'); mt.textContent = text; bubble.appendChild(mt);
+  const te = document.createElement('span'); te.className = 'bubble-time'; te.textContent = now(); bubble.appendChild(te);
+  if (isUser) { row.appendChild(bubble); row.appendChild(av); } else { row.appendChild(av); row.appendChild(bubble); }
+  chat.appendChild(row);
+  chat.scrollTop = chat.scrollHeight;
 }
 
-function showTyping(){
-  const chat=document.getElementById('chat');
-  typingRow=document.createElement('div');typingRow.className='msg-row';
-  typingRow.innerHTML=`<div class="msg-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="#00D4FF" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></div><div class="typing-bubble"><span></span><span></span><span></span></div>`;
-  chat.appendChild(typingRow);chat.scrollTop=chat.scrollHeight;
+function showTyping() {
+  const chat = document.getElementById('chat');
+  typingRow = document.createElement('div'); typingRow.className = 'msg-row';
+  typingRow.innerHTML = `<div class="msg-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="#00D4FF" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></div><div class="typing-bubble"><span></span><span></span><span></span></div>`;
+  chat.appendChild(typingRow); chat.scrollTop = chat.scrollHeight;
 }
-function hideTyping(){if(typingRow){typingRow.remove();typingRow=null;}}
+function hideTyping() { if (typingRow) { typingRow.remove(); typingRow = null; } }
 
-async function sendToBackend(msg){
-  try{
-    const resp=await fetch(settings.backendUrl+'/mensagem',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:USER_ID,mensagem:msg})});
-    const data=await resp.json();return data;
-  }catch(e){return {resposta:"Sem resposta.",ferramenta:null};}
+// ── BACKEND ───────────────────────────────────────────────────────────────────
+async function sendToBackend(msg) {
+  try {
+    const resp = await fetch(settings.backendUrl + '/mensagem', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({user_id: USER_ID, mensagem: msg})
+    });
+    return await resp.json();
+  } catch(e) {
+    return {resposta: "Sem conexão com o servidor.", ferramenta: null};
+  }
 }
 
-async function sendMsg(){
-  const input=document.getElementById('textInput');
-  const msg=input.value.trim();
-  if(!msg||isThinking)return;
-  input.value='';addMsg('user',msg);
-  isThinking=true;showTyping();setStatus('pensando...');
-  const data=await sendToBackend(msg);
-  const resp=data.resposta||'Sem resposta.';
-  hideTyping();isThinking=false;addMsg('margo',resp);setStatus('online');
-  if(data.ferramenta) executarFerramenta(data.ferramenta);
-  try{
-    if(settings.apiKey && settings.voiceProvider !== 'edge'){
-      const vr=await fetch(settings.backendUrl+'/falar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({texto:resp,genero:settings.voiceGender.includes('_f')?'F':'M',user_id:USER_ID,provider:settings.voiceProvider,chave:settings.apiKey,voz_id:settings.voiceId})});
-      const vd=await vr.json();
-      if(vd.audio_base64){const bytes=atob(vd.audio_base64);const arr=new Uint8Array(bytes.length);for(let i=0;i<bytes.length;i++)arr[i]=bytes.charCodeAt(i);const bl=new Blob([arr],{type:'audio/mpeg'});const ur=URL.createObjectURL(bl);new Audio(ur).play();}
+// ── TTS ───────────────────────────────────────────────────────────────────────
+function falarComVozLocal(texto) {
+  if (!window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(texto);
+  u.lang  = 'pt-BR';
+  u.rate  = 1.0;
+  u.pitch = settings.voiceGender === 'F' ? 1.2 : 0.9;
+  speechSynthesis.speak(u);
+}
+
+async function falar(texto) {
+  const provider = settings.voiceProvider;
+
+  // Sem chave ou provider device → voz local direto
+  if (provider === 'device' || !settings.apiKey || !settings.voiceId) {
+    falarComVozLocal(texto);
+    return;
+  }
+
+  try {
+    const resp = await fetch(settings.backendUrl + '/falar', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        texto,
+        provider,                        // 'fishaudio' ou 'elevenlabs' — já padronizado
+        chave:   settings.apiKey,
+        voz_id:  settings.voiceId,
+        genero:  settings.voiceGender,
+        user_id: USER_ID
+      })
+    });
+    const data = await resp.json();
+
+    if (data.audio_base64) {
+      const bytes = atob(data.audio_base64);
+      const arr   = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      const blob = new Blob([arr], {type: 'audio/mpeg'});
+      new Audio(URL.createObjectURL(blob)).play();
     } else {
-      const u=new SpeechSynthesisUtterance(resp);u.lang="pt-BR";u.rate=1.0;u.pitch=settings.voiceGender.includes('_f')?1.2:0.9;speechSynthesis.speak(u);
+      // Backend sinalizou device_tts ou erro → fallback local
+      falarComVozLocal(texto);
     }
-  }catch(e){console.log("voz:",e);}
+  } catch(e) {
+    console.log('TTS erro:', e);
+    falarComVozLocal(texto);
+  }
 }
 
-function onKey(e){if(e.key==='Enter')sendMsg();}
-
-function setStatus(txt,listening){
-  document.getElementById('statusText').textContent=txt;
-  document.getElementById('statusText').className='header-status'+(listening?' listening':'');
-  document.getElementById('statusDot').className='avatar-dot'+(listening?' listening':'');
+// ── ENVIAR MENSAGEM ───────────────────────────────────────────────────────────
+async function sendMsg() {
+  const input = document.getElementById('textInput');
+  const msg = input.value.trim();
+  if (!msg || isThinking) return;
+  input.value = '';
+  addMsg('user', msg);
+  isThinking = true; showTyping(); setStatus('pensando...');
+  const data = await sendToBackend(msg);
+  const resp = data.resposta || 'Sem resposta.';
+  hideTyping(); isThinking = false;
+  addMsg('margo', resp);
+  setStatus('online');
+  if (data.ferramenta) executarFerramenta(data.ferramenta);
+  falar(resp);
 }
 
-function isWakeWord(t){
-  const words=t.toLowerCase().trim().split(/\s+/);
-  const name=settings.assistantName.toLowerCase();
-  const nick=settings.nickname.toLowerCase();
-  for(let i=0;i<Math.min(3,words.length);i++){
-    if(words[i].includes(name))return true;
-    if(nick&&words[i].includes(nick))return true;
+function onKey(e) { if (e.key === 'Enter') sendMsg(); }
+
+function setStatus(txt, listening) {
+  document.getElementById('statusText').textContent = txt;
+  document.getElementById('statusText').className = 'header-status' + (listening ? ' listening' : '');
+  document.getElementById('statusDot').className  = 'avatar-dot' + (listening ? ' listening' : '');
+}
+
+// ── WAKE WORD ────────────────────────────────────────────────────────────────
+function isWakeWord(t) {
+  const words = t.toLowerCase().trim().split(/\s+/);
+  const name  = settings.assistantName.toLowerCase();
+  const nick  = settings.nickname.toLowerCase();
+  for (let i = 0; i < Math.min(3, words.length); i++) {
+    if (words[i].includes(name)) return true;
+    if (nick && words[i].includes(nick)) return true;
   }
   return false;
 }
 
-function toggleMic(){if(micActive)stopMic();else startMic();}
+function toggleMic() { if (micActive) stopMic(); else startMic(); }
 
-function startMic(){
-  if(!('webkitSpeechRecognition'in window)&&!('SpeechRecognition'in window)){
-    addMsg('sistema','Seu navegador não suporta voz. Use Chrome.');return;
+function startMic() {
+  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+    addMsg('sistema', 'Seu navegador não suporta voz. Use Chrome.');
+    return;
   }
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  recognition=new SR();recognition.continuous=true;recognition.interimResults=true;recognition.lang='pt-BR';
-  micActive=true;wakeWordDetected=false;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SR();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'pt-BR';
+  micActive = true;
+  wakeWordDetected = false;
   document.getElementById('micBtn').classList.add('active');
-  if(settings.wakeWordOn){document.getElementById('wakeBanner').style.display='flex';setStatus('ouvindo wake word');}
-  else{setStatus('ouvindo...',true);wakeWordDetected=true;}
-  document.getElementById('inputHint').textContent=settings.wakeWordOn?`diga "${settings.assistantName}" para ativar`:'ouvindo... fale agora';
-  let cur='';
-  recognition.onresult=(e)=>{
-    let final='',interim='';
-    for(let i=e.resultIndex;i<e.results.length;i++){
-      if(e.results[i].isFinal)final+=e.results[i][0].transcript;
-      else interim+=e.results[i][0].transcript;
+  if (settings.wakeWordOn) {
+    document.getElementById('wakeBanner').style.display = 'flex';
+    setStatus('ouvindo wake word');
+  } else {
+    setStatus('ouvindo...', true);
+    wakeWordDetected = true;
+  }
+  document.getElementById('inputHint').textContent = settings.wakeWordOn
+    ? `diga "${settings.assistantName}" para ativar`
+    : 'ouvindo... fale agora';
+
+  let cur = '';
+  recognition.onresult = (e) => {
+    let final = '', interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) final += e.results[i][0].transcript;
+      else interim += e.results[i][0].transcript;
     }
-    const heard=(final||interim).trim();if(!heard)return;
-    if(settings.wakeWordOn&&!wakeWordDetected){
-      if(isWakeWord(heard)){
-        wakeWordDetected=true;document.getElementById('wakeBanner').style.display='none';
-        setStatus('ouvindo você...',true);cur='';
-        const ww=heard.split(/\s+/);const ni=ww.findIndex(w=>w.toLowerCase().includes(settings.assistantName.toLowerCase()));
-        if(ni>=0&&ww.length>ni+1)cur=ww.slice(ni+1).join(' ');
-      }return;
+    const heard = (final || interim).trim();
+    if (!heard) return;
+    if (settings.wakeWordOn && !wakeWordDetected) {
+      if (isWakeWord(heard)) {
+        wakeWordDetected = true;
+        document.getElementById('wakeBanner').style.display = 'none';
+        setStatus('ouvindo você...', true);
+        cur = '';
+        const ww = heard.split(/\s+/);
+        const ni = ww.findIndex(w => w.toLowerCase().includes(settings.assistantName.toLowerCase()));
+        if (ni >= 0 && ww.length > ni + 1) cur = ww.slice(ni + 1).join(' ');
+      }
+      return;
     }
-    if(final){
-      cur+=' '+final;clearTimeout(silenceTimer);
-      silenceTimer=setTimeout(()=>{
-        const msg=cur.trim();if(!msg||isThinking)return;
-        cur='';wakeWordDetected=settings.wakeWordOn?false:true;
-        if(settings.wakeWordOn){document.getElementById('wakeBanner').style.display='flex';setStatus('ouvindo wake word');}
-        addMsg('user',msg);isThinking=true;showTyping();setStatus('pensando...');
-        sendToBackend(msg).then(data=>{const resp=data.resposta||'Sem resposta.';hideTyping();isThinking=false;addMsg('margo',resp);setStatus(settings.wakeWordOn?'ouvindo wake word':'ouvindo...',!settings.wakeWordOn);if(data.ferramenta)executarFerramenta(data.ferramenta);});
-      },2200);
+    if (final) {
+      cur += ' ' + final;
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => {
+        const msg = cur.trim();
+        if (!msg || isThinking) return;
+        cur = '';
+        wakeWordDetected = settings.wakeWordOn ? false : true;
+        if (settings.wakeWordOn) {
+          document.getElementById('wakeBanner').style.display = 'flex';
+          setStatus('ouvindo wake word');
+        }
+        addMsg('user', msg);
+        isThinking = true; showTyping(); setStatus('pensando...');
+        sendToBackend(msg).then(data => {
+          const resp = data.resposta || 'Sem resposta.';
+          hideTyping(); isThinking = false;
+          addMsg('margo', resp);
+          setStatus(settings.wakeWordOn ? 'ouvindo wake word' : 'ouvindo...', !settings.wakeWordOn);
+          if (data.ferramenta) executarFerramenta(data.ferramenta);
+          falar(resp);
+        });
+      }, 2200);
     }
   };
-  recognition.onend=()=>{if(micActive)recognition.start();};
-  recognition.onerror=(e)=>{if(e.error!=='no-speech')console.log('Speech:',e.error);};
+  recognition.onend = () => { if (micActive) recognition.start(); };
+  recognition.onerror = (e) => { if (e.error !== 'no-speech') console.log('Speech:', e.error); };
   recognition.start();
 }
 
-function stopMic(){
-  micActive=false;wakeWordDetected=false;
-  if(recognition)recognition.stop();
+function stopMic() {
+  micActive = false;
+  wakeWordDetected = false;
+  if (recognition) recognition.stop();
   document.getElementById('micBtn').classList.remove('active');
-  document.getElementById('wakeBanner').style.display='none';
-  document.getElementById('inputHint').textContent='microfone desligado — toque no ícone para ativar';
+  document.getElementById('wakeBanner').style.display = 'none';
+  document.getElementById('inputHint').textContent = 'microfone desligado — toque no ícone para ativar';
   setStatus('online');
 }
 
-function clearChat(){document.getElementById('chat').innerHTML='';addMsg('sistema','Conversa reiniciada');}
+function clearChat() { document.getElementById('chat').innerHTML = ''; addMsg('sistema', 'Conversa reiniciada'); }
 
-
+// ── FERRAMENTAS ───────────────────────────────────────────────────────────────
 function executarFerramenta(tool) {
   if (!tool) return;
   const f = tool.ferramenta;
-  if (f === 'maps_navigate') {
-    window.open('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(tool.destino), '_blank');
-  } else if (f === 'maps_search') {
-    window.open('https://www.google.com/maps/search/' + encodeURIComponent(tool.query), '_blank');
-  } else if (f === 'spotify_play') {
-    window.open('https://open.spotify.com/search/' + encodeURIComponent(tool.query), '_blank');
-  } else if (f === 'soundcloud_play') {
-    window.open('https://soundcloud.com/search?q=' + encodeURIComponent(tool.query), '_blank');
-  } else if (f === 'youtube_search') {
-    window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(tool.query), '_blank');
-  } else if (f === 'phone_call') {
-    window.open('tel:' + tool.contato, '_self');
-  } else if (f === 'web_search') {
-    window.open('https://www.google.com/search?q=' + encodeURIComponent(tool.query), '_blank');
-  } else if (f === 'smart_home') {
-    // Tuya/Smart Life — abre o app via deeplink
-    window.open('tuyasmart://', '_self');
-  }
+  if      (f === 'maps_navigate')  window.open('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(tool.destino), '_blank');
+  else if (f === 'maps_search')    window.open('https://www.google.com/maps/search/' + encodeURIComponent(tool.query), '_blank');
+  else if (f === 'spotify_play')   window.open('https://open.spotify.com/search/' + encodeURIComponent(tool.query), '_blank');
+  else if (f === 'soundcloud_play')window.open('https://soundcloud.com/search?q=' + encodeURIComponent(tool.query), '_blank');
+  else if (f === 'youtube_search') window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(tool.query), '_blank');
+  else if (f === 'phone_call')     window.open('tel:' + tool.contato, '_self');
+  else if (f === 'web_search')     window.open('https://www.google.com/search?q=' + encodeURIComponent(tool.query), '_blank');
+  else if (f === 'smart_home')     window.open('tuyasmart://', '_self');
 }
-function init(){
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+function init() {
   applySettings();
-  addMsg('margo','Olá! Sou a Margo, muito prazer! Antes de começarmos, que tal nos conhecermos melhor? Tenho certeza que assim posso te ajudar muito mais. Pronto para começar?');
-  if(settings.micAlways)setTimeout(startMic,800);
+  addMsg('margo', 'Olá! Sou a Margo, muito prazer! Antes de começarmos, que tal nos conhecermos melhor? Tenho certeza que assim posso te ajudar muito mais. Pronto para começar?');
+  if (settings.micAlways) setTimeout(startMic, 800);
 }
 init();
 </script>

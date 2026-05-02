@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-margo_server.py — Margo Server v1.0
+margo_server.py — Margo Server v1.1
 Assistente de IA com personalidade — produto comercial da Orbiby
-Arquitetura: FastAPI + DeepSeek + SQLite + Edge TTS
+Arquitetura: FastAPI + DeepSeek + SQLite/Postgres + Fish Audio / ElevenLabs / Web Speech
 """
 
-import os, re, json, time, sqlite3, threading, asyncio
+import os, re, json, time, sqlite3, threading, asyncio, base64
 from datetime import datetime, timedelta
 from collections import deque
 from fastapi import FastAPI, Request
@@ -37,6 +37,12 @@ if os.path.exists(ENV_PATH):
             os.environ.setdefault(k.strip(), v.strip().strip('"'))
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DATABASE_URL     = os.environ.get("DATABASE_URL", "")
+
+# ── Detecta se usa Postgres ────────────────────────────────────────────────────
+
+def usar_postgres():
+    return bool(DATABASE_URL and DATABASE_URL.startswith("postgres"))
 
 # ── LOG ────────────────────────────────────────────────────────────────────────
 
@@ -44,147 +50,207 @@ def log(msg, arquivo="geral"):
     agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     linha = f"[{agora}] {msg}"
     print(f"  [{arquivo.upper()}] {msg}")
-    with open(os.path.join(LOGS_DIR, f"{arquivo}.log"), "a") as f:
-        f.write(linha + "\n")
+    try:
+        with open(os.path.join(LOGS_DIR, f"{arquivo}.log"), "a") as f:
+            f.write(linha + "\n")
+    except:
+        pass
 
 # ── BANCO DE DADOS ─────────────────────────────────────────────────────────────
 
 class BancoMargo:
-    def __init__(self, db_path=DB_FILE):
-        self.db_path = db_path
+    def __init__(self):
+        self._pg = usar_postgres()
+        if self._pg:
+            try:
+                import psycopg2
+                import psycopg2.extras
+                self._psycopg2 = psycopg2
+                self._conn_str = DATABASE_URL
+                log("Banco: Postgres (Supabase)", "banco")
+            except ImportError:
+                log("psycopg2 não instalado — caindo para SQLite", "banco")
+                self._pg = False
+        if not self._pg:
+            log(f"Banco: SQLite ({DB_FILE})", "banco")
         self._inicializar()
 
+    def _get_conn(self):
+        if self._pg:
+            return self._psycopg2.connect(self._conn_str)
+        return sqlite3.connect(DB_FILE)
+
+    def _cur(self, conn):
+        if self._pg:
+            return conn.cursor()
+        conn.row_factory = sqlite3.Row
+        return conn.cursor()
+
     def _inicializar(self):
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
 
-            # Perfil permanente do usuário (max 500 chars)
-            c.execute('''CREATE TABLE IF NOT EXISTS perfil_usuario (
-                user_id TEXT PRIMARY KEY,
-                nome TEXT,
-                idade TEXT,
-                profissao TEXT,
-                musica TEXT,
-                comida TEXT,
-                hobbies TEXT,
-                extra TEXT,
-                criado_em TEXT,
-                atualizado_em TEXT
-            )''')
+        c.execute('''CREATE TABLE IF NOT EXISTS perfil_usuario (
+            user_id TEXT PRIMARY KEY,
+            nome TEXT,
+            idade TEXT,
+            profissao TEXT,
+            musica TEXT,
+            comida TEXT,
+            hobbies TEXT,
+            extra TEXT,
+            criado_em TEXT,
+            atualizado_em TEXT
+        )''')
 
-            # Configuração do assistente personalizado
-            c.execute('''CREATE TABLE IF NOT EXISTS config_assistente (
-                user_id TEXT PRIMARY KEY,
-                nome_assistente TEXT DEFAULT "Margo",
-                genero TEXT DEFAULT "F",
-                personalidade TEXT,
-                voz_provider TEXT DEFAULT "edge_tts",
-                voz_chave TEXT,
-                voz_id TEXT,
-                onboarding_completo INTEGER DEFAULT 0,
-                criado_em TEXT,
-                atualizado_em TEXT
-            )''')
+        c.execute('''CREATE TABLE IF NOT EXISTS config_assistente (
+            user_id TEXT PRIMARY KEY,
+            nome_assistente TEXT DEFAULT 'Margo',
+            genero TEXT DEFAULT 'F',
+            personalidade TEXT,
+            voz_provider TEXT DEFAULT 'device',
+            voz_chave TEXT,
+            voz_id TEXT,
+            onboarding_completo INTEGER DEFAULT 0,
+            criado_em TEXT,
+            atualizado_em TEXT
+        )''')
 
-            # Resumos de sessão (max 5 por usuário, 100 chars cada)
-            c.execute('''CREATE TABLE IF NOT EXISTS resumos_sessao (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT,
-                resumo TEXT,
-                criado_em TEXT
-            )''')
+        c.execute('''CREATE TABLE IF NOT EXISTS resumos_sessao (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT,
+            resumo TEXT,
+            criado_em TEXT
+        )''' if self._pg else '''CREATE TABLE IF NOT EXISTS resumos_sessao (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            resumo TEXT,
+            criado_em TEXT
+        )''')
 
-            # Agenda e lembretes
-            c.execute('''CREATE TABLE IF NOT EXISTS agenda (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT,
-                titulo TEXT,
-                descricao TEXT,
-                data_hora TEXT,
-                lembrete_1d INTEGER DEFAULT 1,
-                lembrete_3h INTEGER DEFAULT 1,
-                lembrado_1d INTEGER DEFAULT 0,
-                lembrado_3h INTEGER DEFAULT 0,
-                criado_em TEXT
-            )''')
+        c.execute('''CREATE TABLE IF NOT EXISTS agenda (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT,
+            titulo TEXT,
+            descricao TEXT,
+            data_hora TEXT,
+            lembrete_1d INTEGER DEFAULT 1,
+            lembrete_3h INTEGER DEFAULT 1,
+            lembrado_1d INTEGER DEFAULT 0,
+            lembrado_3h INTEGER DEFAULT 0,
+            criado_em TEXT
+        )''' if self._pg else '''CREATE TABLE IF NOT EXISTS agenda (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            titulo TEXT,
+            descricao TEXT,
+            data_hora TEXT,
+            lembrete_1d INTEGER DEFAULT 1,
+            lembrete_3h INTEGER DEFAULT 1,
+            lembrado_1d INTEGER DEFAULT 0,
+            lembrado_3h INTEGER DEFAULT 0,
+            criado_em TEXT
+        )''')
 
-            conn.commit()
+        conn.commit()
+        conn.close()
+
+    def _row_to_dict(self, row, cursor):
+        if row is None:
+            return {}
+        if self._pg:
+            cols = [d[0] for d in cursor.description]
+            return dict(zip(cols, row))
+        return dict(row)
 
     # ── PERFIL ─────────────────────────────────────────────────────────────────
 
     def salvar_perfil(self, user_id, dados: dict):
         agora = datetime.now().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            # Verifica se já existe
-            c.execute('SELECT criado_em FROM perfil_usuario WHERE user_id=?', (user_id,))
-            row = c.fetchone()
-            if row:
-                c.execute('''UPDATE perfil_usuario SET
-                    nome=?, idade=?, profissao=?, musica=?, comida=?, hobbies=?, extra=?, atualizado_em=?
-                    WHERE user_id=?''',
-                    (dados.get("nome", ""),
-                     dados.get("idade", ""),
-                     dados.get("profissao", ""),
-                     dados.get("musica", ""),
-                     dados.get("comida", ""),
-                     dados.get("hobbies", ""),
-                     dados.get("extra", ""),
-                     agora,
-                     user_id))
-            else:
-                c.execute('''INSERT INTO perfil_usuario
-                    (user_id, nome, idade, profissao, musica, comida, hobbies, extra, criado_em, atualizado_em)
-                    VALUES (?,?,?,?,?,?,?,?,?,?)''',
-                    (user_id,
-                     dados.get("nome", ""),
-                     dados.get("idade", ""),
-                     dados.get("profissao", ""),
-                     dados.get("musica", ""),
-                     dados.get("comida", ""),
-                     dados.get("hobbies", ""),
-                     dados.get("extra", ""),
-                     agora,
-                     agora))
-            conn.commit()
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        if self._pg:
+            c.execute('''INSERT INTO perfil_usuario
+                (user_id, nome, idade, profissao, musica, comida, hobbies, extra, criado_em, atualizado_em)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    nome=EXCLUDED.nome, idade=EXCLUDED.idade, profissao=EXCLUDED.profissao,
+                    musica=EXCLUDED.musica, comida=EXCLUDED.comida, hobbies=EXCLUDED.hobbies,
+                    extra=EXCLUDED.extra, atualizado_em=EXCLUDED.atualizado_em''',
+                (user_id, dados.get("nome",""), dados.get("idade",""), dados.get("profissao",""),
+                 dados.get("musica",""), dados.get("comida",""), dados.get("hobbies",""),
+                 dados.get("extra",""), agora, agora))
+        else:
+            c.execute('''INSERT OR REPLACE INTO perfil_usuario
+                (user_id, nome, idade, profissao, musica, comida, hobbies, extra, criado_em, atualizado_em)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT criado_em FROM perfil_usuario WHERE user_id=?), ?), ?)''',
+                (user_id, dados.get("nome",""), dados.get("idade",""), dados.get("profissao",""),
+                 dados.get("musica",""), dados.get("comida",""), dados.get("hobbies",""),
+                 dados.get("extra",""), user_id, agora, agora))
+        conn.commit()
+        conn.close()
 
     def buscar_perfil(self, user_id) -> dict:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute('SELECT * FROM perfil_usuario WHERE user_id=?', (user_id,))
-            row = c.fetchone()
-            return dict(row) if row else {}
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        c.execute(f'SELECT * FROM perfil_usuario WHERE user_id={ph}', (user_id,))
+        row = c.fetchone()
+        result = self._row_to_dict(row, c)
+        conn.close()
+        return result
 
     # ── CONFIG ASSISTENTE ──────────────────────────────────────────────────────
 
     def salvar_config(self, user_id, dados: dict):
         agora = datetime.now().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
+        conn = self._get_conn()
+        c = conn.cursor()
+        # Busca config atual para não sobrescrever campos não enviados
+        c.execute(f'SELECT * FROM config_assistente WHERE user_id={"%" + "s" if self._pg else "?"}', (user_id,))
+        atual = self._row_to_dict(c.fetchone(), c) or {}
+        merged = {**atual, **dados}
+        if self._pg:
+            c.execute('''INSERT INTO config_assistente
+                (user_id, nome_assistente, genero, personalidade, voz_provider, voz_chave, voz_id, onboarding_completo, criado_em, atualizado_em)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    nome_assistente=EXCLUDED.nome_assistente, genero=EXCLUDED.genero,
+                    personalidade=EXCLUDED.personalidade, voz_provider=EXCLUDED.voz_provider,
+                    voz_chave=EXCLUDED.voz_chave, voz_id=EXCLUDED.voz_id,
+                    onboarding_completo=EXCLUDED.onboarding_completo, atualizado_em=EXCLUDED.atualizado_em''',
+                (user_id,
+                 merged.get("nome_assistente","Margo"), merged.get("genero","F"),
+                 merged.get("personalidade",""), merged.get("voz_provider","device"),
+                 merged.get("voz_chave",""), merged.get("voz_id",""),
+                 1 if merged.get("onboarding_completo") else 0,
+                 atual.get("criado_em", agora), agora))
+        else:
             c.execute('''INSERT OR REPLACE INTO config_assistente
                 (user_id, nome_assistente, genero, personalidade, voz_provider,
                  voz_chave, voz_id, onboarding_completo, criado_em, atualizado_em)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?,
                         COALESCE((SELECT criado_em FROM config_assistente WHERE user_id=?), ?), ?)''',
                 (user_id,
-                 dados.get("nome_assistente", "Margo"),
-                 dados.get("genero", "F"),
-                 dados.get("personalidade", ""),
-                 dados.get("voz_provider", "edge_tts"),
-                 dados.get("voz_chave", ""),
-                 dados.get("voz_id", ""),
-                 1 if dados.get("onboarding_completo") else 0,
+                 merged.get("nome_assistente","Margo"), merged.get("genero","F"),
+                 merged.get("personalidade",""), merged.get("voz_provider","device"),
+                 merged.get("voz_chave",""), merged.get("voz_id",""),
+                 1 if merged.get("onboarding_completo") else 0,
                  user_id, agora, agora))
-            conn.commit()
+        conn.commit()
+        conn.close()
 
     def buscar_config(self, user_id) -> dict:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute('SELECT * FROM config_assistente WHERE user_id=?', (user_id,))
-            row = c.fetchone()
-            return dict(row) if row else {}
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        c.execute(f'SELECT * FROM config_assistente WHERE user_id={ph}', (user_id,))
+        row = c.fetchone()
+        result = self._row_to_dict(row, c)
+        conn.close()
+        return result
 
     def onboarding_completo(self, user_id) -> bool:
         config = self.buscar_config(user_id)
@@ -193,65 +259,78 @@ class BancoMargo:
     # ── RESUMOS ────────────────────────────────────────────────────────────────
 
     def salvar_resumo(self, user_id, resumo):
-        """Mantém max 5 resumos por usuário — substitui o mais antigo"""
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute('SELECT COUNT(*) FROM resumos_sessao WHERE user_id=?', (user_id,))
-            count = c.fetchone()[0]
-            if count >= 5:
-                c.execute('''DELETE FROM resumos_sessao WHERE id = (
-                    SELECT id FROM resumos_sessao WHERE user_id=? ORDER BY criado_em ASC LIMIT 1)''', (user_id,))
-            resumo_curto = resumo[:100]
-            c.execute('INSERT INTO resumos_sessao (user_id, resumo, criado_em) VALUES (?, ?, ?)',
-                      (user_id, resumo_curto, datetime.now().isoformat()))
-            conn.commit()
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        c.execute(f'SELECT COUNT(*) FROM resumos_sessao WHERE user_id={ph}', (user_id,))
+        count = c.fetchone()[0]
+        if count >= 5:
+            if self._pg:
+                c.execute(f'DELETE FROM resumos_sessao WHERE id = (SELECT id FROM resumos_sessao WHERE user_id={ph} ORDER BY criado_em ASC LIMIT 1)', (user_id,))
+            else:
+                c.execute('DELETE FROM resumos_sessao WHERE id = (SELECT id FROM resumos_sessao WHERE user_id=? ORDER BY criado_em ASC LIMIT 1)', (user_id,))
+        resumo_curto = resumo[:100]
+        c.execute(f'INSERT INTO resumos_sessao (user_id, resumo, criado_em) VALUES ({ph},{ph},{ph})',
+                  (user_id, resumo_curto, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
 
     def buscar_resumos(self, user_id) -> list:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute('SELECT resumo FROM resumos_sessao WHERE user_id=? ORDER BY criado_em DESC LIMIT 5', (user_id,))
-            return [r[0] for r in c.fetchall()]
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        c.execute(f'SELECT resumo FROM resumos_sessao WHERE user_id={ph} ORDER BY criado_em DESC LIMIT 5', (user_id,))
+        result = [r[0] for r in c.fetchall()]
+        conn.close()
+        return result
 
     # ── AGENDA ─────────────────────────────────────────────────────────────────
 
     def salvar_lembrete(self, user_id, titulo, descricao, data_hora):
-        with sqlite3.connect(self.db_path) as conn:
-            conn.cursor().execute('''INSERT INTO agenda
-                (user_id, titulo, descricao, data_hora, criado_em)
-                VALUES (?, ?, ?, ?, ?)''',
-                (user_id, titulo, descricao, data_hora, datetime.now().isoformat()))
-            conn.commit()
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        c.execute(f'INSERT INTO agenda (user_id, titulo, descricao, data_hora, criado_em) VALUES ({ph},{ph},{ph},{ph},{ph})',
+                  (user_id, titulo, descricao, data_hora, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
 
     def buscar_lembretes(self, user_id) -> list:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute('''SELECT * FROM agenda WHERE user_id=? AND data_hora > ?
-                ORDER BY data_hora ASC''', (user_id, datetime.now().isoformat()))
-            return [dict(r) for r in c.fetchall()]
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        c.execute(f'SELECT * FROM agenda WHERE user_id={ph} AND data_hora > {ph} ORDER BY data_hora ASC',
+                  (user_id, datetime.now().isoformat()))
+        rows = c.fetchall()
+        result = [self._row_to_dict(r, c) for r in rows]
+        conn.close()
+        return result
 
     def lembretes_proximos(self, user_id) -> list:
-        """Retorna lembretes que precisam ser disparados agora"""
         agora = datetime.now()
         resultado = []
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute('SELECT * FROM agenda WHERE user_id=?', (user_id,))
-            for row in c.fetchall():
-                item = dict(row)
-                try:
-                    dt = datetime.fromisoformat(item["data_hora"])
-                    diff = (dt - agora).total_seconds() / 3600  # horas
-                    if 0 < diff <= 3 and not item["lembrado_3h"]:
-                        resultado.append({**item, "tipo": "3h"})
-                        conn.cursor().execute('UPDATE agenda SET lembrado_3h=1 WHERE id=?', (item["id"],))
-                    elif 20 < diff <= 25 and not item["lembrado_1d"]:
-                        resultado.append({**item, "tipo": "1d"})
-                        conn.cursor().execute('UPDATE agenda SET lembrado_1d=1 WHERE id=?', (item["id"],))
-                except:
-                    pass
-            conn.commit()
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        c.execute(f'SELECT * FROM agenda WHERE user_id={ph}', (user_id,))
+        rows = c.fetchall()
+        for row in rows:
+            item = self._row_to_dict(row, c)
+            try:
+                dt = datetime.fromisoformat(item["data_hora"])
+                diff = (dt - agora).total_seconds() / 3600
+                if 0 < diff <= 3 and not item["lembrado_3h"]:
+                    resultado.append({**item, "tipo": "3h"})
+                    c2 = conn.cursor()
+                    c2.execute(f'UPDATE agenda SET lembrado_3h=1 WHERE id={ph}', (item["id"],))
+                elif 20 < diff <= 25 and not item["lembrado_1d"]:
+                    resultado.append({**item, "tipo": "1d"})
+                    c2 = conn.cursor()
+                    c2.execute(f'UPDATE agenda SET lembrado_1d=1 WHERE id={ph}', (item["id"],))
+            except:
+                pass
+        conn.commit()
+        conn.close()
         return resultado
 
 banco = BancoMargo()
@@ -259,9 +338,8 @@ banco = BancoMargo()
 # ── GERENCIADOR DE SESSÃO ──────────────────────────────────────────────────────
 
 class SessaoUsuario:
-    """Gerencia sessão de até 10 interações por usuário"""
     def __init__(self):
-        self._sessoes = {}  # user_id -> deque(maxlen=10)
+        self._sessoes = {}
         self._lock = threading.Lock()
 
     def adicionar(self, user_id, user_msg, assistant_msg):
@@ -282,7 +360,6 @@ class SessaoUsuario:
             self._sessoes.pop(user_id, None)
 
     def resumir_e_limpar(self, user_id):
-        """Gera resumo da sessão e limpa"""
         historico = self.get_historico(user_id)
         if not historico:
             return
@@ -325,11 +402,10 @@ def chamar_deepseek(system_prompt, mensagem, historico=None, max_tokens=1000):
     try:
         msgs = [{"role": "system", "content": system_prompt}]
         if historico:
-            for item in historico[-6:]:  # últimas 6 trocas do histórico
+            for item in historico[-6:]:
                 msgs.append({"role": "user",      "content": item["user"]})
                 msgs.append({"role": "assistant", "content": item["assistant"]})
         msgs.append({"role": "user", "content": mensagem})
-
         body = json.dumps({
             "model": "deepseek-chat",
             "messages": msgs,
@@ -365,7 +441,7 @@ SEU JEITO:
 ETAPAS DO ONBOARDING (siga esta ordem, uma por vez):
 1. Se apresentar brevemente e perguntar o nome do usuário
 2. Perguntar a idade
-3. Perguntar a profissão o que faz da vida
+3. Perguntar a profissão ou o que faz da vida
 4. Perguntar preferências musicais
 5. Perguntar tipo de comida favorita
 6. Perguntar hobbies ou o que gosta de fazer no tempo livre
@@ -400,7 +476,6 @@ def build_system_prompt(perfil: dict, config: dict) -> str:
     comida          = perfil.get("comida", "")
     hobbies         = perfil.get("hobbies", "")
     extra           = perfil.get("extra", "")
-
     pronome = "ela" if genero == "F" else "ele"
 
     return f"""Você é {nome_assistente}, assistente pessoal de {nome_usuario}.
@@ -476,18 +551,11 @@ ESTILO DE RESPOSTA
 - Sempre no idioma que o usuário usou
 - Sem emojis em excesso — 1 por mensagem no máximo, só se natural
 - Nunca markdown. Nunca asteriscos. Texto limpo.
-
-EXEMPLOS:
-"Quero ir pra casa" → aciona maps_navigate + "Rota iniciada!"
-"Toca um sertanejo" → aciona spotify_play + "Colocando sertanejo pra você."
-"Tem restaurante japonês perto?" → aciona maps_search + "Procurando restaurantes japoneses aqui perto..."
-"Me lembra da reunião amanhã às 10h" → aciona agenda_add + "Anotado! Te aviso um dia antes e 3 horas antes."
 """
 
 # ── PROCESSAMENTO ──────────────────────────────────────────────────────────────
 
 def limpar_resposta(texto):
-    """Remove markdown e símbolos que atrapalham o TTS"""
     texto = re.sub(r'\*\*(.+?)\*\*', r'\1', texto)
     texto = re.sub(r'\*(.+?)\*',     r'\1', texto)
     texto = re.sub(r'`(.+?)`',       r'\1', texto)
@@ -498,7 +566,6 @@ def limpar_resposta(texto):
     return texto.strip()
 
 def extrair_ferramenta(texto):
-    """Extrai JSON de ferramenta da resposta se houver"""
     match = re.search(r'\{[^{}]*"ferramenta"[^{}]*\}', texto, re.DOTALL)
     if match:
         try:
@@ -508,7 +575,6 @@ def extrair_ferramenta(texto):
     return None
 
 def extrair_onboarding_completo(texto):
-    """Detecta se o onboarding foi concluído"""
     match = re.search(r'ONBOARDING_COMPLETO:(\{.+?\})', texto, re.DOTALL)
     if match:
         try:
@@ -518,8 +584,6 @@ def extrair_onboarding_completo(texto):
     return None
 
 def processar_mensagem(user_id, mensagem):
-    """Processa mensagem de um usuário"""
-
     config = banco.buscar_config(user_id)
     perfil = banco.buscar_perfil(user_id)
 
@@ -527,34 +591,28 @@ def processar_mensagem(user_id, mensagem):
     if not config.get("onboarding_completo"):
         historico = sessoes.get_historico(user_id)
         resposta = chamar_deepseek(SYSTEM_ONBOARDING, mensagem, historico, max_tokens=300)
-
-        # Verifica se onboarding foi concluído
         dados = extrair_onboarding_completo(resposta)
         if dados:
-            # Salva perfil e config
             banco.salvar_perfil(user_id, dados)
             banco.salvar_config(user_id, {
-                "nome_assistente":    dados.get("nome_assistente", "Margo"),
-                "genero":             dados.get("genero", "F"),
-                "personalidade":      dados.get("personalidade", ""),
+                "nome_assistente":     dados.get("nome_assistente", "Margo"),
+                "genero":              dados.get("genero", "F"),
+                "personalidade":       dados.get("personalidade", ""),
                 "onboarding_completo": True
             })
-            # Remove o bloco JSON da resposta
             resposta = re.sub(r'ONBOARDING_COMPLETO:\{.+?\}', '', resposta).strip()
             log(f"Onboarding concluído para user {user_id}", "onboarding")
-
         sessoes.adicionar(user_id, mensagem, resposta)
         return {"resposta": limpar_resposta(resposta), "onboarding": not dados, "ferramenta": None}
 
     # ── MODO NORMAL ────────────────────────────────────────────────────────────
-    historico  = sessoes.get_historico(user_id)
-    resumos    = banco.buscar_resumos(user_id)
-    lembretes  = banco.lembretes_proximos(user_id)
+    historico = sessoes.get_historico(user_id)
+    resumos   = banco.buscar_resumos(user_id)
+    lembretes = banco.lembretes_proximos(user_id)
 
-    # Monta contexto extra
     contexto_extra = ""
     if resumos:
-        contexto_extra += f"\nConversas anteriores:\n" + "\n".join(f"- {r}" for r in resumos)
+        contexto_extra += "\nConversas anteriores:\n" + "\n".join(f"- {r}" for r in resumos)
     if lembretes:
         for l in lembretes:
             contexto_extra += f"\n[LEMBRETE AGORA] {l['titulo']} — {l['tipo']}"
@@ -565,13 +623,9 @@ def processar_mensagem(user_id, mensagem):
 
     resposta = chamar_deepseek(system, mensagem, historico, max_tokens=500)
 
-    # Detecta ferramenta
     ferramenta = extrair_ferramenta(resposta)
     if ferramenta:
-        # Remove JSON da resposta falada
         resposta = re.sub(r'\{[^{}]*"ferramenta"[^{}]*\}', '', resposta).strip()
-
-        # Agenda: salva no banco
         if ferramenta.get("ferramenta") == "agenda_add":
             banco.salvar_lembrete(
                 user_id,
@@ -587,9 +641,62 @@ def processar_mensagem(user_id, mensagem):
         "ferramenta": ferramenta
     }
 
+# ── TTS — Fish Audio ───────────────────────────────────────────────────────────
+
+def falar_fishaudio(texto, chave, voz_id, genero="F"):
+    """Chama Fish Audio TTS e retorna bytes do áudio"""
+    try:
+        # Fish Audio usa reference_id para selecionar a voz
+        ref_id = voz_id if voz_id else ("1eb9bd65918e40a2a4fd2a2e4a949609" if genero == "F" else "54a5170264694bfc8e9ad98df7bd89c3")
+        payload = json.dumps({
+            "text": texto,
+            "reference_id": ref_id,
+            "format": "mp3",
+            "mp3_bitrate": 128
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.fish.audio/v1/tts",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {chave}",
+                "Content-Type": "application/json"
+            }
+        )
+        resp = urllib.request.urlopen(req, timeout=30)
+        return resp.read()
+    except Exception as e:
+        log(f"Fish Audio erro: {e}", "voz")
+        return None
+
+# ── TTS — ElevenLabs ──────────────────────────────────────────────────────────
+
+def falar_elevenlabs(texto, chave, voz_id, genero="F"):
+    """Chama ElevenLabs TTS e retorna bytes do áudio"""
+    try:
+        vid = voz_id if voz_id else ("21m00Tcm4TlvDq8ikWAM" if genero == "F" else "TxGEqnHWrfWFTfGW9XjX")
+        payload = json.dumps({
+            "text": texto,
+            "model_id": "eleven_multilingual_v2",
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{vid}",
+            data=payload,
+            headers={
+                "xi-api-key": chave,
+                "Content-Type": "application/json",
+                "Accept": "audio/mpeg"
+            }
+        )
+        resp = urllib.request.urlopen(req, timeout=30)
+        return resp.read()
+    except Exception as e:
+        log(f"ElevenLabs erro: {e}", "voz")
+        return None
+
 # ── FASTAPI ────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Margo Server", version="1.0.0")
+app = FastAPI(title="Margo Server", version="1.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -600,11 +707,11 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.0.0"}
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.1.0",
+            "banco": "postgres" if usar_postgres() else "sqlite"}
 
 @app.get("/ping")
 def ping():
-    """Keep-alive endpoint — o scheduler chama a cada 25min"""
     return {"pong": True, "ts": datetime.now().isoformat()}
 
 @app.post("/mensagem")
@@ -621,16 +728,61 @@ async def mensagem(request: Request):
         log(f"Erro /mensagem: {e}")
         return JSONResponse({"erro": str(e)}, status_code=500)
 
+@app.post("/falar")
+async def falar(request: Request):
+    """
+    Gera áudio TTS via Fish Audio ou ElevenLabs.
+    Body: { texto, provider ('fishaudio'|'elevenlabs'), chave, voz_id, genero ('F'|'M'), user_id }
+    Retorna: { audio_base64, formato }
+    Se não houver chave/voz_id válidos, retorna { device_tts: true } para o frontend usar voz local.
+    """
+    try:
+        data     = await request.json()
+        texto    = data.get("texto", "").strip()
+        provider = data.get("provider", "").lower()
+        chave    = data.get("chave", "").strip()
+        voz_id   = data.get("voz_id", "").strip()
+        genero   = data.get("genero", "F")
+        user_id  = data.get("user_id", "default")
+
+        if not texto:
+            return JSONResponse({"erro": "texto vazio"}, status_code=400)
+
+        # Se não tem chave, manda usar voz do dispositivo
+        if not chave:
+            return JSONResponse({"device_tts": True})
+
+        audio_bytes = None
+
+        if provider == "fishaudio":
+            audio_bytes = falar_fishaudio(texto, chave, voz_id, genero)
+        elif provider == "elevenlabs":
+            audio_bytes = falar_elevenlabs(texto, chave, voz_id, genero)
+        else:
+            return JSONResponse({"device_tts": True})
+
+        if not audio_bytes:
+            # Falhou — manda usar voz local como fallback
+            return JSONResponse({"device_tts": True, "erro": "TTS falhou, usando voz local"})
+
+        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+        return JSONResponse({"audio_base64": audio_b64, "formato": "mp3"})
+
+    except Exception as e:
+        log(f"Erro /falar: {e}", "voz")
+        return JSONResponse({"device_tts": True, "erro": str(e)})
+
 @app.get("/status/{user_id}")
 def status(user_id: str):
     config = banco.buscar_config(user_id)
     perfil = banco.buscar_perfil(user_id)
     return {
-        "user_id":              user_id,
-        "onboarding_completo":  bool(config.get("onboarding_completo")),
-        "nome_usuario":         perfil.get("nome", ""),
-        "nome_assistente":      config.get("nome_assistente", "Margo"),
-        "genero":               config.get("genero", "F"),
+        "user_id":             user_id,
+        "onboarding_completo": bool(config.get("onboarding_completo")),
+        "nome_usuario":        perfil.get("nome", ""),
+        "nome_assistente":     config.get("nome_assistente", "Margo"),
+        "genero":              config.get("genero", "F"),
+        "banco":               "postgres" if usar_postgres() else "sqlite"
     }
 
 @app.post("/limpar_sessao")
@@ -642,14 +794,13 @@ async def limpar_sessao(request: Request):
 
 @app.post("/salvar_voz")
 async def salvar_voz(request: Request):
-    """Salva configuração de voz customizada (ElevenLabs/Fish Audio)"""
+    """Salva configuração de voz customizada (ElevenLabs / Fish Audio)"""
     data    = await request.json()
     user_id = data.get("user_id", "default")
     banco.salvar_config(user_id, {
-        "voz_provider": data.get("provider", "edge_tts"),
+        "voz_provider": data.get("provider", "device"),
         "voz_chave":    data.get("chave", ""),
         "voz_id":       data.get("voz_id", ""),
-        **banco.buscar_config(user_id)
     })
     return {"ok": True}
 
@@ -659,106 +810,32 @@ def agenda(user_id: str):
 
 @app.post("/reset_onboarding")
 async def reset_onboarding(request: Request):
-    """Reseta onboarding para um usuário (útil em dev/testes)"""
     data    = await request.json()
     user_id = data.get("user_id", "default")
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.cursor().execute('DELETE FROM config_assistente WHERE user_id=?', (user_id,))
-        conn.cursor().execute('DELETE FROM perfil_usuario WHERE user_id=?', (user_id,))
-        conn.cursor().execute('DELETE FROM resumos_sessao WHERE user_id=?', (user_id,))
-        conn.commit()
+    conn = banco._get_conn()
+    c = conn.cursor()
+    ph = "%s" if usar_postgres() else "?"
+    c.execute(f'DELETE FROM config_assistente WHERE user_id={ph}', (user_id,))
+    c.execute(f'DELETE FROM perfil_usuario WHERE user_id={ph}', (user_id,))
+    c.execute(f'DELETE FROM resumos_sessao WHERE user_id={ph}', (user_id,))
+    conn.commit()
+    conn.close()
     sessoes.limpar(user_id)
     return {"ok": True, "msg": "Onboarding resetado"}
 
 # ── MAIN ───────────────────────────────────────────────────────────────────────
 
-@app.post("/falar")
-async def falar(req: Request):
-    import edge_tts, aiofiles, tempfile
-    from asyncio import timeout as asyncio_timeout
-    from fastapi.responses import FileResponse
-    data = await req.json()
-    texto = data.get("texto", "").strip()
-    if not texto:
-        return JSONResponse({"erro": "texto vazio"}, status_code=400)
-    user_id = data.get("user_id", "default")
-    config = banco.buscar_config(user_id)
-    genero = data.get("genero", config.get("genero", "F"))
-    provider = data.get("provider") or config.get("voz_provider", "edge_tts")
-    voz_chave = data.get("chave") or config.get("voz_chave", "")
-    voz_id = data.get("voz_id") or config.get("voz_id", "")
-    if not voz_id:
-        voz_id = "pt-BR-FranciscaNeural" if genero == "F" else "pt-BR-AntonioNeural"
-
-    # ElevenLabs
-    if provider == "elevenlabs" and voz_chave:
-        try:
-            import base64
-            voice_id = voz_id or "21m00Tcm4TlvDq8ikWAM"
-            body = json.dumps({"text": texto, "model_id": "eleven_multilingual_v2",
-                               "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}).encode()
-            req2 = urllib.request.Request(
-                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
-                data=body,
-                headers={"Content-Type": "application/json", "xi-api-key": voz_chave})
-            resp2 = urllib.request.urlopen(req2, timeout=20)
-            audio_bytes = resp2.read()
-            return JSONResponse({"ok": True, "audio_base64": base64.b64encode(audio_bytes).decode("utf-8")})
-        except Exception as e:
-            log(f"ElevenLabs erro: {e}")
-            return JSONResponse({"erro": str(e)}, status_code=500)
-
-    # Fish Audio
-    if provider == "fishaudio" and voz_chave:
-        try:
-            import base64
-            body = json.dumps({"text": texto, "reference_id": voz_id, "format": "mp3"}).encode()
-            req2 = urllib.request.Request(
-                "https://api.fish.audio/v1/tts",
-                data=body,
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {voz_chave}"})
-            resp2 = urllib.request.urlopen(req2, timeout=30)
-            audio_bytes = resp2.read()
-            if len(audio_bytes) < 100:
-                return JSONResponse({"erro": "audio vazio"}, status_code=500)
-            return JSONResponse({"ok": True, "audio_base64": base64.b64encode(audio_bytes).decode("utf-8")})
-        except Exception as e:
-            log(f"Fish Audio erro: {e}")
-            return JSONResponse({"erro": str(e)}, status_code=500)
-
-    # Sem provedor premium — app usa Web Speech API
-    return JSONResponse({"erro": "sem_provedor", "usar_web_speech": True}, status_code=200)
-
-def verificar_lembretes():
-    while True:
-        try:
-            rows = banco._query("SELECT DISTINCT user_id FROM agenda", fetchall=True)
-            users = [r["user_id"] for r in rows]
-            for user_id in users:
-                lembretes = banco.lembretes_proximos(user_id)
-                for l in lembretes:
-                    tipo = l.get("tipo")
-                    titulo = l.get("titulo", "Compromisso")
-                    if tipo == "1d":
-                        msg = f"Lembrete: amanha voce tem {titulo}."
-                    else:
-                        msg = f"Atencao: em 3 horas voce tem {titulo}!"
-                    log(f"Lembrete disparado: {user_id} - {titulo} ({tipo})", "agenda")
-        except Exception as e:
-            log(f"Scheduler erro: {e}", "agenda")
-        import time as _time
-        _time.sleep(300)
-
 if __name__ == "__main__":
     print("=" * 55)
-    print("  MARGO SERVER v1.0 — by Orbiby")
+    print("  MARGO SERVER v1.1 — by Orbiby")
     print("=" * 55)
     print(f"  Porta:  {PORT}")
-    print(f"  Banco:  {DB_FILE}")
+    print(f"  Banco:  {'Postgres (Supabase)' if usar_postgres() else f'SQLite ({DB_FILE})'}")
     print(f"  DeepSeek key: {'OK' if DEEPSEEK_API_KEY else 'FALTANDO!'}")
     print("-" * 55)
     print("  Endpoints:")
     print("  POST /mensagem         — chat principal")
+    print("  POST /falar            — TTS (Fish Audio / ElevenLabs / device)")
     print("  GET  /status/{user_id} — estado do usuário")
     print("  GET  /ping             — keep-alive")
     print("  POST /limpar_sessao    — encerra e resume sessão")
@@ -766,5 +843,4 @@ if __name__ == "__main__":
     print("  GET  /agenda/{user_id} — lembretes futuros")
     print("  POST /reset_onboarding — reseta (dev)")
     print("=" * 55)
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
