@@ -20,7 +20,7 @@ MARGO_DIR  = os.path.expanduser("~/margo")
 DB_FILE    = os.path.join(MARGO_DIR, "margo_memoria.db")
 ESTADO_DIR = os.path.join(MARGO_DIR, "estado")
 LOGS_DIR   = os.path.join(MARGO_DIR, "logs")
-PORT       = int(os.environ.get("PORT", 8000))
+PORT       = 8000
 
 os.makedirs(MARGO_DIR,  exist_ok=True)
 os.makedirs(ESTADO_DIR, exist_ok=True)
@@ -575,7 +575,9 @@ def extrair_ferramenta(texto):
     return None
 
 def extrair_onboarding_completo(texto):
-    match = re.search(r'ONBOARDING_COMPLETO:(\{.+?\})', texto, re.DOTALL)
+    # Remove blocos markdown (```json ... ```) antes de procurar o JSON
+    texto_limpo = re.sub(r'```(?:json)?\s*', '', texto)
+    match = re.search(r'ONBOARDING_COMPLETO:\s*(\{.+?\})', texto_limpo, re.DOTALL)
     if match:
         try:
             return json.loads(match.group(1))
