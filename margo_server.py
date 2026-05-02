@@ -20,7 +20,7 @@ MARGO_DIR  = os.path.expanduser("~/margo")
 DB_FILE    = os.path.join(MARGO_DIR, "margo_memoria.db")
 ESTADO_DIR = os.path.join(MARGO_DIR, "estado")
 LOGS_DIR   = os.path.join(MARGO_DIR, "logs")
-PORT       = 8000
+PORT       = int(os.environ.get("PORT", 8000))
 
 os.makedirs(MARGO_DIR,  exist_ok=True)
 os.makedirs(ESTADO_DIR, exist_ok=True)
