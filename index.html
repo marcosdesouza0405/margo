@@ -871,10 +871,10 @@ const INTENCOES = [
     }
   },
   // Maps navegação
-  { regex: /\b(rota|traça|tracar|navega|me leva|ir para|caminho até|como chegar)\b/i,
+  { regex: /\b(rota|traça|tracar|navega|me leva|ir para|ir pra|caminho até|como chegar)\b/i,
     acao: (msg) => {
       const q = msg
-        .replace(/\b(rota|traça|tracar|navega|me leva|ir para|caminho até|como chegar|para|pra|até|a|um|uma|por favor|quero|consegue)\b/gi, '')
+        .replace(/\b(margo|rota|traça|tracar|navega|me leva|ir para|ir pra|caminho até|como chegar|para|pra|até|a|um|uma|por favor|quero|consegue|me|eu)\b/gi, '')
         .replace(/\s+/g, ' ').trim() || 'casa';
       const origin = userLocation ? `&origin=${userLocation.lat},${userLocation.lng}` : '';
       return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(q)}${origin}`;
