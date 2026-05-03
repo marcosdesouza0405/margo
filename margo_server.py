@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import urllib.request
+import urllib.parse
 import uvicorn
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
@@ -38,6 +39,7 @@ if os.path.exists(ENV_PATH):
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DATABASE_URL     = os.environ.get("DATABASE_URL", "")
+BRAVE_API_KEY    = os.environ.get("BRAVE_API_KEY", "")
 
 # ── Detecta se usa Postgres ────────────────────────────────────────────────────
 
@@ -450,6 +452,39 @@ class SessaoUsuario:
 
 sessoes = SessaoUsuario()
 
+# ── BRAVE SEARCH ──────────────────────────────────────────────────────────────
+
+def buscar_brave(query: str, max_results: int = 3) -> str:
+    """Chama Brave Search e retorna resumo dos resultados para o DeepSeek usar."""
+    if not BRAVE_API_KEY:
+        return ""
+    try:
+        url = "https://api.search.brave.com/res/v1/web/search?q=" + urllib.parse.quote(query) + "&count=" + str(max_results) + "&search_lang=pt&country=BR"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Accept": "application/json",
+                "Accept-Encoding": "gzip",
+                "X-Subscription-Token": BRAVE_API_KEY
+            }
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read())
+        resultados = data.get("web", {}).get("results", [])
+        if not resultados:
+            return ""
+        # Monta resumo compacto pra não inflar o prompt
+        linhas = []
+        for r in resultados[:max_results]:
+            titulo = r.get("title", "")
+            descricao = r.get("description", "")
+            if titulo or descricao:
+                linhas.append(f"- {titulo}: {descricao[:200]}")
+        return "\n".join(linhas)
+    except Exception as e:
+        log(f"Brave Search erro: {e}", "busca")
+        return ""
+
 # ── DEEPSEEK ───────────────────────────────────────────────────────────────────
 
 def chamar_deepseek_simples(mensagem, max_tokens=150):
@@ -709,7 +744,25 @@ def processar_mensagem(user_id, mensagem):
     ferramenta = extrair_ferramenta(resposta)
     if ferramenta:
         resposta = re.sub(r'\{[^{}]*"ferramenta"[^{}]*\}', '', resposta).strip()
-        if ferramenta.get("ferramenta") == "agenda_add":
+
+        # ── WEB SEARCH: busca real e resposta enriquecida ───────────────────────
+        if ferramenta.get("ferramenta") == "web_search" and BRAVE_API_KEY:
+            query = ferramenta.get("query", mensagem)
+            log(f"Brave Search: {query}", "busca")
+            resultados = buscar_brave(query)
+            if resultados:
+                # Manda os resultados pro DeepSeek formular uma resposta natural
+                prompt_busca = f"""O usuário perguntou: "{mensagem}"
+
+Aqui estão os resultados da busca na internet:
+{resultados}
+
+Responda de forma natural e conversacional em português, usando essas informações.
+Seja conciso — máximo 3 frases. Não cite as fontes explicitamente."""
+                resposta = chamar_deepseek_simples(prompt_busca, max_tokens=300) or resposta
+
+        # ── AGENDA ─────────────────────────────────────────────────────────────
+        elif ferramenta.get("ferramenta") == "agenda_add":
             banco.salvar_lembrete(
                 user_id,
                 ferramenta.get("titulo", "Compromisso"),
@@ -790,8 +843,9 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.3.0",
-            "banco": "postgres" if usar_postgres() else "sqlite"}
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.4.0",
+            "banco": "postgres" if usar_postgres() else "sqlite",
+            "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
 @app.get("/ping")
 def ping():
