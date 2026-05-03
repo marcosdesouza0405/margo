@@ -91,6 +91,20 @@ class BancoMargo:
         c = conn.cursor()
         ph = "%s" if self._pg else "?"
 
+        # ── TABELA USUARIOS (base para login + cobrança futura) ────────────────
+        c.execute('''CREATE TABLE IF NOT EXISTS usuarios (
+            user_id TEXT PRIMARY KEY,
+            email TEXT UNIQUE,
+            nome TEXT,
+            plano TEXT DEFAULT 'free',
+            status TEXT DEFAULT 'ativo',
+            senha_hash TEXT,
+            email_verificado INTEGER DEFAULT 0,
+            stripe_customer_id TEXT,
+            criado_em TEXT,
+            ultimo_acesso TEXT
+        )''')
+
         c.execute('''CREATE TABLE IF NOT EXISTS perfil_usuario (
             user_id TEXT PRIMARY KEY,
             nome TEXT,
@@ -163,6 +177,68 @@ class BancoMargo:
             cols = [d[0] for d in cursor.description]
             return dict(zip(cols, row))
         return dict(row)
+
+    # ── USUARIOS ───────────────────────────────────────────────────────────────
+
+    def cadastrar_ou_login(self, email: str, nome: str = "") -> dict:
+        """Cadastra novo usuário ou faz login se já existe. Retorna dados do usuário."""
+        import uuid
+        agora = datetime.now().isoformat()
+        email = email.lower().strip()
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+
+        # Busca usuário existente
+        c.execute(f'SELECT * FROM usuarios WHERE email={ph}', (email,))
+        row = c.fetchone()
+        usuario = self._row_to_dict(row, c)
+
+        if usuario:
+            # Login — atualiza último acesso
+            c.execute(f'UPDATE usuarios SET ultimo_acesso={ph} WHERE email={ph}', (agora, email))
+            conn.commit()
+            conn.close()
+            return {"novo": False, **usuario}
+        else:
+            # Cadastro — gera UUID fixo
+            user_id = "u_" + str(uuid.uuid4()).replace("-", "")[:16]
+            if self._pg:
+                c.execute('''INSERT INTO usuarios
+                    (user_id, email, nome, plano, status, criado_em, ultimo_acesso)
+                    VALUES (%s,%s,%s,'free','ativo',%s,%s)''',
+                    (user_id, email, nome, agora, agora))
+            else:
+                c.execute('''INSERT INTO usuarios
+                    (user_id, email, nome, plano, status, criado_em, ultimo_acesso)
+                    VALUES (?,?,?,'free','ativo',?,?)''',
+                    (user_id, email, nome, agora, agora))
+            conn.commit()
+            conn.close()
+            log(f"Novo usuário: {email} → {user_id}", "usuarios")
+            return {"novo": True, "user_id": user_id, "email": email, "nome": nome,
+                    "plano": "free", "status": "ativo"}
+
+    def buscar_usuario_por_email(self, email: str) -> dict:
+        email = email.lower().strip()
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        c.execute(f'SELECT * FROM usuarios WHERE email={ph}', (email,))
+        row = c.fetchone()
+        result = self._row_to_dict(row, c)
+        conn.close()
+        return result
+
+    def buscar_usuario_por_id(self, user_id: str) -> dict:
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        c.execute(f'SELECT * FROM usuarios WHERE user_id={ph}', (user_id,))
+        row = c.fetchone()
+        result = self._row_to_dict(row, c)
+        conn.close()
+        return result
 
     # ── PERFIL ─────────────────────────────────────────────────────────────────
 
@@ -714,12 +790,65 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.2.0",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.3.0",
             "banco": "postgres" if usar_postgres() else "sqlite"}
 
 @app.get("/ping")
 def ping():
     return {"pong": True, "ts": datetime.now().isoformat()}
+
+@app.post("/login")
+async def login(request: Request):
+    """
+    Cadastro ou login por email.
+    Body: { email, nome }
+    Retorna: { user_id, email, nome, plano, novo (bool), tem_perfil (bool) }
+    """
+    try:
+        data  = await request.json()
+        email = data.get("email", "").strip().lower()
+        nome  = data.get("nome", "").strip()
+
+        if not email or "@" not in email:
+            return JSONResponse({"erro": "Email inválido"}, status_code=400)
+
+        usuario = banco.cadastrar_ou_login(email, nome)
+        user_id = usuario["user_id"]
+
+        # Verifica se já tem perfil configurado
+        perfil = banco.buscar_perfil(user_id)
+        config = banco.buscar_config(user_id)
+        tem_perfil = bool(perfil.get("nome") and config.get("onboarding_completo"))
+
+        return JSONResponse({
+            "ok":       True,
+            "user_id":  user_id,
+            "email":    usuario.get("email", email),
+            "nome":     usuario.get("nome", nome),
+            "plano":    usuario.get("plano", "free"),
+            "novo":     usuario.get("novo", False),
+            "tem_perfil": tem_perfil,
+        })
+    except Exception as e:
+        log(f"Erro /login: {e}", "usuarios")
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.get("/usuario/{user_id}")
+def get_usuario(user_id: str):
+    """Retorna dados completos do usuário para carregar em novo dispositivo"""
+    usuario = banco.buscar_usuario_por_id(user_id)
+    if not usuario:
+        return JSONResponse({"erro": "Usuário não encontrado"}, status_code=404)
+    perfil  = banco.buscar_perfil(user_id)
+    config  = banco.buscar_config(user_id)
+    return JSONResponse({
+        "user_id":        user_id,
+        "email":          usuario.get("email", ""),
+        "nome":           usuario.get("nome", ""),
+        "plano":          usuario.get("plano", "free"),
+        "perfil":         perfil,
+        "config":         {k: v for k, v in config.items() if k != "voz_chave"},
+    })
 
 @app.post("/mensagem")
 async def mensagem(request: Request):
