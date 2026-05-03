@@ -825,14 +825,23 @@ const INTENCOES = [
   // Maps navegação
   { regex: /\b(rota|traça|tracar|navega|me leva|ir para|caminho até|como chegar)\b/i,
     acao: (msg) => {
-      const q = msg.replace(/\b(rota|traça|tracar|navega|me leva|ir para|caminho até|como chegar|para|pra|até)\b/gi,'').trim() || 'casa';
-      return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(q);
+      const q = msg.replace(/\b(rota|traça|tracar|navega|me leva|ir para|caminho até|como chegar|para|pra|até|a|um|uma)\b/gi,'').trim() || 'casa';
+      const origin = userLocation ? `&origin=${userLocation.lat},${userLocation.lng}` : '';
+      return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(q)}${origin}`;
     }
   },
   // Maps busca
-  { regex: /\b(restaurante|farmácia|farmacia|posto|hospital|mercado|onde tem|perto)\b/i,
+  { regex: /\b(restaurante|farmácia|farmacia|posto|hospital|mercado|onde tem|perto|padaria|bar|café|cafe|loja|supermercado|shopping)\b/i,
     acao: (msg) => {
-      return 'https://www.google.com/maps/search/' + encodeURIComponent(msg.trim());
+      // Extrai só o tipo do lugar — remove verbos e frases desnecessárias
+      const lugar = msg
+        .replace(/\b(encontre|acha|procura|tem|algum|alguma|aqui|perto|por|me|pra|para|mim|favor|por favor|você|vc|pode|consegue|onde|tem)\b/gi, '')
+        .replace(/\s+/g, ' ').trim();
+      // Se tem localização, usa nearby search
+      if (userLocation) {
+        return `https://www.google.com/maps/search/${encodeURIComponent(lugar)}/@${userLocation.lat},${userLocation.lng},15z`;
+      }
+      return 'https://www.google.com/maps/search/' + encodeURIComponent(lugar);
     }
   },
   // YouTube
