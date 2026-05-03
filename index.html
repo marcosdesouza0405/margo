@@ -818,7 +818,8 @@ async function falar(texto) {
 
 // ── ABERTURA DE LINKS — compatível com TWA e browser ─────────────────────────
 function abrirLink(url) {
-  try { window.open(url, '_blank'); } catch(e) { window.location.href = url; }
+  // location.href funciona melhor no TWA Android do que window.open
+  window.location.href = url;
 }
 
 // ── GPS ───────────────────────────────────────────────────────────────────────
