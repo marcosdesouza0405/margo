@@ -464,12 +464,16 @@ def buscar_brave(query: str, max_results: int = 3) -> str:
             url,
             headers={
                 "Accept": "application/json",
-                "Accept-Encoding": "gzip",
                 "X-Subscription-Token": BRAVE_API_KEY
             }
         )
         resp = urllib.request.urlopen(req, timeout=10)
-        data = json.loads(resp.read())
+        raw = resp.read()
+        # Descomprime gzip se necessário
+        if raw[:2] == b'\x1f\x8b':
+            import gzip
+            raw = gzip.decompress(raw)
+        data = json.loads(raw)
         resultados = data.get("web", {}).get("results", [])
         if not resultados:
             return ""
