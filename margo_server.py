@@ -911,7 +911,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.4.0",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.5.0",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
@@ -919,36 +919,111 @@ def root():
 def ping():
     return {"pong": True, "ts": datetime.now().isoformat()}
 
-@app.post("/login")
-async def login(request: Request):
+@app.post("/cadastro")
+async def cadastro(request: Request):
     """
-    Cadastro ou login por email.
-    Body: { email, nome }
-    Retorna: { user_id, email, nome, plano, novo (bool), tem_perfil (bool) }
+    Cria nova conta com email e senha.
+    Body: { email, senha }
+    Retorna: { ok, user_id, email, plano, tem_perfil }
     """
     try:
+        import hashlib
         data  = await request.json()
         email = data.get("email", "").strip().lower()
-        nome  = data.get("nome", "").strip()
+        senha = data.get("senha", "").strip()
 
         if not email or "@" not in email:
             return JSONResponse({"erro": "Email inválido"}, status_code=400)
+        if len(senha) < 6:
+            return JSONResponse({"erro": "Senha deve ter pelo menos 6 caracteres"}, status_code=400)
 
-        usuario = banco.cadastrar_ou_login(email, nome)
+        # Verifica se email já existe
+        existente = banco.buscar_usuario_por_email(email)
+        if existente:
+            return JSONResponse({"erro": "Email já cadastrado. Use a opção Entrar."}, status_code=400)
+
+        # Hash da senha com salt
+        senha_hash = hashlib.sha256((email + senha + "margo_orbiby_salt").encode()).hexdigest()
+
+        import uuid
+        agora = datetime.now().isoformat()
+        user_id = "u_" + str(uuid.uuid4()).replace("-", "")[:16]
+        conn = banco._get_conn()
+        c = conn.cursor()
+        ph = "%s" if banco._pg else "?"
+        if banco._pg:
+            c.execute('''INSERT INTO usuarios
+                (user_id, email, nome, plano, status, senha_hash, criado_em, ultimo_acesso)
+                VALUES (%s,%s,%s,'free','ativo',%s,%s,%s)''',
+                (user_id, email, "", senha_hash, agora, agora))
+        else:
+            c.execute('''INSERT INTO usuarios
+                (user_id, email, nome, plano, status, senha_hash, criado_em, ultimo_acesso)
+                VALUES (?,?,?,'free','ativo',?,?,?)''',
+                (user_id, email, "", senha_hash, agora, agora))
+        conn.commit()
+        conn.close()
+        log(f"Novo cadastro: {email} → {user_id}", "usuarios")
+
+        return JSONResponse({
+            "ok": True,
+            "user_id": user_id,
+            "email": email,
+            "plano": "free",
+            "novo": True,
+            "tem_perfil": False,
+        })
+    except Exception as e:
+        log(f"Erro /cadastro: {e}", "usuarios")
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.post("/login")
+async def login(request: Request):
+    """
+    Login com email e senha.
+    Body: { email, senha }
+    Retorna: { ok, user_id, email, plano, tem_perfil }
+    """
+    try:
+        import hashlib
+        data  = await request.json()
+        email = data.get("email", "").strip().lower()
+        senha = data.get("senha", "").strip()
+
+        if not email or "@" not in email:
+            return JSONResponse({"erro": "Email inválido"}, status_code=400)
+        if not senha:
+            return JSONResponse({"erro": "Senha obrigatória"}, status_code=400)
+
+        usuario = banco.buscar_usuario_por_email(email)
+        if not usuario:
+            return JSONResponse({"erro": "Email não encontrado. Crie uma conta primeiro."}, status_code=401)
+
+        # Verifica senha
+        senha_hash = hashlib.sha256((email + senha + "margo_orbiby_salt").encode()).hexdigest()
+        if usuario.get("senha_hash") != senha_hash:
+            return JSONResponse({"erro": "Senha incorreta."}, status_code=401)
+
+        # Atualiza último acesso
+        agora = datetime.now().isoformat()
+        conn = banco._get_conn()
+        c = conn.cursor()
+        ph = "%s" if banco._pg else "?"
+        c.execute(f'UPDATE usuarios SET ultimo_acesso={ph} WHERE email={ph}', (agora, email))
+        conn.commit()
+        conn.close()
+
         user_id = usuario["user_id"]
-
-        # Verifica se já tem perfil configurado
-        perfil = banco.buscar_perfil(user_id)
-        config = banco.buscar_config(user_id)
+        perfil  = banco.buscar_perfil(user_id)
+        config  = banco.buscar_config(user_id)
         tem_perfil = bool(perfil.get("nome") and config.get("onboarding_completo"))
 
         return JSONResponse({
-            "ok":       True,
-            "user_id":  user_id,
-            "email":    usuario.get("email", email),
-            "nome":     usuario.get("nome", nome),
-            "plano":    usuario.get("plano", "free"),
-            "novo":     usuario.get("novo", False),
+            "ok":        True,
+            "user_id":   user_id,
+            "email":     email,
+            "plano":     usuario.get("plano", "free"),
+            "novo":      False,
             "tem_perfil": tem_perfil,
         })
     except Exception as e:
