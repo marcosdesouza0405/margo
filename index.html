@@ -1110,9 +1110,11 @@ function iniciarApp() {
   }
   if (settings.micAlways) setTimeout(startMic, 800);
 }
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+function init() {
   applySettings();
   verificarLogin();
-  // Registra Service Worker
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/margo/sw.js')
       .then(() => console.log('SW registrado'))
