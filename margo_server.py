@@ -459,7 +459,7 @@ def buscar_brave(query: str, max_results: int = 3) -> str:
     if not BRAVE_API_KEY:
         return ""
     try:
-        url = "https://api.search.brave.com/res/v1/web/search?q=" + urllib.parse.quote(query) + "&count=" + str(max_results) + "&search_lang=pt&country=BR"
+        url = "https://api.search.brave.com/res/v1/web/search?q=" + urllib.parse.quote(query) + "&count=" + str(max_results)
         req = urllib.request.Request(
             url,
             headers={
