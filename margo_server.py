@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-margo_server.py — Margo Server v1.1
+margo_server.py — Margo Server v1.2
 Assistente de IA com personalidade — produto comercial da Orbiby
 Arquitetura: FastAPI + DeepSeek + SQLite/Postgres + Fish Audio / ElevenLabs / Web Speech
 """
@@ -698,7 +698,7 @@ def falar_elevenlabs(texto, chave, voz_id, genero="F"):
 
 # ── FASTAPI ────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Margo Server", version="1.1.0")
+app = FastAPI(title="Margo Server", version="1.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -709,7 +709,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.1.0",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.2.0",
             "banco": "postgres" if usar_postgres() else "sqlite"}
 
 @app.get("/ping")
@@ -805,6 +805,46 @@ async def salvar_voz(request: Request):
         "voz_id":       data.get("voz_id", ""),
     })
     return {"ok": True}
+
+@app.post("/salvar_perfil_completo")
+async def salvar_perfil_completo(request: Request):
+    """
+    Salva perfil do usuário + config da assistente de uma vez.
+    Chamado pelo painel de configurações do app.
+    Body: { user_id, nome, idade, profissao, musica, comida, hobbies, extra,
+            nome_assistente, genero, personalidade, voz_provider, voz_chave, voz_id }
+    """
+    try:
+        data    = await request.json()
+        user_id = data.get("user_id", "default")
+
+        # Salva perfil do usuário
+        banco.salvar_perfil(user_id, {
+            "nome":     data.get("nome", "").strip(),
+            "idade":    data.get("idade", "").strip(),
+            "profissao":data.get("profissao", "").strip(),
+            "musica":   data.get("musica", "").strip(),
+            "comida":   data.get("comida", "").strip(),
+            "hobbies":  data.get("hobbies", "").strip(),
+            "extra":    data.get("extra", "").strip(),
+        })
+
+        # Salva config da assistente
+        banco.salvar_config(user_id, {
+            "nome_assistente":     data.get("nome_assistente", "Margo").strip(),
+            "genero":              data.get("genero", "F"),
+            "personalidade":       data.get("personalidade", "").strip(),
+            "voz_provider":        data.get("voz_provider", "device"),
+            "voz_chave":           data.get("voz_chave", "").strip(),
+            "voz_id":              data.get("voz_id", "").strip(),
+            "onboarding_completo": True,
+        })
+
+        log(f"Perfil completo salvo para {user_id}", "perfil")
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        log(f"Erro /salvar_perfil_completo: {e}")
+        return JSONResponse({"erro": str(e)}, status_code=500)
 
 @app.get("/agenda/{user_id}")
 def agenda(user_id: str):
