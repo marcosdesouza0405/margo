@@ -1,4 +1,5 @@
 {
+  "id": "/margo/",
   "name": "Margo — Assistente Pessoal",
   "short_name": "Margo",
   "description": "Sua assistente pessoal de IA com personalidade. Powered by Orbiby.",
@@ -9,6 +10,7 @@
   "background_color": "#0A0A0F",
   "theme_color": "#00D4FF",
   "lang": "pt-BR",
+  "dir": "ltr",
   "categories": ["productivity", "utilities", "lifestyle"],
   "icons": [
     {
