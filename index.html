@@ -507,11 +507,13 @@ function verificarLogin() {
 
 function iniciarApp() {
   applySettings();
+  iniciarGPS();
+  atualizarContador();
   const nome = settings.perfilNome || USER_NOME;
   if (nome) {
     addMsg('margo', `Olá, ${nome}! Tô aqui e pronta pra te ajudar. O que vamos fazer?`);
   } else {
-    addMsg('margo', `Olá! Sou a ${settings.assistantName}. Preencha suas informações nas configurações — toque no ícone ⚙️ no canto superior direito para eu te conhecer melhor!`);
+    addMsg('margo', `Olá! Sou a ${settings.assistantName}. Preencha suas informações nas configurações — toque no ícone no canto superior direito para eu te conhecer melhor!`);
   }
   if (settings.micAlways) setTimeout(startMic, 800);
 }
@@ -703,10 +705,18 @@ function hideTyping() { if (typingRow) { typingRow.remove(); typingRow = null; }
 // ── BACKEND ───────────────────────────────────────────────────────────────────
 async function sendToBackend(msg) {
   try {
+    const body = {
+      user_id: USER_ID,
+      mensagem: msg
+    };
+    if (userLocation) {
+      body.latitude  = userLocation.lat;
+      body.longitude = userLocation.lng;
+    }
     const resp = await fetch(settings.backendUrl + '/mensagem', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({user_id: USER_ID, mensagem: msg})
+      body: JSON.stringify(body)
     });
     return await resp.json();
   } catch(e) {
@@ -765,7 +775,41 @@ async function falar(texto) {
   }
 }
 
-// ── DETECÇÃO ANTECIPADA DE INTENÇÃO ──────────────────────────────────────────
+// ── GPS ───────────────────────────────────────────────────────────────────────
+let userLocation = null;
+
+function iniciarGPS() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      userLocation = {
+        lat: pos.coords.latitude.toFixed(6),
+        lng: pos.coords.longitude.toFixed(6)
+      };
+    },
+    () => { userLocation = null; },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+// ── CONTADOR DE MENSAGENS ─────────────────────────────────────────────────────
+async function atualizarContador() {
+  if (!USER_ID) return;
+  try {
+    const resp = await fetch(settings.backendUrl + '/uso/' + USER_ID);
+    const data = await resp.json();
+    const hint = document.getElementById('inputHint');
+    if (!micActive && hint) {
+      if (data.plano === 'free') {
+        hint.textContent = `${data.faltam} mensagens restantes hoje`;
+        hint.style.color = data.faltam <= 5 ? '#FF6B6B' : 'var(--text3)';
+      } else {
+        hint.textContent = 'mensagens ilimitadas';
+        hint.style.color = 'var(--text3)';
+      }
+    }
+  } catch(e) {}
+}
 // Abre o link IMEDIATAMENTE no clique do usuário (antes do fetch)
 // para o browser mobile não bloquear como popup.
 // O DeepSeek ainda processa e responde com o comentário dela normalmente.
@@ -835,9 +879,9 @@ async function sendMsg() {
   hideTyping(); isThinking = false;
   addMsg('margo', resp);
   setStatus('online');
-  // executarFerramenta ainda roda mas não reabre — só usa para agenda, chamada, smart home
   if (data.ferramenta) executarFerramentaSemNavegacao(data.ferramenta);
-  falar(resp);
+  if (!data.limite_atingido) falar(resp);
+  atualizarContador();
 }
 
 function onKey(e) { if (e.key === 'Enter') sendMsg(); }

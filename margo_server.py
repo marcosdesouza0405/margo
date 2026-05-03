@@ -93,7 +93,13 @@ class BancoMargo:
         c = conn.cursor()
         ph = "%s" if self._pg else "?"
 
-        # ── TABELA USUARIOS (base para login + cobrança futura) ────────────────
+        # ── USO DIÁRIO (controle de limite de mensagens) ───────────────────────
+        c.execute('''CREATE TABLE IF NOT EXISTS uso_diario (
+            user_id TEXT,
+            data TEXT,
+            msgs INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, data)
+        )''')
         c.execute('''CREATE TABLE IF NOT EXISTS usuarios (
             user_id TEXT PRIMARY KEY,
             email TEXT UNIQUE,
@@ -179,6 +185,56 @@ class BancoMargo:
             cols = [d[0] for d in cursor.description]
             return dict(zip(cols, row))
         return dict(row)
+
+    # ── USO DIÁRIO ─────────────────────────────────────────────────────────────
+
+    LIMITES = {
+        "free":  50,
+        "pro":   999999,
+        "admin": 999999,
+    }
+
+    def verificar_limite(self, user_id: str) -> dict:
+        """Verifica se usuário pode enviar mais mensagens hoje."""
+        usuario = self.buscar_usuario_por_id(user_id)
+        plano   = usuario.get("plano", "free") if usuario else "free"
+        limite  = self.LIMITES.get(plano, 50)
+
+        hoje = datetime.now().strftime("%Y-%m-%d")
+        conn = self._get_conn()
+        c    = conn.cursor()
+        ph   = "%s" if self._pg else "?"
+
+        c.execute(f'SELECT msgs FROM uso_diario WHERE user_id={ph} AND data={ph}', (user_id, hoje))
+        row  = c.fetchone()
+        used = row[0] if row else 0
+        conn.close()
+
+        return {
+            "pode":   used < limite,
+            "usado":  used,
+            "limite": limite,
+            "plano":  plano,
+            "faltam": max(0, limite - used)
+        }
+
+    def registrar_uso(self, user_id: str):
+        """Incrementa contador de mensagens do dia."""
+        hoje = datetime.now().strftime("%Y-%m-%d")
+        conn = self._get_conn()
+        c    = conn.cursor()
+        ph   = "%s" if self._pg else "?"
+        if self._pg:
+            c.execute('''INSERT INTO uso_diario (user_id, data, msgs)
+                VALUES (%s, %s, 1)
+                ON CONFLICT (user_id, data) DO UPDATE SET msgs = uso_diario.msgs + 1''',
+                (user_id, hoje))
+        else:
+            c.execute('''INSERT INTO uso_diario (user_id, data, msgs) VALUES (?,?,1)
+                ON CONFLICT(user_id, data) DO UPDATE SET msgs = msgs + 1''',
+                (user_id, hoje))
+        conn.commit()
+        conn.close()
 
     # ── USUARIOS ───────────────────────────────────────────────────────────────
 
@@ -683,6 +739,11 @@ def limpar_resposta(texto):
     texto = re.sub(r'_{1,2}(.+?)_{1,2}', r'\1', texto)
     texto = re.sub(r'<[^>]+>',       '',    texto)
     texto = texto.replace('•', '').replace('→', 'para').replace('|', '')
+    # Remove emojis e símbolos especiais (evita problemas no TTS)
+    texto = re.sub(r'[\U00010000-\U0010ffff]', '', texto)  # emojis
+    texto = re.sub(r'[\u2600-\u27BF]', '', texto)           # símbolos misc
+    texto = re.sub(r'[\u2B00-\u2BFF]', '', texto)           # símbolos adicionais
+    texto = re.sub(r'\s+', ' ', texto)                      # espaços duplos
     return texto.strip()
 
 def extrair_ferramenta(texto):
@@ -705,7 +766,7 @@ def extrair_onboarding_completo(texto):
             pass
     return None
 
-def processar_mensagem(user_id, mensagem):
+def processar_mensagem(user_id, mensagem, latitude=None, longitude=None):
     config = banco.buscar_config(user_id)
     perfil = banco.buscar_perfil(user_id)
 
@@ -733,6 +794,8 @@ def processar_mensagem(user_id, mensagem):
     lembretes = banco.lembretes_proximos(user_id)
 
     contexto_extra = ""
+    if latitude and longitude:
+        contexto_extra += f"\nLocalização atual do usuário: lat={latitude}, lng={longitude} — use isso quando relevante para Maps, restaurantes, rotas."
     if resumos:
         contexto_extra += "\nConversas anteriores:\n" + "\n".join(f"- {r}" for r in resumos)
     if lembretes:
@@ -755,15 +818,16 @@ def processar_mensagem(user_id, mensagem):
             log(f"Brave Search: {query}", "busca")
             resultados = buscar_brave(query)
             if resultados:
-                # Manda os resultados pro DeepSeek formular uma resposta natural
                 prompt_busca = f"""O usuário perguntou: "{mensagem}"
 
 Aqui estão os resultados da busca na internet:
 {resultados}
 
 Responda de forma natural e conversacional em português, usando essas informações.
-Seja conciso — máximo 3 frases. Não cite as fontes explicitamente."""
-                resposta = chamar_deepseek_simples(prompt_busca, max_tokens=300) or resposta
+Seja conciso — máximo 3 frases. Não cite as fontes explicitamente. Não use emojis."""
+                resposta_busca = chamar_deepseek_simples(prompt_busca, max_tokens=300)
+                if resposta_busca:
+                    resposta = limpar_resposta(resposta_busca)
 
         # ── AGENDA ─────────────────────────────────────────────────────────────
         elif ferramenta.get("ferramenta") == "agenda_add":
@@ -914,9 +978,23 @@ async def mensagem(request: Request):
         data = await request.json()
         user_id   = data.get("user_id", "default")
         mensagem_ = data.get("mensagem", "").strip()
+        latitude  = data.get("latitude")
+        longitude = data.get("longitude")
         if not mensagem_:
             return JSONResponse({"erro": "mensagem vazia"}, status_code=400)
-        resultado = processar_mensagem(user_id, mensagem_)
+
+        # Verifica limite diário
+        uso = banco.verificar_limite(user_id)
+        if not uso["pode"]:
+            return JSONResponse({
+                "resposta": f"Você atingiu seu limite de {uso['limite']} mensagens por hoje. "
+                            f"Volte amanhã ou fale comigo sobre o plano Pro para mensagens ilimitadas!",
+                "limite_atingido": True,
+                "ferramenta": None
+            })
+
+        resultado = processar_mensagem(user_id, mensagem_, latitude, longitude)
+        banco.registrar_uso(user_id)
         return JSONResponse(resultado)
     except Exception as e:
         log(f"Erro /mensagem: {e}")
@@ -1037,6 +1115,11 @@ async def salvar_perfil_completo(request: Request):
     except Exception as e:
         log(f"Erro /salvar_perfil_completo: {e}")
         return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.get("/uso/{user_id}")
+def uso(user_id: str):
+    """Retorna uso diário do usuário — para o frontend mostrar msgs restantes"""
+    return JSONResponse(banco.verificar_limite(user_id))
 
 @app.get("/agenda/{user_id}")
 def agenda(user_id: str):
