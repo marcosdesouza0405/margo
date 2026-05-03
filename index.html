@@ -765,6 +765,59 @@ async function falar(texto) {
   }
 }
 
+// ── DETECÇÃO ANTECIPADA DE INTENÇÃO ──────────────────────────────────────────
+// Abre o link IMEDIATAMENTE no clique do usuário (antes do fetch)
+// para o browser mobile não bloquear como popup.
+// O DeepSeek ainda processa e responde com o comentário dela normalmente.
+
+const INTENCOES = [
+  // Spotify
+  { regex: /\b(toca|coloca|bota|spotify|musica|música|playlist|ouvir|ouve)\b/i,
+    acao: (msg) => {
+      const q = msg.replace(/\b(toca|coloca|bota|spotify|uma|um|a|o|no|no spotify)\b/gi,'').trim() || 'sertanejo';
+      return 'https://open.spotify.com/search/' + encodeURIComponent(q);
+    }
+  },
+  // Maps navegação
+  { regex: /\b(rota|traça|tracar|navega|me leva|ir para|caminho até|como chegar)\b/i,
+    acao: (msg) => {
+      const q = msg.replace(/\b(rota|traça|tracar|navega|me leva|ir para|caminho até|como chegar|para|pra|até)\b/gi,'').trim() || 'casa';
+      return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(q);
+    }
+  },
+  // Maps busca
+  { regex: /\b(restaurante|farmácia|farmacia|posto|hospital|mercado|onde tem|perto)\b/i,
+    acao: (msg) => {
+      return 'https://www.google.com/maps/search/' + encodeURIComponent(msg.trim());
+    }
+  },
+  // YouTube
+  { regex: /\b(youtube|vídeo|video|assista|assisti)\b/i,
+    acao: (msg) => {
+      const q = msg.replace(/\b(youtube|vídeo|video|assista|assisti|coloca|abre)\b/gi,'').trim();
+      return 'https://www.youtube.com/results?search_query=' + encodeURIComponent(q);
+    }
+  },
+  // SoundCloud
+  { regex: /\bsoundcloud\b/i,
+    acao: (msg) => {
+      const q = msg.replace(/\bsoundcloud\b/gi,'').trim();
+      return 'https://soundcloud.com/search?q=' + encodeURIComponent(q);
+    }
+  },
+];
+
+function abrirIntencaoImediata(msg) {
+  for (const intencao of INTENCOES) {
+    if (intencao.regex.test(msg)) {
+      const url = intencao.acao(msg);
+      window.open(url, '_blank');
+      return true;
+    }
+  }
+  return false;
+}
+
 // ── ENVIAR MENSAGEM ───────────────────────────────────────────────────────────
 async function sendMsg() {
   const input = document.getElementById('textInput');
@@ -772,13 +825,18 @@ async function sendMsg() {
   if (!msg || isThinking) return;
   input.value = '';
   addMsg('user', msg);
+
+  // Abre link imediatamente se detectar intenção (resolve bloqueio mobile)
+  abrirIntencaoImediata(msg);
+
   isThinking = true; showTyping(); setStatus('pensando...');
   const data = await sendToBackend(msg);
   const resp = data.resposta || 'Sem resposta.';
   hideTyping(); isThinking = false;
   addMsg('margo', resp);
   setStatus('online');
-  if (data.ferramenta) executarFerramenta(data.ferramenta);
+  // executarFerramenta ainda roda mas não reabre — só usa para agenda, chamada, smart home
+  if (data.ferramenta) executarFerramentaSemNavegacao(data.ferramenta);
   falar(resp);
 }
 
@@ -862,13 +920,15 @@ function startMic() {
           setStatus('ouvindo wake word');
         }
         addMsg('user', msg);
+        // Abre link imediatamente — mesmo fix do texto digitado
+        abrirIntencaoImediata(msg);
         isThinking = true; showTyping(); setStatus('pensando...');
         sendToBackend(msg).then(data => {
           const resp = data.resposta || 'Sem resposta.';
           hideTyping(); isThinking = false;
           addMsg('margo', resp);
           setStatus(settings.wakeWordOn ? 'ouvindo wake word' : 'ouvindo...', !settings.wakeWordOn);
-          if (data.ferramenta) executarFerramenta(data.ferramenta);
+          if (data.ferramenta) executarFerramentaSemNavegacao(data.ferramenta);
           falar(resp);
         });
       }, 2200);
@@ -895,14 +955,24 @@ function clearChat() { document.getElementById('chat').innerHTML = ''; addMsg('s
 function executarFerramenta(tool) {
   if (!tool) return;
   const f = tool.ferramenta;
-  if      (f === 'maps_navigate')  window.open('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(tool.destino), '_blank');
-  else if (f === 'maps_search')    window.open('https://www.google.com/maps/search/' + encodeURIComponent(tool.query), '_blank');
-  else if (f === 'spotify_play')   window.open('https://open.spotify.com/search/' + encodeURIComponent(tool.query), '_blank');
-  else if (f === 'soundcloud_play')window.open('https://soundcloud.com/search?q=' + encodeURIComponent(tool.query), '_blank');
-  else if (f === 'youtube_search') window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(tool.query), '_blank');
-  else if (f === 'phone_call')     window.open('tel:' + tool.contato, '_self');
-  else if (f === 'web_search')     window.open('https://www.google.com/search?q=' + encodeURIComponent(tool.query), '_blank');
-  else if (f === 'smart_home')     window.open('tuyasmart://', '_self');
+  if      (f === 'maps_navigate')   window.open('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(tool.destino), '_blank');
+  else if (f === 'maps_search')     window.open('https://www.google.com/maps/search/' + encodeURIComponent(tool.query), '_blank');
+  else if (f === 'spotify_play')    window.open('https://open.spotify.com/search/' + encodeURIComponent(tool.query), '_blank');
+  else if (f === 'soundcloud_play') window.open('https://soundcloud.com/search?q=' + encodeURIComponent(tool.query), '_blank');
+  else if (f === 'youtube_search')  window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(tool.query), '_blank');
+  else if (f === 'phone_call')      window.open('tel:' + tool.contato, '_self');
+  else if (f === 'web_search')      window.open('https://www.google.com/search?q=' + encodeURIComponent(tool.query), '_blank');
+  else if (f === 'smart_home')      window.open('tuyasmart://', '_self');
+}
+
+// Versão sem navegação — usada após fetch (mobile bloqueia window.open async)
+// Só executa ações que não abrem URLs: agenda, chamada, smart home
+function executarFerramentaSemNavegacao(tool) {
+  if (!tool) return;
+  const f = tool.ferramenta;
+  if      (f === 'phone_call')  window.open('tel:' + tool.contato, '_self');
+  else if (f === 'smart_home')  window.open('tuyasmart://', '_self');
+  // Navegação e música já foram abertas antecipadamente pelo abrirIntencaoImediata
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
