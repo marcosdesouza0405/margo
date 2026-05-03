@@ -531,7 +531,7 @@ let settings = {
   assistantName: 'Margo',
   nickname: '',
   micAlways: false,
-  wakeWordOn: true,
+  wakeWordOn: false,
   voiceGender: 'F',
   voiceProvider: 'device',
   apiKey: '',
@@ -816,6 +816,11 @@ async function falar(texto) {
   }
 }
 
+// ── ABERTURA DE LINKS — compatível com TWA e browser ─────────────────────────
+function abrirLink(url) {
+  try { window.open(url, '_blank'); } catch(e) { window.location.href = url; }
+}
+
 // ── GPS ───────────────────────────────────────────────────────────────────────
 let userLocation = null;
 
@@ -910,7 +915,7 @@ function abrirIntencaoImediata(msg) {
   for (const intencao of INTENCOES) {
     if (intencao.regex.test(msg)) {
       const url = intencao.acao(msg);
-      window.open(url, '_blank');
+      abrirLink(url);
       return true;
     }
   }
@@ -1030,7 +1035,7 @@ function startMic() {
           if (data.ferramenta) executarFerramentaSemNavegacao(data.ferramenta);
           falar(resp);
         });
-      }, 2200);
+      }, 1000);
     }
   };
   recognition.onend = () => {
@@ -1074,14 +1079,14 @@ function clearChat() {
 function executarFerramenta(tool) {
   if (!tool) return;
   const f = tool.ferramenta;
-  if      (f === 'maps_navigate')   window.open('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(tool.destino), '_blank');
-  else if (f === 'maps_search')     window.open('https://www.google.com/maps/search/' + encodeURIComponent(tool.query), '_blank');
-  else if (f === 'spotify_play')    window.open('https://open.spotify.com/search/' + encodeURIComponent(tool.query), '_blank');
-  else if (f === 'soundcloud_play') window.open('https://soundcloud.com/search?q=' + encodeURIComponent(tool.query), '_blank');
-  else if (f === 'youtube_search')  window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(tool.query), '_blank');
-  else if (f === 'phone_call')      window.open('tel:' + tool.contato, '_self');
-  else if (f === 'web_search')      window.open('https://www.google.com/search?q=' + encodeURIComponent(tool.query), '_blank');
-  else if (f === 'smart_home')      window.open('tuyasmart://', '_self');
+  if      (f === 'maps_navigate')   abrirLink('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(tool.destino));
+  else if (f === 'maps_search')     abrirLink('https://www.google.com/maps/search/' + encodeURIComponent(tool.query));
+  else if (f === 'spotify_play')    abrirLink('https://open.spotify.com/search/' + encodeURIComponent(tool.query));
+  else if (f === 'soundcloud_play') abrirLink('https://soundcloud.com/search?q=' + encodeURIComponent(tool.query));
+  else if (f === 'youtube_search')  abrirLink('https://www.youtube.com/results?search_query=' + encodeURIComponent(tool.query));
+  else if (f === 'phone_call')      abrirLink('tel:' + tool.contato);
+  else if (f === 'web_search')      abrirLink('https://www.google.com/search?q=' + encodeURIComponent(tool.query));
+  else if (f === 'smart_home')      abrirLink('tuyasmart://');
 }
 
 // Versão sem navegação — usada após fetch (mobile bloqueia window.open async)
