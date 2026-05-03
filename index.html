@@ -160,12 +160,66 @@
   .voice-badge { display:inline-block; font-size:10px; padding:2px 7px; border-radius:20px; background:var(--cyan-dim); color:var(--cyan); border:0.5px solid var(--cyan); margin-left:6px; }
   .save-btn { width:100%; padding:12px; border-radius:26px; border:none; background:var(--cyan); color:#000; font-family:var(--font); font-size:14px; font-weight:700; cursor:pointer; margin-top:4px; }
   .save-btn:active { transform:scale(0.97); }
+  /* ── TELA DE LOGIN ── */
+  .login-screen {
+    position: fixed; inset: 0; background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 200; padding: 32px 24px; max-width: 420px; margin: 0 auto;
+  }
+  .login-screen.hidden { display: none; }
+  .login-logo {
+    width: 72px; height: 72px; border-radius: 50%; background: var(--bg3);
+    border: 2px solid var(--cyan); display: flex; align-items: center;
+    justify-content: center; margin-bottom: 20px;
+  }
+  .login-logo svg { width: 36px; height: 36px; }
+  .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .login-sub { font-size: 13px; color: var(--text2); text-align: center; margin-bottom: 32px; line-height: 1.5; }
+  .login-form { width: 100%; display: flex; flex-direction: column; gap: 12px; }
+  .login-input {
+    width: 100%; background: var(--bg3); border: 0.5px solid var(--border);
+    border-radius: var(--radius-sm); padding: 13px 16px;
+    font-family: var(--font); font-size: 15px; color: var(--text); outline: none;
+  }
+  .login-input:focus { border-color: var(--cyan); }
+  .login-input::placeholder { color: var(--text3); }
+  .login-btn {
+    width: 100%; padding: 14px; border-radius: 26px; border: none;
+    background: var(--cyan); color: #000; font-family: var(--font);
+    font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 4px;
+    transition: transform 0.1s;
+  }
+  .login-btn:active { transform: scale(0.97); }
+  .login-btn:disabled { opacity: 0.5; }
+  .login-erro { font-size: 12px; color: #FF6B6B; text-align: center; min-height: 18px; }
+  .login-footer { font-size: 11px; color: var(--text3); text-align: center; margin-top: 24px; line-height: 1.6; }
   /* Área de chave — esconde quando device */
   .key-area { display:flex; flex-direction:column; gap:8px; }
   .key-area.hidden { display:none; }
 </style>
 </head>
 <body>
+
+<!-- TELA DE LOGIN -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#00D4FF" stroke-width="1.5" stroke-linecap="round">
+      <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+    </svg>
+  </div>
+  <div class="login-title">Bem-vindo à Margo</div>
+  <div class="login-sub">Entre com seu email para acessar sua assistente pessoal em qualquer dispositivo.</div>
+  <div class="login-form">
+    <input class="login-input" id="loginNome" type="text" placeholder="Seu nome" autocomplete="name">
+    <input class="login-input" id="loginEmail" type="email" placeholder="Seu email" autocomplete="email">
+    <div class="login-erro" id="loginErro"></div>
+    <button class="login-btn" id="loginBtn" onclick="fazerLogin()">Entrar</button>
+  </div>
+  <div class="login-footer">
+    Ao entrar, você concorda com os termos de uso da Orbiby.<br>
+    Seus dados ficam seguros e você pode excluir sua conta a qualquer momento.
+  </div>
+</div>
 
 <div class="panel-overlay" id="overlay" onclick="closePanel()"></div>
 
@@ -308,16 +362,159 @@
     </div>
 
     <button class="save-btn" onclick="saveSettings()">Salvar configurações</button>
+
+    <!-- Conta -->
+    <div class="setting-group" style="margin-top:8px">
+      <div class="setting-label">Conta</div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-row-label" id="contaEmail">—</div>
+          <div class="setting-row-sub" id="contaPlano">Plano Free</div>
+        </div>
+      </div>
+      <button class="save-btn" onclick="sairDaConta()"
+        style="background:transparent;border:0.5px solid var(--border);color:var(--text2);margin-top:0">
+        Sair / Trocar conta
+      </button>
+    </div>
+
   </div>
 </div>
 
 <script>
-// ── UID ──────────────────────────────────────────────────────────────────────
-const USER_ID = 'user_' + (localStorage.getItem('margo_uid') || (()=>{
-  const id = Math.random().toString(36).slice(2,10);
-  localStorage.setItem('margo_uid', id);
-  return id;
-})());
+// ── UID e LOGIN ───────────────────────────────────────────────────────────────
+let USER_ID   = localStorage.getItem('margo_user_id') || '';
+let USER_EMAIL = localStorage.getItem('margo_email') || '';
+let USER_NOME  = localStorage.getItem('margo_nome') || '';
+
+async function fazerLogin() {
+  const nome  = document.getElementById('loginNome').value.trim();
+  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+  const erro  = document.getElementById('loginErro');
+  const btn   = document.getElementById('loginBtn');
+
+  if (!email || !email.includes('@')) {
+    erro.textContent = 'Por favor, insira um email válido.';
+    return;
+  }
+  if (!nome) {
+    erro.textContent = 'Por favor, insira seu nome.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Entrando...';
+  erro.textContent = '';
+
+  try {
+    const backendUrl = document.getElementById('loginEmail').dataset.backend
+      || 'https://margo-production-98a9.up.railway.app';
+    const resp = await fetch(settings.backendUrl + '/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email, nome})
+    });
+    const data = await resp.json();
+
+    if (!data.ok) {
+      erro.textContent = data.erro || 'Erro ao entrar. Tente novamente.';
+      btn.disabled = false;
+      btn.textContent = 'Entrar';
+      return;
+    }
+
+    // Salva sessão local
+    USER_ID    = data.user_id;
+    USER_EMAIL = data.email;
+    USER_NOME  = data.nome || nome;
+    localStorage.setItem('margo_user_id', USER_ID);
+    localStorage.setItem('margo_email',   USER_EMAIL);
+    localStorage.setItem('margo_nome',    USER_NOME);
+
+    // Se já tem perfil, carrega do servidor
+    if (!data.novo && data.tem_perfil) {
+      await carregarPerfilDoServidor();
+    } else {
+      // Novo usuário — atualiza nome nas settings
+      settings.perfilNome = USER_NOME;
+      saveToStorage();
+    }
+
+    // Esconde tela de login e mostra app
+    document.getElementById('loginScreen').classList.add('hidden');
+    atualizarInfoConta();
+    iniciarApp();
+
+  } catch(e) {
+    erro.textContent = 'Sem conexão com o servidor.';
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+  }
+}
+
+async function carregarPerfilDoServidor() {
+  try {
+    const resp = await fetch(settings.backendUrl + '/usuario/' + USER_ID);
+    const data = await resp.json();
+    if (data.perfil) {
+      settings.perfilNome      = data.perfil.nome      || '';
+      settings.perfilIdade     = data.perfil.idade     || '';
+      settings.perfilProfissao = data.perfil.profissao || '';
+      settings.perfilMusica    = data.perfil.musica    || '';
+      settings.perfilComida    = data.perfil.comida    || '';
+      settings.perfilHobbies   = data.perfil.hobbies   || '';
+      settings.perfilExtra     = data.perfil.extra     || '';
+    }
+    if (data.config) {
+      settings.assistantName = data.config.nome_assistente || 'Margo';
+      settings.voiceGender   = data.config.genero          || 'F';
+      settings.personalidade = data.config.personalidade   || '';
+      settings.voiceProvider = data.config.voz_provider    || 'device';
+      settings.voiceId       = data.config.voz_id          || '';
+    }
+    saveToStorage();
+  } catch(e) {
+    console.log('Erro ao carregar perfil:', e);
+  }
+}
+
+function atualizarInfoConta() {
+  const elEmail = document.getElementById('contaEmail');
+  const elPlano = document.getElementById('contaPlano');
+  if (elEmail) elEmail.textContent = USER_EMAIL || '—';
+  if (elPlano) elPlano.textContent = 'Plano Free';
+}
+
+function sairDaConta() {
+  if (!confirm('Tem certeza que quer sair?')) return;
+  localStorage.removeItem('margo_user_id');
+  localStorage.removeItem('margo_email');
+  localStorage.removeItem('margo_nome');
+  USER_ID = ''; USER_EMAIL = ''; USER_NOME = '';
+  closePanel();
+  document.getElementById('loginScreen').classList.remove('hidden');
+  document.getElementById('chat').innerHTML = '';
+}
+
+function verificarLogin() {
+  if (USER_ID) {
+    document.getElementById('loginScreen').classList.add('hidden');
+    atualizarInfoConta();
+    iniciarApp();
+  }
+  // Se não tem USER_ID, tela de login fica visível
+}
+
+function iniciarApp() {
+  applySettings();
+  const nome = settings.perfilNome || USER_NOME;
+  if (nome) {
+    addMsg('margo', `Olá, ${nome}! Tô aqui e pronta pra te ajudar. O que vamos fazer?`);
+  } else {
+    addMsg('margo', `Olá! Sou a ${settings.assistantName}. Preencha suas informações nas configurações — toque no ícone ⚙️ no canto superior direito para eu te conhecer melhor!`);
+  }
+  if (settings.micAlways) setTimeout(startMic, 800);
+}
 
 // ── SETTINGS (valores padrão) ─────────────────────────────────────────────────
 // voiceProvider: 'device' | 'fishaudio' | 'elevenlabs'
@@ -711,13 +908,7 @@ function executarFerramenta(tool) {
 // ── INIT ──────────────────────────────────────────────────────────────────────
 function init() {
   applySettings();
-  const nome = settings.perfilNome;
-  if (nome) {
-    addMsg('margo', `Olá, ${nome}! Tô aqui e pronta pra te ajudar. O que vamos fazer?`);
-  } else {
-    addMsg('margo', `Olá! Sou a ${settings.assistantName}. Antes de começarmos, preencha suas informações nas configurações — toque no ícone ⚙️ no canto superior direito. Assim consigo te conhecer melhor e ser muito mais útil!`);
-  }
-  if (settings.micAlways) setTimeout(startMic, 800);
+  verificarLogin();
 }
 init();
 </script>
