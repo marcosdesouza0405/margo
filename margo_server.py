@@ -923,39 +923,31 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None):
     # Detecta intenção com histórico para entender contexto
     ferramenta = detectar_intencao(mensagem, historico)
 
-    # Gera resposta natural — sem precisar emitir JSON
-    resposta = chamar_deepseek(system, mensagem, historico, max_tokens=500)
+    # ── WEB SEARCH: busca antes de gerar resposta ─────────────────────────────
+    contexto_busca = ""
+    if ferramenta and ferramenta.get("ferramenta") == "web_search" and BRAVE_API_KEY:
+        query = ferramenta.get("query", mensagem)
+        log(f"Brave Search: {query}", "busca")
+        resultados = buscar_brave(query)
+        if resultados:
+            contexto_busca = f"\n\nResultados da busca na internet:\n{resultados}\nUse essas informações para responder de forma natural. Não cite as fontes."
+
+    # Gera resposta natural
+    resposta = chamar_deepseek(system + contexto_busca, mensagem, historico, max_tokens=500)
 
     # Remove JSON da resposta caso o DeepSeek ainda emita (compatibilidade)
     resposta_limpa = re.sub(r'\{[^{}]*"ferramenta"[^{}]*\}', '', resposta).strip()
     if not resposta_limpa:
         resposta_limpa = resposta
 
-        # ── WEB SEARCH: busca real e resposta enriquecida ───────────────────────
-        if ferramenta.get("ferramenta") == "web_search" and BRAVE_API_KEY:
-            query = ferramenta.get("query", mensagem)
-            log(f"Brave Search: {query}", "busca")
-            resultados = buscar_brave(query)
-            if resultados:
-                prompt_busca = f"""O usuário perguntou: "{mensagem}"
-
-Aqui estão os resultados da busca na internet:
-{resultados}
-
-Responda de forma natural e conversacional em português, usando essas informações.
-Seja conciso — máximo 3 frases. Não cite as fontes explicitamente. Não use emojis."""
-                resposta_busca = chamar_deepseek_simples(prompt_busca, max_tokens=300)
-                if resposta_busca:
-                    resposta_limpa = limpar_resposta(resposta_busca)
-
-        # ── AGENDA ─────────────────────────────────────────────────────────────
-        elif ferramenta.get("ferramenta") == "agenda_add":
-            banco.salvar_lembrete(
-                user_id,
-                ferramenta.get("titulo", "Compromisso"),
-                ferramenta.get("descricao", ""),
-                ferramenta.get("data_hora", "")
-            )
+    # ── AGENDA ────────────────────────────────────────────────────────────────
+    if ferramenta and ferramenta.get("ferramenta") == "agenda_add":
+        banco.salvar_lembrete(
+            user_id,
+            ferramenta.get("titulo", "Compromisso"),
+            ferramenta.get("descricao", ""),
+            ferramenta.get("data_hora", "")
+        )
 
     sessoes.adicionar(user_id, mensagem, resposta_limpa)
     return {
