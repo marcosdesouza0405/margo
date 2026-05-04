@@ -718,6 +718,26 @@ Usuário: "traça a rota pra casa"
 Você: {{"ferramenta": "maps_navigate", "destino": "casa"}}
 Rota traçada, pode ir!
 
+Usuário: "quero ir pro Act City em Hamamatsu"
+Você: {{"ferramenta": "maps_navigate", "destino": "Act City Hamamatsu"}}
+Rota traçada pro Act City! Aproveita.
+
+Usuário: "margo, me leva pro shopping"
+Você: {{"ferramenta": "maps_navigate", "destino": "shopping"}}
+Rota iniciada pro shopping!
+
+Usuário: "tem restaurante japonês aqui perto?"
+Você: {{"ferramenta": "maps_search", "query": "restaurante japonês"}}
+Procurando restaurantes japoneses aqui perto!
+
+Usuário: "toca um forró pra gente"
+Você: {{"ferramenta": "spotify_play", "query": "forró"}}
+Colocando forró pra animar!
+
+ATENÇÃO: Se o usuário pedir para IR a algum lugar — qualquer lugar — SEMPRE emita maps_navigate.
+Se pedir para BUSCAR um lugar próximo — SEMPRE emita maps_search.
+NUNCA responda "rota traçada" sem emitir o JSON primeiro.
+
 ===============================================================================
 ESTILO DE RESPOSTA
 ===============================================================================
@@ -746,7 +766,46 @@ def limpar_resposta(texto):
     texto = re.sub(r'\s+', ' ', texto)                      # espaços duplos
     return texto.strip()
 
-def extrair_ferramenta(texto):
+def detectar_intencao(mensagem: str) -> dict:
+    """
+    Chamada rápida ao DeepSeek para detectar intenção e extrair parâmetros.
+    Retorna o JSON da ferramenta ou None.
+    """
+    prompt = f"""Analise a mensagem do usuário e retorne um JSON se ela pede uma ação específica.
+
+Mensagem: "{mensagem}"
+
+Retorne APENAS um JSON válido (sem texto extra) se a mensagem pede:
+- Navegar/ir para algum lugar: {{"ferramenta":"maps_navigate","destino":"nome do lugar"}}
+- Buscar lugar próximo: {{"ferramenta":"maps_search","query":"tipo de lugar"}}
+- Tocar música no Spotify: {{"ferramenta":"spotify_play","query":"música ou artista"}}
+- Tocar no SoundCloud: {{"ferramenta":"soundcloud_play","query":"música ou artista"}}
+- Buscar vídeo no YouTube: {{"ferramenta":"youtube_search","query":"tema do vídeo"}}
+- Ligar para alguém: {{"ferramenta":"phone_call","contato":"nome ou número"}}
+- Pesquisar na internet: {{"ferramenta":"web_search","query":"termo de busca"}}
+- Adicionar compromisso: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601"}}
+
+Se a mensagem é apenas conversa, retorne: null
+
+Exemplos:
+"quero ir pro shopping" → {{"ferramenta":"maps_navigate","destino":"shopping"}}
+"margo quero ir pro act city em hamamatsu" → {{"ferramenta":"maps_navigate","destino":"Act City Hamamatsu"}}
+"toca um forró" → {{"ferramenta":"spotify_play","query":"forró"}}
+"tem restaurante aqui perto?" → {{"ferramenta":"maps_search","query":"restaurante"}}
+"oi tudo bem?" → null
+"me conta uma piada" → null
+
+Retorne APENAS o JSON ou null, sem mais nada."""
+
+    try:
+        resultado = chamar_deepseek_simples(prompt, max_tokens=100)
+        if not resultado or resultado.strip().lower() == 'null':
+            return None
+        # Limpa possíveis backticks
+        resultado = re.sub(r'```(?:json)?\s*', '', resultado).strip()
+        return json.loads(resultado)
+    except:
+        return None
     match = re.search(r'\{[^{}]*"ferramenta"[^{}]*\}', texto, re.DOTALL)
     if match:
         try:
@@ -806,11 +865,16 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None):
     if contexto_extra:
         system += f"\n\n{contexto_extra}"
 
+    # Detecta intenção em paralelo com a resposta
+    ferramenta = detectar_intencao(mensagem)
+
+    # Gera resposta natural — sem precisar emitir JSON
     resposta = chamar_deepseek(system, mensagem, historico, max_tokens=500)
 
-    ferramenta = extrair_ferramenta(resposta)
-    if ferramenta:
-        resposta = re.sub(r'\{[^{}]*"ferramenta"[^{}]*\}', '', resposta).strip()
+    # Remove JSON da resposta caso o DeepSeek ainda emita (compatibilidade)
+    resposta_limpa = re.sub(r'\{[^{}]*"ferramenta"[^{}]*\}', '', resposta).strip()
+    if not resposta_limpa:
+        resposta_limpa = resposta
 
         # ── WEB SEARCH: busca real e resposta enriquecida ───────────────────────
         if ferramenta.get("ferramenta") == "web_search" and BRAVE_API_KEY:
@@ -827,7 +891,7 @@ Responda de forma natural e conversacional em português, usando essas informaç
 Seja conciso — máximo 3 frases. Não cite as fontes explicitamente. Não use emojis."""
                 resposta_busca = chamar_deepseek_simples(prompt_busca, max_tokens=300)
                 if resposta_busca:
-                    resposta = limpar_resposta(resposta_busca)
+                    resposta_limpa = limpar_resposta(resposta_busca)
 
         # ── AGENDA ─────────────────────────────────────────────────────────────
         elif ferramenta.get("ferramenta") == "agenda_add":
@@ -838,9 +902,9 @@ Seja conciso — máximo 3 frases. Não cite as fontes explicitamente. Não use 
                 ferramenta.get("data_hora", "")
             )
 
-    sessoes.adicionar(user_id, mensagem, resposta)
+    sessoes.adicionar(user_id, mensagem, resposta_limpa)
     return {
-        "resposta":   limpar_resposta(resposta),
+        "resposta":   limpar_resposta(resposta_limpa),
         "onboarding": False,
         "ferramenta": ferramenta
     }
