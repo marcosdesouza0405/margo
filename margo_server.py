@@ -742,9 +742,11 @@ NUNCA responda "rota traçada" sem emitir o JSON primeiro.
 ESTILO DE RESPOSTA
 ===============================================================================
 
-- SEMPRE emita o JSON antes do texto quando for usar uma ferramenta
-- Se não sabe: fale honestamente, ofereça pesquisar
-- Sempre no idioma que o usuário usou
+- SEMPRE responda no mesmo idioma que o usuário usou na mensagem atual
+- Se o usuário escreveu em inglês, responda em inglês
+- Se escreveu em japonês, responda em japonês
+- Se escreveu em português, responda em português
+- Nunca mude o idioma da resposta sem que o usuário mude primeiro
 - Sem emojis em excesso — 1 por mensagem no máximo, só se natural
 - Nunca markdown. Nunca asteriscos. Texto limpo.
 """
