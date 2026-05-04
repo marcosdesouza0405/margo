@@ -771,29 +771,34 @@ def detectar_intencao(mensagem: str) -> dict:
     Chamada rápida ao DeepSeek para detectar intenção e extrair parâmetros.
     Retorna o JSON da ferramenta ou None.
     """
-    prompt = f"""Analise a mensagem do usuário e retorne um JSON se ela pede uma ação específica.
+    prompt = f"""Analise a mensagem e retorne um JSON se ela pede uma ação específica.
 
 Mensagem: "{mensagem}"
 
 Retorne APENAS um JSON válido (sem texto extra) se a mensagem pede:
 - Navegar/ir para algum lugar: {{"ferramenta":"maps_navigate","destino":"nome do lugar"}}
 - Buscar lugar próximo: {{"ferramenta":"maps_search","query":"tipo de lugar"}}
-- Tocar música no Spotify: {{"ferramenta":"spotify_play","query":"música ou artista"}}
-- Tocar no SoundCloud: {{"ferramenta":"soundcloud_play","query":"música ou artista"}}
-- Buscar vídeo no YouTube: {{"ferramenta":"youtube_search","query":"tema do vídeo"}}
+- Tocar música: {{"ferramenta":"spotify_play","query":"APENAS o gênero, artista ou nome da música"}}
+- Tocar no SoundCloud: {{"ferramenta":"soundcloud_play","query":"APENAS o gênero ou artista"}}
+- Buscar vídeo no YouTube: {{"ferramenta":"youtube_search","query":"APENAS o tema do vídeo"}}
 - Ligar para alguém: {{"ferramenta":"phone_call","contato":"nome ou número"}}
 - Pesquisar na internet: {{"ferramenta":"web_search","query":"termo de busca"}}
 - Adicionar compromisso: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601"}}
 
 Se a mensagem é apenas conversa, retorne: null
 
+REGRA IMPORTANTE para música: o query deve ser APENAS o gênero, artista ou música.
+Nunca inclua frases como "pra gente ouvir", "no caminho", "uma boa", "legal" no query.
+Se não especificou gênero/artista, use o mais provável pelo contexto ou "sertanejo".
+
 Exemplos:
 "quero ir pro shopping" → {{"ferramenta":"maps_navigate","destino":"shopping"}}
-"margo quero ir pro act city em hamamatsu" → {{"ferramenta":"maps_navigate","destino":"Act City Hamamatsu"}}
 "toca um forró" → {{"ferramenta":"spotify_play","query":"forró"}}
+"coloca um som legal pra gente ouvir no caminho" → {{"ferramenta":"spotify_play","query":"sertanejo"}}
+"bota uma música animada" → {{"ferramenta":"spotify_play","query":"música animada"}}
+"toca Gusttavo Lima" → {{"ferramenta":"spotify_play","query":"Gusttavo Lima"}}
 "tem restaurante aqui perto?" → {{"ferramenta":"maps_search","query":"restaurante"}}
 "oi tudo bem?" → null
-"me conta uma piada" → null
 
 Retorne APENAS o JSON ou null, sem mais nada."""
 
@@ -801,7 +806,6 @@ Retorne APENAS o JSON ou null, sem mais nada."""
         resultado = chamar_deepseek_simples(prompt, max_tokens=100)
         if not resultado or resultado.strip().lower() == 'null':
             return None
-        # Limpa possíveis backticks
         resultado = re.sub(r'```(?:json)?\s*', '', resultado).strip()
         return json.loads(resultado)
     except:
