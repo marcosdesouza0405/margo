@@ -1202,6 +1202,53 @@ def root():
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
+@app.get("/smartthings/oauth/authorize")
+async def st_oauth_authorize(request: Request):
+    """
+    Endpoint de autorização OAuth para SmartThings Schema App.
+    SmartThings redireciona o usuário aqui para autorizar.
+    """
+    params = dict(request.query_params)
+    redirect_uri = params.get("redirect_uri", "")
+    state        = params.get("state", "")
+    client_id    = params.get("client_id", "")
+
+    # Gera um código de autorização simples
+    import hashlib, time
+    code = hashlib.sha256(f"{state}{time.time()}margo".encode()).hexdigest()[:32]
+
+    # Redireciona de volta para o SmartThings com o código
+    redirect_url = f"{redirect_uri}?code={code}&state={state}"
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=redirect_url)
+
+@app.post("/smartthings/oauth/token")
+async def st_oauth_token(request: Request):
+    """
+    Endpoint de token OAuth para SmartThings Schema App.
+    Troca o código por um access token.
+    """
+    try:
+        # Aceita form data ou JSON
+        try:
+            data = await request.json()
+        except:
+            body = await request.body()
+            import urllib.parse
+            data = dict(urllib.parse.parse_qsl(body.decode()))
+
+        # Retorna tokens válidos para o SmartThings
+        return JSONResponse({
+            "access_token":  "margo-st-access-token",
+            "token_type":    "Bearer",
+            "expires_in":    86400,
+            "refresh_token": "margo-st-refresh-token",
+            "scope":         "devices"
+        })
+    except Exception as e:
+        log(f"SmartThings token erro: {e}", "smartthings")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 @app.post("/smartthings/webhook")
 async def st_webhook(request: Request):
     """
