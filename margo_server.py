@@ -37,9 +37,12 @@ if os.path.exists(ENV_PATH):
             k, v = line.split("=", 1)
             os.environ.setdefault(k.strip(), v.strip().strip('"'))
 
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-DATABASE_URL     = os.environ.get("DATABASE_URL", "")
-BRAVE_API_KEY    = os.environ.get("BRAVE_API_KEY", "")
+DEEPSEEK_API_KEY    = os.environ.get("DEEPSEEK_API_KEY", "")
+DATABASE_URL        = os.environ.get("DATABASE_URL", "")
+BRAVE_API_KEY       = os.environ.get("BRAVE_API_KEY", "")
+ST_CLIENT_ID        = os.environ.get("ST_CLIENT_ID", "")
+ST_CLIENT_SECRET    = os.environ.get("ST_CLIENT_SECRET", "")
+ST_REDIRECT_URI     = os.environ.get("ST_REDIRECT_URI", "https://margo-production-98a9.up.railway.app/smartthings/callback")
 
 # ── Detecta se usa Postgres ────────────────────────────────────────────────────
 
@@ -99,6 +102,15 @@ class BancoMargo:
             data TEXT,
             msgs INTEGER DEFAULT 0,
             PRIMARY KEY (user_id, data)
+        )''')
+
+        # ── SMARTTHINGS TOKENS ────────────────────────────────────────────────
+        c.execute('''CREATE TABLE IF NOT EXISTS smartthings_tokens (
+            user_id TEXT PRIMARY KEY,
+            access_token TEXT,
+            refresh_token TEXT,
+            expires_at TEXT,
+            criado_em TEXT
         )''')
         c.execute('''CREATE TABLE IF NOT EXISTS usuarios (
             user_id TEXT PRIMARY KEY,
@@ -235,6 +247,39 @@ class BancoMargo:
                 (user_id, hoje))
         conn.commit()
         conn.close()
+
+    # ── SMARTTHINGS ────────────────────────────────────────────────────────────
+
+    def salvar_st_token(self, user_id, access_token, refresh_token, expires_at):
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        agora = datetime.now().isoformat()
+        if self._pg:
+            c.execute('''INSERT INTO smartthings_tokens (user_id, access_token, refresh_token, expires_at, criado_em)
+                VALUES (%s,%s,%s,%s,%s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    access_token=EXCLUDED.access_token,
+                    refresh_token=EXCLUDED.refresh_token,
+                    expires_at=EXCLUDED.expires_at''',
+                (user_id, access_token, refresh_token, expires_at, agora))
+        else:
+            c.execute('''INSERT OR REPLACE INTO smartthings_tokens
+                (user_id, access_token, refresh_token, expires_at, criado_em)
+                VALUES (?,?,?,?,?)''',
+                (user_id, access_token, refresh_token, expires_at, agora))
+        conn.commit()
+        conn.close()
+
+    def buscar_st_token(self, user_id) -> dict:
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        c.execute(f'SELECT * FROM smartthings_tokens WHERE user_id={ph}', (user_id,))
+        row = c.fetchone()
+        result = self._row_to_dict(row, c)
+        conn.close()
+        return result
 
     # ── USUARIOS ───────────────────────────────────────────────────────────────
 
@@ -507,6 +552,124 @@ class SessaoUsuario:
         self.limpar(user_id)
 
 sessoes = SessaoUsuario()
+
+# ── SMARTTHINGS API ────────────────────────────────────────────────────────────
+
+def st_refresh_token(user_id: str, refresh_token: str) -> str:
+    """Renova o access token do SmartThings"""
+    try:
+        import base64
+        creds = base64.b64encode(f"{ST_CLIENT_ID}:{ST_CLIENT_SECRET}".encode()).decode()
+        body = f"grant_type=refresh_token&refresh_token={refresh_token}".encode()
+        req = urllib.request.Request(
+            "https://api.smartthings.com/oauth/token",
+            data=body,
+            headers={
+                "Authorization": f"Basic {creds}",
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read())
+        expires_at = (datetime.now() + timedelta(seconds=data.get("expires_in", 3600))).isoformat()
+        banco.salvar_st_token(user_id, data["access_token"], data.get("refresh_token", refresh_token), expires_at)
+        return data["access_token"]
+    except Exception as e:
+        log(f"SmartThings refresh erro: {e}", "smartthings")
+        return None
+
+def st_get_token(user_id: str) -> str:
+    """Busca token válido, renovando se necessário"""
+    token_data = banco.buscar_st_token(user_id)
+    if not token_data:
+        return None
+    expires_at = token_data.get("expires_at", "")
+    try:
+        if datetime.fromisoformat(expires_at) < datetime.now():
+            return st_refresh_token(user_id, token_data["refresh_token"])
+    except:
+        pass
+    return token_data.get("access_token")
+
+def st_listar_dispositivos(access_token: str) -> list:
+    """Lista todos os dispositivos do usuário"""
+    try:
+        req = urllib.request.Request(
+            "https://api.smartthings.com/v1/devices",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read())
+        return data.get("items", [])
+    except Exception as e:
+        log(f"SmartThings listar erro: {e}", "smartthings")
+        return []
+
+def st_executar_comando(access_token: str, device_id: str, componente: str, capability: str, comando: str, args: list = None):
+    """Executa um comando em um dispositivo"""
+    try:
+        body = json.dumps({
+            "commands": [{
+                "component": componente or "main",
+                "capability": capability,
+                "command": comando,
+                "arguments": args or []
+            }]
+        }).encode()
+        req = urllib.request.Request(
+            f"https://api.smartthings.com/v1/devices/{device_id}/commands",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+        )
+        urllib.request.urlopen(req, timeout=10)
+        return True
+    except Exception as e:
+        log(f"SmartThings comando erro: {e}", "smartthings")
+        return False
+
+def st_resolver_dispositivo(access_token: str, nome_dispositivo: str) -> dict:
+    """Encontra um dispositivo pelo nome aproximado"""
+    dispositivos = st_listar_dispositivos(access_token)
+    nome_lower = nome_dispositivo.lower()
+    for d in dispositivos:
+        label = d.get("label", "").lower()
+        if nome_lower in label or label in nome_lower:
+            return d
+    return None
+
+def st_executar_acao(user_id: str, acao: str, dispositivo_nome: str, valor: str = None) -> str:
+    """Executa ação SmartThings baseado na intenção da Margo"""
+    access_token = st_get_token(user_id)
+    if not access_token:
+        return "Você ainda não conectou o SmartThings. Acesse as configurações do app para conectar."
+
+    dispositivo = st_resolver_dispositivo(access_token, dispositivo_nome)
+    if not dispositivo:
+        return f"Não encontrei o dispositivo '{dispositivo_nome}' na sua conta SmartThings."
+
+    device_id = dispositivo["device_id"]
+    acao = acao.lower()
+
+    # Mapeia ações para comandos SmartThings
+    if acao in ["ligar", "on", "abrir"]:
+        ok = st_executar_comando(access_token, device_id, "main", "switch", "on")
+        return f"{dispositivo_nome.capitalize()} ligado!" if ok else "Não consegui ligar o dispositivo."
+    elif acao in ["desligar", "off", "fechar"]:
+        ok = st_executar_comando(access_token, device_id, "main", "switch", "off")
+        return f"{dispositivo_nome.capitalize()} desligado!" if ok else "Não consegui desligar o dispositivo."
+    elif acao == "ajustar" and valor:
+        # Tenta ajustar brilho ou temperatura
+        try:
+            nivel = int(''.join(filter(str.isdigit, valor)))
+            ok = st_executar_comando(access_token, device_id, "main", "switchLevel", "setLevel", [nivel])
+            return f"Ajustado para {nivel}%!" if ok else "Não consegui ajustar."
+        except:
+            return "Não entendi o valor para ajustar."
+    else:
+        return f"Ação '{acao}' não reconhecida."
 
 # ── BRAVE SEARCH ──────────────────────────────────────────────────────────────
 
@@ -951,6 +1114,17 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None):
             ferramenta.get("data_hora", "")
         )
 
+    # ── SMART HOME (SmartThings) ───────────────────────────────────────────────
+    if ferramenta and ferramenta.get("ferramenta") == "smart_home":
+        resultado_st = st_executar_acao(
+            user_id,
+            ferramenta.get("acao", "ligar"),
+            ferramenta.get("dispositivo", ""),
+            ferramenta.get("valor")
+        )
+        # Substitui a resposta pela confirmação do SmartThings
+        resposta_limpa = resultado_st
+
     sessoes.adicionar(user_id, mensagem, resposta_limpa)
     return {
         "resposta":   limpar_resposta(resposta_limpa),
@@ -1027,6 +1201,65 @@ def root():
     return {"status": "online", "app": "Margo by Orbiby", "versao": "1.5.0",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
+
+@app.get("/smartthings/auth/{user_id}")
+def st_auth(user_id: str):
+    """Gera URL de autorização do SmartThings"""
+    if not ST_CLIENT_ID:
+        return JSONResponse({"erro": "SmartThings não configurado"}, status_code=500)
+    import urllib.parse as urlparse
+    params = urlparse.urlencode({
+        "client_id":     ST_CLIENT_ID,
+        "scope":         "r:devices:* x:devices:* r:locations:*",
+        "response_type": "code",
+        "redirect_uri":  ST_REDIRECT_URI,
+        "state":         user_id
+    })
+    url = f"https://api.smartthings.com/oauth/authorize?{params}"
+    return JSONResponse({"url": url})
+
+@app.get("/smartthings/callback")
+async def st_callback(request: Request):
+    """Recebe o código OAuth e troca pelo token"""
+    params  = dict(request.query_params)
+    code    = params.get("code")
+    user_id = params.get("state")
+    if not code or not user_id:
+        return JSONResponse({"erro": "Parâmetros inválidos"}, status_code=400)
+    try:
+        import base64
+        creds = base64.b64encode(f"{ST_CLIENT_ID}:{ST_CLIENT_SECRET}".encode()).decode()
+        body  = f"grant_type=authorization_code&code={code}&redirect_uri={ST_REDIRECT_URI}&client_id={ST_CLIENT_ID}".encode()
+        req   = urllib.request.Request(
+            "https://api.smartthings.com/oauth/token",
+            data=body,
+            headers={
+                "Authorization": f"Basic {creds}",
+                "Content-Type":  "application/x-www-form-urlencoded"
+            }
+        )
+        resp  = urllib.request.urlopen(req, timeout=10)
+        data  = json.loads(resp.read())
+        expires_at = (datetime.now() + timedelta(seconds=data.get("expires_in", 86400))).isoformat()
+        banco.salvar_st_token(user_id, data["access_token"], data.get("refresh_token", ""), expires_at)
+        log(f"SmartThings conectado para {user_id}", "smartthings")
+        # Redireciona de volta pro app
+        return JSONResponse({"ok": True, "msg": "SmartThings conectado com sucesso!"})
+    except Exception as e:
+        log(f"SmartThings callback erro: {e}", "smartthings")
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.get("/smartthings/dispositivos/{user_id}")
+def st_dispositivos(user_id: str):
+    """Lista dispositivos do usuário"""
+    token = st_get_token(user_id)
+    if not token:
+        return JSONResponse({"erro": "SmartThings não conectado", "conectado": False})
+    dispositivos = st_listar_dispositivos(token)
+    return JSONResponse({
+        "conectado": True,
+        "dispositivos": [{"id": d.get("deviceId"), "nome": d.get("label")} for d in dispositivos]
+    })
 
 @app.get("/ping")
 def ping():
