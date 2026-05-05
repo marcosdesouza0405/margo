@@ -1202,6 +1202,60 @@ def root():
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
+@app.post("/smartthings/webhook")
+async def st_webhook(request: Request):
+    """
+    Webhook SmartThings Schema App — responde aos eventos da plataforma.
+    Handles: PING, DISCOVERY, STATE_REFRESH, COMMAND, GRANT_CALLBACK_ACCESS
+    """
+    try:
+        data = await request.json()
+        lifecycle = data.get("lifecycle")
+        log(f"SmartThings webhook: {lifecycle}", "smartthings")
+
+        # PING — confirmação de que o endpoint está ativo
+        if lifecycle == "PING":
+            return JSONResponse({
+                "pingData": {
+                    "challenge": data.get("pingData", {}).get("challenge", "")
+                }
+            })
+
+        # GRANT_CALLBACK_ACCESS — SmartThings concede acesso OAuth
+        if lifecycle == "GRANT_CALLBACK_ACCESS":
+            grant = data.get("grantCallbackData", {})
+            installed_app_id = grant.get("installedAppId", "")
+            auth_token = grant.get("authToken", "")
+            # Salva token para chamar a API do SmartThings
+            log(f"SmartThings grant: {installed_app_id}", "smartthings")
+            return JSONResponse({"grantCallbackData": {}})
+
+        # DISCOVERY — SmartThings pergunta quais dispositivos virtuais existem
+        if lifecycle == "DISCOVERY":
+            return JSONResponse({
+                "discoveryData": {
+                    "devices": []  # Margo não expõe dispositivos, só controla
+                }
+            })
+
+        # STATE_REFRESH — atualiza estado dos dispositivos
+        if lifecycle == "STATE_REFRESH":
+            return JSONResponse({"stateRefreshData": {"deviceState": []}})
+
+        # COMMAND — SmartThings envia comando para executar
+        if lifecycle == "COMMAND":
+            return JSONResponse({"commandData": {}})
+
+        # INTEGRATION_DELETED
+        if lifecycle == "INTEGRATION_DELETED":
+            return JSONResponse({})
+
+        return JSONResponse({"ok": True})
+
+    except Exception as e:
+        log(f"SmartThings webhook erro: {e}", "smartthings")
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
 @app.get("/smartthings/auth/{user_id}")
 def st_auth(user_id: str):
     """Gera URL de autorização do SmartThings"""
