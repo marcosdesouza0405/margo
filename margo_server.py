@@ -43,6 +43,9 @@ BRAVE_API_KEY       = os.environ.get("BRAVE_API_KEY", "")
 ST_CLIENT_ID        = os.environ.get("ST_CLIENT_ID", "")
 ST_CLIENT_SECRET    = os.environ.get("ST_CLIENT_SECRET", "")
 ST_REDIRECT_URI     = os.environ.get("ST_REDIRECT_URI", "https://margo-production-98a9.up.railway.app/smartthings/callback")
+SPOTIFY_CLIENT_ID     = os.environ.get("SPOTIFY_CLIENT_ID", "")
+SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
+SPOTIFY_REDIRECT_URI  = "https://margo-production-98a9.up.railway.app/spotify/callback"
 
 # ── Detecta se usa Postgres ────────────────────────────────────────────────────
 
@@ -104,7 +107,13 @@ class BancoMargo:
             PRIMARY KEY (user_id, data)
         )''')
 
-        # ── SMARTTHINGS TOKENS ────────────────────────────────────────────────
+        # ── SPOTIFY TOKENS ────────────────────────────────────────────────────
+        c.execute('''CREATE TABLE IF NOT EXISTS spotify_tokens (
+            user_id TEXT PRIMARY KEY,
+            access_token TEXT,
+            refresh_token TEXT,
+            expires_at TEXT
+        )''')
         c.execute('''CREATE TABLE IF NOT EXISTS smartthings_tokens (
             user_id TEXT PRIMARY KEY,
             access_token TEXT,
@@ -247,6 +256,38 @@ class BancoMargo:
                 (user_id, hoje))
         conn.commit()
         conn.close()
+
+    # ── SPOTIFY ────────────────────────────────────────────────────────────────
+
+    def salvar_spotify_token(self, user_id, access_token, refresh_token, expires_at):
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        if self._pg:
+            c.execute('''INSERT INTO spotify_tokens (user_id, access_token, refresh_token, expires_at)
+                VALUES (%s,%s,%s,%s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    access_token=EXCLUDED.access_token,
+                    refresh_token=EXCLUDED.refresh_token,
+                    expires_at=EXCLUDED.expires_at''',
+                (user_id, access_token, refresh_token, expires_at))
+        else:
+            c.execute('''INSERT OR REPLACE INTO spotify_tokens
+                (user_id, access_token, refresh_token, expires_at)
+                VALUES (?,?,?,?)''',
+                (user_id, access_token, refresh_token, expires_at))
+        conn.commit()
+        conn.close()
+
+    def buscar_spotify_token(self, user_id) -> dict:
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        c.execute(f'SELECT * FROM spotify_tokens WHERE user_id={ph}', (user_id,))
+        row = c.fetchone()
+        result = self._row_to_dict(row, c)
+        conn.close()
+        return result
 
     # ── SMARTTHINGS ────────────────────────────────────────────────────────────
 
@@ -552,6 +593,87 @@ class SessaoUsuario:
         self.limpar(user_id)
 
 sessoes = SessaoUsuario()
+
+# ── SPOTIFY API ────────────────────────────────────────────────────────────────
+
+def spotify_get_token(user_id: str) -> str:
+    """Busca token válido, renovando se necessário"""
+    token_data = banco.buscar_spotify_token(user_id)
+    if not token_data:
+        return None
+    try:
+        if datetime.fromisoformat(token_data.get("expires_at", "2000-01-01")) < datetime.now():
+            return spotify_refresh_token(user_id, token_data["refresh_token"])
+    except:
+        pass
+    return token_data.get("access_token")
+
+def spotify_refresh_token(user_id: str, refresh_token: str) -> str:
+    try:
+        import base64
+        creds = base64.b64encode(f"{SPOTIFY_CLIENT_ID}:{SPOTIFY_CLIENT_SECRET}".encode()).decode()
+        body = f"grant_type=refresh_token&refresh_token={refresh_token}".encode()
+        req = urllib.request.Request(
+            "https://accounts.spotify.com/api/token",
+            data=body,
+            headers={
+                "Authorization": f"Basic {creds}",
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read())
+        expires_at = (datetime.now() + timedelta(seconds=data.get("expires_in", 3600))).isoformat()
+        banco.salvar_spotify_token(user_id, data["access_token"],
+            data.get("refresh_token", refresh_token), expires_at)
+        return data["access_token"]
+    except Exception as e:
+        log(f"Spotify refresh erro: {e}", "spotify")
+        return None
+
+def spotify_play(user_id: str, query: str) -> bool:
+    """Busca e toca uma música no Spotify"""
+    token = spotify_get_token(user_id)
+    if not token:
+        return False
+    try:
+        # Busca a música
+        search_url = f"https://api.spotify.com/v1/search?q={urllib.parse.quote(query)}&type=track,playlist&limit=1"
+        req = urllib.request.Request(search_url,
+            headers={"Authorization": f"Bearer {token}"})
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read())
+
+        # Pega URI da primeira faixa ou playlist
+        uri = None
+        tracks = data.get("tracks", {}).get("items", [])
+        playlists = data.get("playlists", {}).get("items", [])
+        if tracks:
+            uri = tracks[0]["uri"]
+        elif playlists:
+            uri = playlists[0]["uri"]
+
+        if not uri:
+            return False
+
+        # Toca no dispositivo ativo
+        play_body = json.dumps(
+            {"uris": [uri]} if uri.startswith("spotify:track") else {"context_uri": uri}
+        ).encode()
+        req2 = urllib.request.Request(
+            "https://api.spotify.com/v1/me/player/play",
+            data=play_body,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+        )
+        req2.get_method = lambda: 'PUT'
+        urllib.request.urlopen(req2, timeout=10)
+        return True
+    except Exception as e:
+        log(f"Spotify play erro: {e}", "spotify")
+        return False
 
 # ── SMARTTHINGS API ────────────────────────────────────────────────────────────
 
@@ -1122,8 +1244,15 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None):
             ferramenta.get("dispositivo", ""),
             ferramenta.get("valor")
         )
-        # Substitui a resposta pela confirmação do SmartThings
         resposta_limpa = resultado_st
+
+    # ── SPOTIFY PLAY ──────────────────────────────────────────────────────────
+    if ferramenta and ferramenta.get("ferramenta") == "spotify_play":
+        token = spotify_get_token(user_id)
+        if token:
+            # Tem token OAuth — toca direto via API
+            spotify_play(user_id, ferramenta.get("query", ""))
+            # Mantém ferramenta na resposta para o app abrir via deeplink como fallback
 
     sessoes.adicionar(user_id, mensagem, resposta_limpa)
     return {
@@ -1302,6 +1431,56 @@ async def st_webhook(request: Request):
     except Exception as e:
         log(f"SmartThings webhook erro: {e}", "smartthings")
         return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.get("/spotify/auth/{user_id}")
+def spotify_auth(user_id: str):
+    """Gera URL de autorização do Spotify"""
+    if not SPOTIFY_CLIENT_ID:
+        return JSONResponse({"erro": "Spotify não configurado"}, status_code=500)
+    import urllib.parse as urlparse
+    params = urlparse.urlencode({
+        "client_id":     SPOTIFY_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri":  SPOTIFY_REDIRECT_URI,
+        "scope":         "user-read-playback-state user-modify-playback-state streaming",
+        "state":         user_id
+    })
+    return JSONResponse({"url": f"https://accounts.spotify.com/authorize?{params}"})
+
+@app.get("/spotify/callback")
+async def spotify_callback(request: Request):
+    """Recebe código OAuth e troca pelo token"""
+    params  = dict(request.query_params)
+    code    = params.get("code")
+    user_id = params.get("state")
+    if not code or not user_id:
+        return JSONResponse({"erro": "Parâmetros inválidos"}, status_code=400)
+    try:
+        import base64
+        creds = base64.b64encode(f"{SPOTIFY_CLIENT_ID}:{SPOTIFY_CLIENT_SECRET}".encode()).decode()
+        body  = f"grant_type=authorization_code&code={code}&redirect_uri={SPOTIFY_REDIRECT_URI}".encode()
+        req   = urllib.request.Request(
+            "https://accounts.spotify.com/api/token",
+            data=body,
+            headers={
+                "Authorization": f"Basic {creds}",
+                "Content-Type":  "application/x-www-form-urlencoded"
+            }
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read())
+        expires_at = (datetime.now() + timedelta(seconds=data.get("expires_in", 3600))).isoformat()
+        banco.salvar_spotify_token(user_id, data["access_token"], data.get("refresh_token", ""), expires_at)
+        log(f"Spotify conectado para {user_id}", "spotify")
+        return JSONResponse({"ok": True, "msg": "Spotify conectado! Pode fechar esta janela e voltar ao app."})
+    except Exception as e:
+        log(f"Spotify callback erro: {e}", "spotify")
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.get("/spotify/status/{user_id}")
+def spotify_status(user_id: str):
+    token_data = banco.buscar_spotify_token(user_id)
+    return JSONResponse({"conectado": bool(token_data)})
 
 @app.get("/smartthings/auth/{user_id}")
 def st_auth(user_id: str):
