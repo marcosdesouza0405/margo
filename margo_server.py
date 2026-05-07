@@ -1327,7 +1327,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.6.0",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.7.0",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
@@ -1431,6 +1431,21 @@ async def st_webhook(request: Request):
     except Exception as e:
         log(f"SmartThings webhook erro: {e}", "smartthings")
         return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.post("/spotify/play")
+async def spotify_play_endpoint(request: Request):
+    """Toca música no Spotify via OAuth"""
+    try:
+        data    = await request.json()
+        user_id = data.get("user_id", "")
+        query   = data.get("query", "")
+        if not user_id or not query:
+            return JSONResponse({"ok": False, "erro": "user_id e query obrigatórios"})
+        ok = spotify_play(user_id, query)
+        return JSONResponse({"ok": ok})
+    except Exception as e:
+        log(f"Erro /spotify/play: {e}", "spotify")
+        return JSONResponse({"ok": False, "erro": str(e)})
 
 @app.get("/spotify/auth/{user_id}")
 def spotify_auth(user_id: str):
