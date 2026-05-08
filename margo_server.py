@@ -1250,9 +1250,21 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None):
     if ferramenta and ferramenta.get("ferramenta") == "spotify_play":
         token = spotify_get_token(user_id)
         if token:
-            # Tem token OAuth — toca direto via API
-            spotify_play(user_id, ferramenta.get("query", ""))
-            # Mantém ferramenta na resposta para o app abrir via deeplink como fallback
+            try:
+                # Busca URI da música para deeplink direto
+                import urllib.parse as urlparse
+                search_url = f"https://api.spotify.com/v1/search?q={urlparse.quote(ferramenta.get('query',''))}&type=track&limit=1"
+                req = urllib.request.Request(search_url, headers={"Authorization": f"Bearer {token}"})
+                resp = urllib.request.urlopen(req, timeout=10)
+                data = json.loads(resp.read())
+                tracks = data.get("tracks", {}).get("items", [])
+                if tracks:
+                    ferramenta["spotify_uri"] = tracks[0]["uri"]
+                    ferramenta["spotify_id"] = tracks[0]["id"]
+                # Tenta tocar via API também
+                spotify_play(user_id, ferramenta.get("query", ""))
+            except Exception as e:
+                log(f"Spotify search erro: {e}", "spotify")
 
     sessoes.adicionar(user_id, mensagem, resposta_limpa)
     return {
