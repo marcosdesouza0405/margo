@@ -1179,26 +1179,39 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None):
     # ── MAPS SEARCH: busca lugar específico antes de abrir ────────────────────
     if ferramenta and ferramenta.get("ferramenta") == "maps_search" and BRAVE_API_KEY and latitude and longitude:
         query_maps = ferramenta.get("query", "")
-        # Busca lugar específico baseado na preferência e localização
-        query_busca = f"{query_maps} próximo latitude {latitude} longitude {longitude}"
+        # Busca cidade via geocoding reverso gratuito
+        cidade = ""
+        try:
+            geo_url = f"https://nominatim.openstreetmap.org/reverse?lat={latitude}&lon={longitude}&format=json&accept-language=pt"
+            geo_req = urllib.request.Request(geo_url, headers={"User-Agent": "MargoApp/1.0"})
+            geo_resp = urllib.request.urlopen(geo_req, timeout=5)
+            geo_data = json.loads(geo_resp.read())
+            addr = geo_data.get("address", {})
+            cidade = addr.get("city") or addr.get("town") or addr.get("village") or addr.get("county") or ""
+            pais = addr.get("country", "")
+            if cidade and pais:
+                cidade = f"{cidade}, {pais}"
+        except:
+            pass
+
+        query_busca = f"{query_maps} em {cidade}" if cidade else f"{query_maps} perto de mim"
         log(f"Brave Maps Search: {query_busca}", "busca")
         resultados_maps = buscar_brave(query_busca)
         if resultados_maps:
-            # DeepSeek extrai o melhor resultado para abrir
-            prompt_lugar = f"""O usuário quer encontrar: "{query_maps}"
+            prompt_lugar = f"""O usuário está em {cidade or 'localização desconhecida'} e quer: "{query_maps}"
 Resultados da busca:
 {resultados_maps}
 
-Retorne APENAS um JSON com o melhor resultado:
-{{"nome": "nome do lugar", "query": "nome do lugar para buscar no Google Maps"}}
-Sem texto extra."""
+Retorne APENAS um JSON com o melhor resultado LOCAL:
+{{"nome": "nome do lugar", "query": "nome do lugar, {cidade}"}}
+Priorize lugares reais e próximos. Sem texto extra."""
             try:
                 resultado_lugar = chamar_deepseek_simples(prompt_lugar, max_tokens=80)
                 resultado_lugar = re.sub(r'```(?:json)?\s*', '', resultado_lugar).strip()
                 lugar = json.loads(resultado_lugar)
                 if lugar.get("query"):
                     ferramenta["query"] = lugar["query"]
-                    contexto_busca += f"\n\nLugar encontrado: {lugar.get('nome', query_maps)}"
+                    contexto_busca += f"\n\nLugar encontrado: {lugar.get('nome', query_maps)} em {cidade}"
             except:
                 pass
 
@@ -1322,7 +1335,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.0",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.1",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
