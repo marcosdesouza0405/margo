@@ -783,8 +783,26 @@ def st_resolver_dispositivo(access_token: str, nome_dispositivo: str) -> dict:
     
     return None
 
+def st_buscar_capabilities(access_token: str, device_id: str) -> list:
+    """Busca as capabilities de um dispositivo"""
+    try:
+        req = urllib.request.Request(
+            f"https://api.smartthings.com/v1/devices/{device_id}",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read())
+        caps = []
+        for comp in data.get("components", []):
+            for cap in comp.get("capabilities", []):
+                caps.append(cap.get("id", ""))
+        return caps
+    except Exception as e:
+        log(f"SmartThings capabilities erro: {e}", "smartthings")
+        return []
+
 def st_executar_acao(user_id: str, acao: str, dispositivo_nome: str, valor: str = None) -> str:
-    """Executa ação SmartThings baseado na intenção da Margo"""
+    """Executa ação SmartThings baseado nas capabilities reais do dispositivo"""
     access_token = st_get_token(user_id)
     if not access_token:
         return "Você ainda não conectou o SmartThings. Acesse as configurações do app para conectar."
@@ -794,25 +812,50 @@ def st_executar_acao(user_id: str, acao: str, dispositivo_nome: str, valor: str 
         return f"Não encontrei o dispositivo '{dispositivo_nome}' na sua conta SmartThings."
 
     device_id = dispositivo.get("deviceId") or dispositivo.get("device_id")
+    label = dispositivo.get("label", dispositivo_nome)
     acao = acao.lower()
 
-    # Mapeia ações para comandos SmartThings
+    # Busca capabilities reais do dispositivo
+    caps = st_buscar_capabilities(access_token, device_id)
+    log(f"SmartThings caps {label}: {caps}", "smartthings")
+
+    # Determina comando baseado nas capabilities
     if acao in ["ligar", "on", "abrir"]:
-        ok = st_executar_comando(access_token, device_id, "main", "switch", "on")
-        return f"{dispositivo_nome.capitalize()} ligado!" if ok else "Não consegui ligar o dispositivo."
+        if "switch" in caps:
+            ok = st_executar_comando(access_token, device_id, "main", "switch", "on")
+        elif "airConditionerMode" in caps:
+            ok = st_executar_comando(access_token, device_id, "main", "airConditionerMode", "setAirConditionerMode", ["auto"])
+        elif "mediaPlayback" in caps:
+            ok = st_executar_comando(access_token, device_id, "main", "mediaPlayback", "play")
+        else:
+            ok = st_executar_comando(access_token, device_id, "main", "switch", "on")
+        return f"{label} ligado!" if ok else f"Não consegui ligar o {label}."
+
     elif acao in ["desligar", "off", "fechar"]:
-        ok = st_executar_comando(access_token, device_id, "main", "switch", "off")
-        return f"{dispositivo_nome.capitalize()} desligado!" if ok else "Não consegui desligar o dispositivo."
+        if "switch" in caps:
+            ok = st_executar_comando(access_token, device_id, "main", "switch", "off")
+        elif "airConditionerMode" in caps:
+            ok = st_executar_comando(access_token, device_id, "main", "switch", "off")
+        elif "mediaPlayback" in caps:
+            ok = st_executar_comando(access_token, device_id, "main", "mediaPlayback", "stop")
+        else:
+            ok = st_executar_comando(access_token, device_id, "main", "switch", "off")
+        return f"{label} desligado!" if ok else f"Não consegui desligar o {label}."
+
     elif acao == "ajustar" and valor:
-        # Tenta ajustar brilho ou temperatura
         try:
             nivel = int(''.join(filter(str.isdigit, valor)))
-            ok = st_executar_comando(access_token, device_id, "main", "switchLevel", "setLevel", [nivel])
-            return f"Ajustado para {nivel}%!" if ok else "Não consegui ajustar."
+            if "switchLevel" in caps:
+                ok = st_executar_comando(access_token, device_id, "main", "switchLevel", "setLevel", [nivel])
+            elif "thermostatCoolingSetpoint" in caps:
+                ok = st_executar_comando(access_token, device_id, "main", "thermostatCoolingSetpoint", "setCoolingSetpoint", [nivel])
+            else:
+                ok = False
+            return f"{label} ajustado para {nivel}!" if ok else f"Não consegui ajustar o {label}."
         except:
-            return "Não entendi o valor para ajustar."
-    else:
-        return f"Ação '{acao}' não reconhecida."
+            return f"Não entendi o valor para ajustar o {label}."
+
+    return f"Ação '{acao}' não reconhecida para {label}."
 
 # ── BRAVE SEARCH ──────────────────────────────────────────────────────────────
 
@@ -1356,7 +1399,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.5",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.6",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
