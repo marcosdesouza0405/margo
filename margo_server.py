@@ -755,11 +755,32 @@ def st_executar_comando(access_token: str, device_id: str, componente: str, capa
 def st_resolver_dispositivo(access_token: str, nome_dispositivo: str) -> dict:
     """Encontra um dispositivo pelo nome aproximado"""
     dispositivos = st_listar_dispositivos(access_token)
-    nome_lower = nome_dispositivo.lower()
+    nome_lower = nome_dispositivo.lower().strip()
+    
+    # 1. Busca exata
+    for d in dispositivos:
+        if d.get("label", "").lower() == nome_lower:
+            return d
+    
+    # 2. Busca parcial — nome pedido dentro do label
     for d in dispositivos:
         label = d.get("label", "").lower()
-        if nome_lower in label or label in nome_lower:
+        if nome_lower in label:
             return d
+    
+    # 3. Busca inversa — label dentro do nome pedido
+    for d in dispositivos:
+        label = d.get("label", "").lower()
+        if label in nome_lower:
+            return d
+    
+    # 4. Busca por palavras-chave
+    palavras = nome_lower.split()
+    for d in dispositivos:
+        label = d.get("label", "").lower()
+        if any(p in label for p in palavras if len(p) > 2):
+            return d
+    
     return None
 
 def st_executar_acao(user_id: str, acao: str, dispositivo_nome: str, valor: str = None) -> str:
@@ -772,7 +793,7 @@ def st_executar_acao(user_id: str, acao: str, dispositivo_nome: str, valor: str 
     if not dispositivo:
         return f"Não encontrei o dispositivo '{dispositivo_nome}' na sua conta SmartThings."
 
-    device_id = dispositivo["device_id"]
+    device_id = dispositivo.get("deviceId") or dispositivo.get("device_id")
     acao = acao.lower()
 
     # Mapeia ações para comandos SmartThings
@@ -1335,7 +1356,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.4",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.5",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
