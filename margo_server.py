@@ -1335,7 +1335,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.3",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.4",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
@@ -1507,17 +1507,18 @@ def spotify_status(user_id: str):
 
 @app.get("/smartthings/auth/{user_id}")
 def st_auth(user_id: str):
-    """Gera URL de autorização do SmartThings"""
     if not ST_CLIENT_ID:
         return JSONResponse({"erro": "SmartThings não configurado"}, status_code=500)
     import urllib.parse as urlparse
+    scope = "r:devices:* x:devices:*"
     params = urlparse.urlencode({
         "client_id":     ST_CLIENT_ID,
-        "scope":         "r:devices:* x:devices:*",
+        "scope":         scope,
         "response_type": "code",
         "redirect_uri":  ST_REDIRECT_URI,
         "state":         user_id
     })
+    url = f"https://api.smartthings.com/oauth/authorize?{params}"
     return JSONResponse({"url": url})
 
 @app.get("/smartthings/callback")
