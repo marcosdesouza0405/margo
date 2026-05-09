@@ -1152,7 +1152,13 @@ Retorne APENAS um JSON válido se a mensagem pede:
 - Ligar: {{"ferramenta":"phone_call","contato":"nome ou número"}}
 - Pesquisar: {{"ferramenta":"web_search","query":"termo"}}
 - Agenda: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601"}}
-- Casa inteligente: {{"ferramenta":"smart_home","acao":"ligar|desligar","dispositivo":"..."}}
+- Casa inteligente: {{"ferramenta":"smart_home","acao":"ligar|desligar|ajustar","dispositivo":"nome exato do dispositivo","valor":"opcional"}}
+
+Exemplos smart_home:
+"liga o ar da sala" → {{"ferramenta":"smart_home","acao":"ligar","dispositivo":"ar da sala"}}
+"desliga a tv" → {{"ferramenta":"smart_home","acao":"desligar","dispositivo":"tv"}}
+"apaga a luz do quarto" → {{"ferramenta":"smart_home","acao":"desligar","dispositivo":"luz do quarto"}}
+"liga a luminária" → {{"ferramenta":"smart_home","acao":"ligar","dispositivo":"luminária"}}
 
 Se conversa normal: null
 
@@ -1399,7 +1405,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.6",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.7",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
