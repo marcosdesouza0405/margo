@@ -802,80 +802,58 @@ def st_buscar_capabilities(access_token: str, device_id: str) -> list:
         return []
 
 def st_executar_acao(user_id: str, acao: str, dispositivo_nome: str, valor: str = None) -> str:
-    """Executa ação SmartThings com mapeamento inteligente de capabilities"""
     access_token = st_get_token(user_id)
     if not access_token:
         return "Você ainda não conectou o SmartThings. Acesse as configurações do app para conectar."
-
     dispositivo = st_resolver_dispositivo(access_token, dispositivo_nome)
     if not dispositivo:
         return f"Não encontrei o dispositivo '{dispositivo_nome}' na sua conta SmartThings."
-
     device_id = dispositivo.get("deviceId") or dispositivo.get("device_id")
-    label = dispositivo.get("label", dispositivo_nome)
-    acao = acao.lower()
+    capabilities = st_buscar_capabilities(access_token, device_id)
+    log(f"SmartThings caps {dispositivo_nome}: {capabilities}", "smartthings")
+    acao_lower = acao.lower()
 
-    # Busca capabilities reais
-    caps = st_buscar_capabilities(access_token, device_id)
-    log(f"SmartThings caps {label}: {caps}", "smartthings")
+    # Capabilities customizadas de power on/off (qualquer fabricante)
+    cap_power_on  = next((c for c in capabilities if "poweron"  in c.lower()), None)
+    cap_power_off = next((c for c in capabilities if "poweroff" in c.lower()), None)
+    cap_temp_up   = next((c for c in capabilities if "temperatureup"   in c.lower() or "tempup"   in c.lower()), None)
+    cap_temp_down = next((c for c in capabilities if "temperaturedown" in c.lower() or "tempdown" in c.lower()), None)
 
-    def executar(capability, comando, args=None):
-        return st_executar_comando(access_token, device_id, "main", capability, comando, args or [])
+    if cap_power_on:
+        if acao_lower in ["ligar", "on", "abrir"]:
+            cmd = cap_power_on.split(".")[-1] if "." in cap_power_on else "on"
+            ok = st_executar_comando(access_token, device_id, "main", cap_power_on, cmd)
+            return f"{dispositivo_nome} ligado!" if ok else f"Não consegui ligar {dispositivo_nome}."
+        elif acao_lower in ["desligar", "off", "fechar"] and cap_power_off:
+            cmd = cap_power_off.split(".")[-1] if "." in cap_power_off else "off"
+            ok = st_executar_comando(access_token, device_id, "main", cap_power_off, cmd)
+            return f"{dispositivo_nome} desligado!" if ok else f"Não consegui desligar {dispositivo_nome}."
+        elif acao_lower in ["aumentar", "subir"] and cap_temp_up:
+            cmd = cap_temp_up.split(".")[-1] if "." in cap_temp_up else "temperatureUp"
+            ok = st_executar_comando(access_token, device_id, "main", cap_temp_up, cmd)
+            return "Temperatura aumentada!" if ok else "Não consegui ajustar."
+        elif acao_lower in ["diminuir", "baixar"] and cap_temp_down:
+            cmd = cap_temp_down.split(".")[-1] if "." in cap_temp_down else "temperatureDown"
+            ok = st_executar_comando(access_token, device_id, "main", cap_temp_down, cmd)
+            return "Temperatura diminuída!" if ok else "Não consegui ajustar."
 
-    if acao in ["ligar", "on", "abrir"]:
-        # Procura capability de ligar em ordem de prioridade
-        # 1. Capability customizada com "poweron" no nome
-        cap_on = next((c for c in caps if "poweron" in c.lower()), None)
-        if cap_on:
-            cmd = cap_on.split(".")[-1] if "." in cap_on else "on"
-            ok = executar(cap_on, cmd)
-        # 2. Switch padrão
-        elif "switch" in caps:
-            ok = executar("switch", "on")
-        # 3. Ar condicionado padrão Samsung
-        elif "airConditionerMode" in caps:
-            ok = executar("airConditionerMode", "setAirConditionerMode", ["auto"])
-        # 4. TV/mídia
-        elif "mediaPlayback" in caps:
-            ok = executar("mediaPlayback", "play")
-        # 5. Fallback switch
-        else:
-            ok = executar("switch", "on")
-        return f"{label} ligado!" if ok else f"Não consegui ligar o {label}."
+    elif "switch" in capabilities:
+        if acao_lower in ["ligar", "on", "abrir"]:
+            ok = st_executar_comando(access_token, device_id, "main", "switch", "on")
+            return f"{dispositivo_nome} ligado!" if ok else f"Não consegui ligar {dispositivo_nome}."
+        elif acao_lower in ["desligar", "off", "fechar"]:
+            ok = st_executar_comando(access_token, device_id, "main", "switch", "off")
+            return f"{dispositivo_nome} desligado!" if ok else f"Não consegui desligar {dispositivo_nome}."
+        elif acao_lower == "ajustar" and valor and "switchLevel" in capabilities:
+            nivel = int(''.join(filter(str.isdigit, str(valor))))
+            ok = st_executar_comando(access_token, device_id, "main", "switchLevel", "setLevel", [nivel])
+            return f"{dispositivo_nome} ajustado para {nivel}%!" if ok else "Não consegui ajustar."
 
-    elif acao in ["desligar", "off", "fechar"]:
-        # Procura capability de desligar
-        cap_off = next((c for c in caps if "poweroff" in c.lower()), None)
-        if cap_off:
-            cmd = cap_off.split(".")[-1] if "." in cap_off else "off"
-            ok = executar(cap_off, cmd)
-        elif "switch" in caps:
-            ok = executar("switch", "off")
-        elif "airConditionerMode" in caps:
-            ok = executar("switch", "off")
-        elif "mediaPlayback" in caps:
-            ok = executar("mediaPlayback", "stop")
-        else:
-            ok = executar("switch", "off")
-        return f"{label} desligado!" if ok else f"Não consegui desligar o {label}."
+    else:
+        caps_resumo = ', '.join(capabilities[:3])
+        return f"Não sei como controlar '{dispositivo_nome}'. Capabilities: {caps_resumo}..."
 
-    elif acao == "ajustar" and valor:
-        try:
-            nivel = int(''.join(filter(str.isdigit, valor)))
-            if "switchLevel" in caps:
-                ok = executar("switchLevel", "setLevel", [nivel])
-            elif "thermostatCoolingSetpoint" in caps:
-                ok = executar("thermostatCoolingSetpoint", "setCoolingSetpoint", [nivel])
-            elif any("temperature" in c.lower() for c in caps):
-                cap_temp = next(c for c in caps if "temperature" in c.lower())
-                ok = executar(cap_temp, cap_temp.split(".")[-1], [nivel])
-            else:
-                ok = False
-            return f"{label} ajustado para {nivel}!" if ok else f"Não consegui ajustar o {label}."
-        except:
-            return f"Não entendi o valor para ajustar o {label}."
-
-    return f"Ação '{acao}' não reconhecida para {label}."
+    return f"Não entendi a ação '{acao}' para '{dispositivo_nome}'."
 
 # ── BRAVE SEARCH ──────────────────────────────────────────────────────────────
 
@@ -1425,7 +1403,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.9",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.0",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
