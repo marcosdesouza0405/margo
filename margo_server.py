@@ -1335,7 +1335,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.1",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.2",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
@@ -1518,35 +1518,35 @@ def st_auth(user_id: str):
         "redirect_uri":  ST_REDIRECT_URI,
         "state":         user_id
     })
-    url = f"https://api.smartthings.com/oauth/authorize?{params}"
     return JSONResponse({"url": url})
 
 @app.get("/smartthings/callback")
 async def st_callback(request: Request):
-    """Recebe o código OAuth e troca pelo token"""
-    params  = dict(request.query_params)
-    code    = params.get("code")
-    user_id = params.get("state")
-    if not code or not user_id:
-        return JSONResponse({"erro": "Parâmetros inválidos"}, status_code=400)
+    params = dict(request.query_params)
+    code = params.get("code")
+    state = params.get("state")
+    if not code:
+        return JSONResponse({"erro": "Código não recebido"}, status_code=400)
+    user_id = state
+    usuario = banco.buscar_usuario_por_id(user_id)
+    if not usuario:
+        return JSONResponse({"erro": "Usuário não encontrado"}, status_code=404)
+    import base64
+    creds = base64.b64encode(f"{ST_CLIENT_ID}:{ST_CLIENT_SECRET}".encode()).decode()
+    body = f"grant_type=authorization_code&code={code}&redirect_uri={ST_REDIRECT_URI}&client_id={ST_CLIENT_ID}".encode()
+    req = urllib.request.Request(
+        "https://api.smartthings.com/oauth/token",
+        data=body,
+        headers={"Authorization": f"Basic {creds}", "Content-Type": "application/x-www-form-urlencoded"}
+    )
     try:
-        import base64
-        creds = base64.b64encode(f"{ST_CLIENT_ID}:{ST_CLIENT_SECRET}".encode()).decode()
-        body  = f"grant_type=authorization_code&code={code}&redirect_uri={ST_REDIRECT_URI}&client_id={ST_CLIENT_ID}".encode()
-        req   = urllib.request.Request(
-            "https://api.smartthings.com/oauth/token",
-            data=body,
-            headers={
-                "Authorization": f"Basic {creds}",
-                "Content-Type":  "application/x-www-form-urlencoded"
-            }
-        )
-        resp  = urllib.request.urlopen(req, timeout=10)
-        data  = json.loads(resp.read())
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read())
+        if "access_token" not in data:
+            return JSONResponse({"erro": "Token não recebido", "detalhe": data}, status_code=500)
         expires_at = (datetime.now() + timedelta(seconds=data.get("expires_in", 86400))).isoformat()
         banco.salvar_st_token(user_id, data["access_token"], data.get("refresh_token", ""), expires_at)
         log(f"SmartThings conectado para {user_id}", "smartthings")
-        # Redireciona de volta pro app
         return JSONResponse({"ok": True, "msg": "SmartThings conectado com sucesso!"})
     except Exception as e:
         log(f"SmartThings callback erro: {e}", "smartthings")
