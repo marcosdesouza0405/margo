@@ -1053,49 +1053,56 @@ def limpar_resposta(texto):
     texto = re.sub(r'\s+', ' ', texto)                      # espaços duplos
     return texto.strip()
 
-def detectar_intencao(mensagem: str, historico: list = None) -> dict:
+def detectar_intencao(mensagem: str, historico: list = None, perfil: dict = None) -> dict:
     """
     Chamada rápida ao DeepSeek para detectar intenção e extrair parâmetros.
-    Retorna o JSON da ferramenta ou None.
+    Usa perfil do usuário para personalizar a query.
     """
-    # Monta contexto do histórico recente se disponível
     contexto = ""
     if historico:
-        ultimas = historico[-3:]  # últimas 3 trocas
+        ultimas = historico[-3:]
         for item in ultimas:
             contexto += f"Usuário: {item['user']}\nAssistente: {item['assistant']}\n"
 
+    # Preferências do usuário para personalizar queries
+    preferencias = ""
+    if perfil:
+        musica = perfil.get("musica", "")
+        comida = perfil.get("comida", "")
+        hobbies = perfil.get("hobbies", "")
+        if musica: preferencias += f"- Música favorita: {musica}\n"
+        if comida: preferencias += f"- Comida favorita: {comida}\n"
+        if hobbies: preferencias += f"- Hobbies: {hobbies}\n"
+
     prompt = f"""Analise a mensagem e retorne um JSON se ela pede uma ação específica.
-{f'Histórico recente da conversa:{chr(10)}{contexto}' if contexto else ''}
+{f'Histórico recente:{chr(10)}{contexto}' if contexto else ''}
+{f'Preferências do usuário:{chr(10)}{preferencias}' if preferencias else ''}
 Mensagem atual: "{mensagem}"
 
-Retorne APENAS um JSON válido (sem texto extra) se a mensagem pede:
+Retorne APENAS um JSON válido se a mensagem pede:
 - Navegar/ir para algum lugar: {{"ferramenta":"maps_navigate","destino":"nome do lugar"}}
-- Buscar lugar próximo: {{"ferramenta":"maps_search","query":"tipo de lugar"}}
-- Tocar música: {{"ferramenta":"spotify_play","query":"APENAS o gênero, artista ou nome da música"}}
-- Tocar no SoundCloud: {{"ferramenta":"soundcloud_play","query":"APENAS o gênero ou artista"}}
-- Buscar vídeo no YouTube: {{"ferramenta":"youtube_search","query":"APENAS o tema do vídeo"}}
-- Ligar para alguém: {{"ferramenta":"phone_call","contato":"nome ou número"}}
-- Pesquisar na internet: {{"ferramenta":"web_search","query":"termo de busca"}}
-- Adicionar compromisso: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601"}}
+- Buscar lugar próximo: {{"ferramenta":"maps_search","query":"tipo específico de lugar"}}
+- Tocar música: {{"ferramenta":"spotify_play","query":"APENAS gênero, artista ou música específica"}}
+- Tocar no SoundCloud: {{"ferramenta":"soundcloud_play","query":"artista ou gênero"}}
+- Buscar vídeo: {{"ferramenta":"youtube_search","query":"tema do vídeo"}}
+- Ligar: {{"ferramenta":"phone_call","contato":"nome ou número"}}
+- Pesquisar: {{"ferramenta":"web_search","query":"termo"}}
+- Agenda: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601"}}
+- Casa inteligente: {{"ferramenta":"smart_home","acao":"ligar|desligar","dispositivo":"..."}}
 
-Se a mensagem é apenas conversa, retorne: null
+Se conversa normal: null
 
-REGRA IMPORTANTE para música: o query deve ser APENAS o gênero, artista ou música.
-Nunca inclua frases como "pra gente ouvir", "no caminho", "uma boa", "legal" no query.
-Use o histórico para entender preferências — se o usuário pediu algo da preferência dele,
-use o que você sabe sobre ele no histórico para escolher o gênero certo.
-Se não especificou gênero/artista, use o mais provável pelo contexto ou "sertanejo".
+REGRAS:
+- Para música: use as preferências do usuário se não especificou gênero/artista
+- Para busca local: seja específico no query (ex: "restaurante brasileiro" não só "restaurante")
+- Para música sem especificação: use a preferência musical do usuário
 
 Exemplos:
-"quero ir pro shopping" → {{"ferramenta":"maps_navigate","destino":"shopping"}}
-"toca um forró" → {{"ferramenta":"spotify_play","query":"forró"}}
-"coloca um som legal pra gente ouvir no caminho" → {{"ferramenta":"spotify_play","query":"sertanejo"}}
-"não, algo da minha preferência" (histórico mostra que pediu música) → {{"ferramenta":"spotify_play","query":"sertanejo"}}
-"tem restaurante aqui perto?" → {{"ferramenta":"maps_search","query":"restaurante"}}
+"toca uma música" (usuário gosta de sertanejo) → {{"ferramenta":"spotify_play","query":"sertanejo"}}
+"tem restaurante perto?" (usuário gosta de comida brasileira) → {{"ferramenta":"maps_search","query":"restaurante brasileiro"}}
 "oi tudo bem?" → null
 
-Retorne APENAS o JSON ou null, sem mais nada."""
+Retorne APENAS o JSON ou null."""
 
     try:
         resultado = chamar_deepseek_simples(prompt, max_tokens=100)
@@ -1105,56 +1112,6 @@ Retorne APENAS o JSON ou null, sem mais nada."""
         return json.loads(resultado)
     except:
         return None
-    """
-    Chamada rápida ao DeepSeek para detectar intenção e extrair parâmetros.
-    Retorna o JSON da ferramenta ou None.
-    """
-    prompt = f"""Analise a mensagem e retorne um JSON se ela pede uma ação específica.
-
-Mensagem: "{mensagem}"
-
-Retorne APENAS um JSON válido (sem texto extra) se a mensagem pede:
-- Navegar/ir para algum lugar: {{"ferramenta":"maps_navigate","destino":"nome do lugar"}}
-- Buscar lugar próximo: {{"ferramenta":"maps_search","query":"tipo de lugar"}}
-- Tocar música: {{"ferramenta":"spotify_play","query":"APENAS o gênero, artista ou nome da música"}}
-- Tocar no SoundCloud: {{"ferramenta":"soundcloud_play","query":"APENAS o gênero ou artista"}}
-- Buscar vídeo no YouTube: {{"ferramenta":"youtube_search","query":"APENAS o tema do vídeo"}}
-- Ligar para alguém: {{"ferramenta":"phone_call","contato":"nome ou número"}}
-- Pesquisar na internet: {{"ferramenta":"web_search","query":"termo de busca"}}
-- Adicionar compromisso: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601"}}
-
-Se a mensagem é apenas conversa, retorne: null
-
-REGRA IMPORTANTE para música: o query deve ser APENAS o gênero, artista ou música.
-Nunca inclua frases como "pra gente ouvir", "no caminho", "uma boa", "legal" no query.
-Se não especificou gênero/artista, use o mais provável pelo contexto ou "sertanejo".
-
-Exemplos:
-"quero ir pro shopping" → {{"ferramenta":"maps_navigate","destino":"shopping"}}
-"toca um forró" → {{"ferramenta":"spotify_play","query":"forró"}}
-"coloca um som legal pra gente ouvir no caminho" → {{"ferramenta":"spotify_play","query":"sertanejo"}}
-"bota uma música animada" → {{"ferramenta":"spotify_play","query":"música animada"}}
-"toca Gusttavo Lima" → {{"ferramenta":"spotify_play","query":"Gusttavo Lima"}}
-"tem restaurante aqui perto?" → {{"ferramenta":"maps_search","query":"restaurante"}}
-"oi tudo bem?" → null
-
-Retorne APENAS o JSON ou null, sem mais nada."""
-
-    try:
-        resultado = chamar_deepseek_simples(prompt, max_tokens=100)
-        if not resultado or resultado.strip().lower() == 'null':
-            return None
-        resultado = re.sub(r'```(?:json)?\s*', '', resultado).strip()
-        return json.loads(resultado)
-    except:
-        return None
-    match = re.search(r'\{[^{}]*"ferramenta"[^{}]*\}', texto, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(0))
-        except:
-            pass
-    return None
 
 def extrair_onboarding_completo(texto):
     # Remove blocos markdown (```json ... ```) antes de procurar o JSON
@@ -1207,8 +1164,8 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None):
     if contexto_extra:
         system += f"\n\n{contexto_extra}"
 
-    # Detecta intenção com histórico para entender contexto
-    ferramenta = detectar_intencao(mensagem, historico)
+    # Detecta intenção com histórico e perfil do usuário
+    ferramenta = detectar_intencao(mensagem, historico, perfil=perfil)
 
     # ── WEB SEARCH: busca antes de gerar resposta ─────────────────────────────
     contexto_busca = ""
@@ -1218,6 +1175,32 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None):
         resultados = buscar_brave(query)
         if resultados:
             contexto_busca = f"\n\nResultados da busca na internet:\n{resultados}\nUse essas informações para responder de forma natural. Não cite as fontes."
+
+    # ── MAPS SEARCH: busca lugar específico antes de abrir ────────────────────
+    if ferramenta and ferramenta.get("ferramenta") == "maps_search" and BRAVE_API_KEY and latitude and longitude:
+        query_maps = ferramenta.get("query", "")
+        # Busca lugar específico baseado na preferência e localização
+        query_busca = f"{query_maps} próximo latitude {latitude} longitude {longitude}"
+        log(f"Brave Maps Search: {query_busca}", "busca")
+        resultados_maps = buscar_brave(query_busca)
+        if resultados_maps:
+            # DeepSeek extrai o melhor resultado para abrir
+            prompt_lugar = f"""O usuário quer encontrar: "{query_maps}"
+Resultados da busca:
+{resultados_maps}
+
+Retorne APENAS um JSON com o melhor resultado:
+{{"nome": "nome do lugar", "query": "nome do lugar para buscar no Google Maps"}}
+Sem texto extra."""
+            try:
+                resultado_lugar = chamar_deepseek_simples(prompt_lugar, max_tokens=80)
+                resultado_lugar = re.sub(r'```(?:json)?\s*', '', resultado_lugar).strip()
+                lugar = json.loads(resultado_lugar)
+                if lugar.get("query"):
+                    ferramenta["query"] = lugar["query"]
+                    contexto_busca += f"\n\nLugar encontrado: {lugar.get('nome', query_maps)}"
+            except:
+                pass
 
     # Gera resposta natural
     resposta = chamar_deepseek(system + contexto_busca, mensagem, historico, max_tokens=500)
@@ -1339,7 +1322,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.7.0",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.0",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
