@@ -730,14 +730,22 @@ def st_listar_dispositivos(access_token: str) -> list:
 def st_executar_comando(access_token: str, device_id: str, componente: str, capability: str, comando: str, args: list = None):
     """Executa um comando em um dispositivo"""
     try:
+        # Para capabilities customizadas (ex: namespace.command), separa corretamente
+        if "." in capability and capability.count(".") == 1:
+            # Ex: "abateachieve62503.statelessPowerOn" → capability="abateachieve62503.statelessPowerOn", command="statelessPowerOn"
+            cmd = capability.split(".")[-1]
+        else:
+            cmd = comando
+
         body = json.dumps({
             "commands": [{
                 "component": componente or "main",
                 "capability": capability,
-                "command": comando,
+                "command": cmd,
                 "arguments": args or []
             }]
         }).encode()
+        log(f"SmartThings enviando: cap={capability} cmd={cmd}", "smartthings")
         req = urllib.request.Request(
             f"https://api.smartthings.com/v1/devices/{device_id}/commands",
             data=body,
@@ -1403,7 +1411,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.0",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.1",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
