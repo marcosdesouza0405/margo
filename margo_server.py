@@ -1335,7 +1335,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.2",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.8.3",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
@@ -1513,7 +1513,7 @@ def st_auth(user_id: str):
     import urllib.parse as urlparse
     params = urlparse.urlencode({
         "client_id":     ST_CLIENT_ID,
-        "scope":         "r:devices:* x:devices:* r:locations:*",
+        "scope":         "r:devices:* x:devices:*",
         "response_type": "code",
         "redirect_uri":  ST_REDIRECT_URI,
         "state":         user_id
