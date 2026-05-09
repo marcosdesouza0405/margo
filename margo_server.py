@@ -809,6 +809,35 @@ def st_buscar_capabilities(access_token: str, device_id: str) -> list:
         log(f"SmartThings capabilities erro: {e}", "smartthings")
         return []
 
+def st_tentar_comandos(access_token: str, device_id: str, capability: str, candidatos: list) -> bool:
+    """Tenta múltiplos formatos de comando até um funcionar"""
+    for cmd in candidatos:
+        try:
+            body = json.dumps({
+                "commands": [{
+                    "component": "main",
+                    "capability": capability,
+                    "command": cmd,
+                    "arguments": []
+                }]
+            }).encode()
+            log(f"SmartThings tentando: cap={capability} cmd={cmd}", "smartthings")
+            req = urllib.request.Request(
+                f"https://api.smartthings.com/v1/devices/{device_id}/commands",
+                data=body,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json"
+                }
+            )
+            urllib.request.urlopen(req, timeout=10)
+            log(f"SmartThings sucesso: cap={capability} cmd={cmd}", "smartthings")
+            return True
+        except Exception as e:
+            log(f"SmartThings falhou cap={capability} cmd={cmd}: {e}", "smartthings")
+            continue
+    return False
+
 def st_executar_acao(user_id: str, acao: str, dispositivo_nome: str, valor: str = None) -> str:
     access_token = st_get_token(user_id)
     if not access_token:
@@ -821,29 +850,33 @@ def st_executar_acao(user_id: str, acao: str, dispositivo_nome: str, valor: str 
     log(f"SmartThings caps {dispositivo_nome}: {capabilities}", "smartthings")
     acao_lower = acao.lower()
 
-    # Capabilities customizadas de power on/off (qualquer fabricante)
     cap_power_on  = next((c for c in capabilities if "poweron"  in c.lower()), None)
     cap_power_off = next((c for c in capabilities if "poweroff" in c.lower()), None)
-    cap_temp_up   = next((c for c in capabilities if "temperatureup"   in c.lower() or "tempup"   in c.lower()), None)
-    cap_temp_down = next((c for c in capabilities if "temperaturedown" in c.lower() or "tempdown" in c.lower()), None)
+    cap_temp_up   = next((c for c in capabilities if "temperatureup"   in c.lower()), None)
+    cap_temp_down = next((c for c in capabilities if "temperaturedown" in c.lower()), None)
 
-    if cap_power_on:
-        if acao_lower in ["ligar", "on", "abrir"]:
-            cmd = cap_power_on.split(".")[-1] if "." in cap_power_on else "on"
-            ok = st_executar_comando(access_token, device_id, "main", cap_power_on, cmd)
-            return f"{dispositivo_nome} ligado!" if ok else f"Não consegui ligar {dispositivo_nome}."
-        elif acao_lower in ["desligar", "off", "fechar"] and cap_power_off:
-            cmd = cap_power_off.split(".")[-1] if "." in cap_power_off else "off"
-            ok = st_executar_comando(access_token, device_id, "main", cap_power_off, cmd)
-            return f"{dispositivo_nome} desligado!" if ok else f"Não consegui desligar {dispositivo_nome}."
-        elif acao_lower in ["aumentar", "subir"] and cap_temp_up:
-            cmd = cap_temp_up.split(".")[-1] if "." in cap_temp_up else "temperatureUp"
-            ok = st_executar_comando(access_token, device_id, "main", cap_temp_up, cmd)
-            return "Temperatura aumentada!" if ok else "Não consegui ajustar."
-        elif acao_lower in ["diminuir", "baixar"] and cap_temp_down:
-            cmd = cap_temp_down.split(".")[-1] if "." in cap_temp_down else "temperatureDown"
-            ok = st_executar_comando(access_token, device_id, "main", cap_temp_down, cmd)
-            return "Temperatura diminuída!" if ok else "Não consegui ajustar."
+    if cap_power_on and acao_lower in ["ligar", "on", "abrir"]:
+        # Tenta múltiplos formatos de comando
+        suffix = cap_power_on.split(".")[-1] if "." in cap_power_on else cap_power_on
+        candidatos = [suffix, "on", "powerOn", "statelessPowerOn", "setPowerOn", cap_power_on]
+        ok = st_tentar_comandos(access_token, device_id, cap_power_on, candidatos)
+        return f"{dispositivo_nome} ligado!" if ok else f"Não consegui ligar {dispositivo_nome}."
+
+    elif cap_power_off and acao_lower in ["desligar", "off", "fechar"]:
+        suffix = cap_power_off.split(".")[-1] if "." in cap_power_off else cap_power_off
+        candidatos = [suffix, "off", "powerOff", "statelessPowerOff", "setPowerOff", cap_power_off]
+        ok = st_tentar_comandos(access_token, device_id, cap_power_off, candidatos)
+        return f"{dispositivo_nome} desligado!" if ok else f"Não consegui desligar {dispositivo_nome}."
+
+    elif cap_temp_up and acao_lower in ["aumentar", "subir"]:
+        suffix = cap_temp_up.split(".")[-1] if "." in cap_temp_up else cap_temp_up
+        ok = st_tentar_comandos(access_token, device_id, cap_temp_up, [suffix, "temperatureUp", "up"])
+        return "Temperatura aumentada!" if ok else "Não consegui aumentar a temperatura."
+
+    elif cap_temp_down and acao_lower in ["diminuir", "baixar"]:
+        suffix = cap_temp_down.split(".")[-1] if "." in cap_temp_down else cap_temp_down
+        ok = st_tentar_comandos(access_token, device_id, cap_temp_down, [suffix, "temperatureDown", "down"])
+        return "Temperatura diminuída!" if ok else "Não consegui diminuir a temperatura."
 
     elif "switch" in capabilities:
         if acao_lower in ["ligar", "on", "abrir"]:
@@ -856,7 +889,6 @@ def st_executar_acao(user_id: str, acao: str, dispositivo_nome: str, valor: str 
             nivel = int(''.join(filter(str.isdigit, str(valor))))
             ok = st_executar_comando(access_token, device_id, "main", "switchLevel", "setLevel", [nivel])
             return f"{dispositivo_nome} ajustado para {nivel}%!" if ok else "Não consegui ajustar."
-
     else:
         caps_resumo = ', '.join(capabilities[:3])
         return f"Não sei como controlar '{dispositivo_nome}'. Capabilities: {caps_resumo}..."
@@ -1411,7 +1443,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.1",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.2",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
