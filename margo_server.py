@@ -1206,6 +1206,14 @@ Exemplos smart_home:
 "apaga a luz do quarto" → {{"ferramenta":"smart_home","acao":"desligar","dispositivo":"luz do quarto"}}
 "liga a luminária" → {{"ferramenta":"smart_home","acao":"ligar","dispositivo":"luminária"}}
 
+Exemplos web_search — SEMPRE use web_search para tempo, noticias, preços, fatos atuais:
+"qual a previsao do tempo pra iwata" → {{"ferramenta":"web_search","query":"previsão do tempo Iwata Japão"}}
+"vai chover hoje?" → {{"ferramenta":"web_search","query":"previsão do tempo hoje"}}
+"como está o tempo amanhã?" → {{"ferramenta":"web_search","query":"previsão do tempo amanhã"}}
+"noticias de hoje" → {{"ferramenta":"web_search","query":"notícias hoje"}}
+"quanto custa o dolar hoje" → {{"ferramenta":"web_search","query":"cotação dólar hoje"}}
+"quem ganhou o jogo ontem" → {{"ferramenta":"web_search","query":"resultado jogo ontem"}}
+
 Se conversa normal: null
 
 REGRAS:
@@ -1289,25 +1297,28 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None):
         query = ferramenta.get("query", mensagem)
         # Enriquece query com localização quando relevante
         palavras_locais = ["tempo", "clima", "chuva", "temperatura", "previsao", "previsão", "calor", "frio", "sol", "perto", "aqui", "hoje", "agora"]
-        if any(p in query.lower() for p in palavras_locais) and latitude and longitude:
-            try:
-                geo_url = f"https://nominatim.openstreetmap.org/reverse?lat={latitude}&lon={longitude}&format=json&accept-language=pt"
-                geo_req = urllib.request.Request(geo_url, headers={"User-Agent": "MargoApp/1.0"})
-                geo_resp = urllib.request.urlopen(geo_req, timeout=5)
-                geo_data = json.loads(geo_resp.read())
-                addr = geo_data.get("address", {})
-                cidade = addr.get("city") or addr.get("town") or addr.get("village") or ""
-                if cidade:
-                    query = f"{query} em {cidade}"
-            except:
-                pass
+        if any(p in query.lower() for p in palavras_locais):
+            if latitude and longitude:
+                # Tem GPS — busca cidade real
+                try:
+                    geo_url = f"https://nominatim.openstreetmap.org/reverse?lat={latitude}&lon={longitude}&format=json&accept-language=pt"
+                    geo_req = urllib.request.Request(geo_url, headers={"User-Agent": "MargoApp/1.0"})
+                    geo_resp = urllib.request.urlopen(geo_req, timeout=5)
+                    geo_data = json.loads(geo_resp.read())
+                    addr = geo_data.get("address", {})
+                    cidade = addr.get("city") or addr.get("town") or addr.get("village") or ""
+                    if cidade and cidade.lower() not in query.lower():
+                        query = f"{query} em {cidade}"
+                except:
+                    pass
+            # Se a cidade não está na query ainda, mantém como está (usuário pode ter mencionado a cidade)
         log(f"Brave Search: {query}", "busca")
         resultados = buscar_brave(query)
         if resultados:
             contexto_busca = f"\n\nResultados da busca na internet:\n{resultados}\nUse essas informações para responder — mas fale do SEU jeito, com sua personalidade. Não leia como notícia. Adicione um toque pessoal. Não diga que vai pesquisar — já pesquisamos. Não cite as fontes."
         else:
             log(f"Brave Search sem resultado para: {query}", "busca")
-            contexto_busca = f"\n\nNão encontrei resultados específicos para esta busca. Responda com o que sabe, mas seja honesto sobre limitações."
+            contexto_busca = f"\n\nNão encontrei resultados específicos. Responda com o que sabe, mas seja honesto sobre limitações."
 
     # ── MAPS SEARCH: busca lugar específico antes de abrir ────────────────────
     if ferramenta and ferramenta.get("ferramenta") == "maps_search" and BRAVE_API_KEY and latitude and longitude:
@@ -1468,7 +1479,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.5",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.7",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
