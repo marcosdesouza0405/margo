@@ -1206,14 +1206,6 @@ Exemplos smart_home:
 "apaga a luz do quarto" → {{"ferramenta":"smart_home","acao":"desligar","dispositivo":"luz do quarto"}}
 "liga a luminária" → {{"ferramenta":"smart_home","acao":"ligar","dispositivo":"luminária"}}
 
-Exemplos web_search — SEMPRE use web_search para tempo, noticias, preços, fatos atuais:
-"qual a previsao do tempo pra iwata" → {{"ferramenta":"web_search","query":"previsão do tempo Iwata Japão"}}
-"vai chover hoje?" → {{"ferramenta":"web_search","query":"previsão do tempo hoje"}}
-"como está o tempo amanhã?" → {{"ferramenta":"web_search","query":"previsão do tempo amanhã"}}
-"noticias de hoje" → {{"ferramenta":"web_search","query":"notícias hoje"}}
-"quanto custa o dolar hoje" → {{"ferramenta":"web_search","query":"cotação dólar hoje"}}
-"quem ganhou o jogo ontem" → {{"ferramenta":"web_search","query":"resultado jogo ontem"}}
-
 Se conversa normal: null
 
 REGRAS:
@@ -1479,7 +1471,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.7",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.8",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
