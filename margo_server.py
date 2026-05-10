@@ -1283,6 +1283,14 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None):
     # Detecta intenção com histórico e perfil do usuário
     ferramenta = detectar_intencao(mensagem, historico, perfil=perfil)
 
+    # ── BUSCA AUTOMÁTICA para perguntas que precisam de dados atuais ──────────
+    palavras_busca_auto = ["tempo", "clima", "chuva", "previsao", "previsão", "temperatura",
+                           "noticia", "notícia", "hoje", "agora", "cotação", "cotacao",
+                           "dolar", "dólar", "euro", "bitcoin", "resultado", "placar"]
+    if not ferramenta and BRAVE_API_KEY and any(p in mensagem.lower() for p in palavras_busca_auto):
+        ferramenta = {"ferramenta": "web_search", "query": mensagem}
+        log(f"Busca automática ativada: {mensagem}", "busca")
+
     # ── WEB SEARCH: busca antes de gerar resposta ─────────────────────────────
     contexto_busca = ""
     if ferramenta and ferramenta.get("ferramenta") == "web_search" and BRAVE_API_KEY:
@@ -1471,7 +1479,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.8",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.9",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
