@@ -1048,6 +1048,14 @@ Fala de forma natural, direta e com leveza — como um amigo próximo e confiáv
 Nunca usa markdown, asteriscos ou formatação estranha. Só texto simples.
 Respostas curtas e diretas — máximo 3-4 frases, exceto quando o usuário pede detalhes.
 
+MUITO IMPORTANTE — quando trouxer informações da internet ou de uma busca:
+- NUNCA leia como um locutor de notícia ou robô
+- NUNCA diga "de acordo com", "segundo", "os dados mostram"
+- Processe a informação e fale do seu jeito, com sua personalidade
+- Adicione um toque pessoal — uma opinião, uma dica, uma observação sua
+- Exemplo ERRADO: "A previsão do tempo para amanhã indica temperatura de 22°C com 70% de chance de chuva."
+- Exemplo CERTO: "Amanhã vai chover sim, Marcos! Leva o guarda-chuva — tá previsto pra cair água boa parte do dia."
+
 ===============================================================================
 QUEM É {nome_usuario.upper()}
 ===============================================================================
@@ -1279,10 +1287,27 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None):
     contexto_busca = ""
     if ferramenta and ferramenta.get("ferramenta") == "web_search" and BRAVE_API_KEY:
         query = ferramenta.get("query", mensagem)
+        # Enriquece query com localização quando relevante
+        palavras_locais = ["tempo", "clima", "chuva", "temperatura", "previsao", "previsão", "calor", "frio", "sol", "perto", "aqui", "hoje", "agora"]
+        if any(p in query.lower() for p in palavras_locais) and latitude and longitude:
+            try:
+                geo_url = f"https://nominatim.openstreetmap.org/reverse?lat={latitude}&lon={longitude}&format=json&accept-language=pt"
+                geo_req = urllib.request.Request(geo_url, headers={"User-Agent": "MargoApp/1.0"})
+                geo_resp = urllib.request.urlopen(geo_req, timeout=5)
+                geo_data = json.loads(geo_resp.read())
+                addr = geo_data.get("address", {})
+                cidade = addr.get("city") or addr.get("town") or addr.get("village") or ""
+                if cidade:
+                    query = f"{query} em {cidade}"
+            except:
+                pass
         log(f"Brave Search: {query}", "busca")
         resultados = buscar_brave(query)
         if resultados:
-            contexto_busca = f"\n\nResultados da busca na internet:\n{resultados}\nUse essas informações para responder de forma natural. Não cite as fontes."
+            contexto_busca = f"\n\nResultados da busca na internet:\n{resultados}\nUse essas informações para responder — mas fale do SEU jeito, com sua personalidade. Não leia como notícia. Adicione um toque pessoal. Não diga que vai pesquisar — já pesquisamos. Não cite as fontes."
+        else:
+            log(f"Brave Search sem resultado para: {query}", "busca")
+            contexto_busca = f"\n\nNão encontrei resultados específicos para esta busca. Responda com o que sabe, mas seja honesto sobre limitações."
 
     # ── MAPS SEARCH: busca lugar específico antes de abrir ────────────────────
     if ferramenta and ferramenta.get("ferramenta") == "maps_search" and BRAVE_API_KEY and latitude and longitude:
@@ -1443,7 +1468,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.3",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.5",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
