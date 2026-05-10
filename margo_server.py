@@ -1443,7 +1443,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.2",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.3",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
@@ -1573,7 +1573,7 @@ def spotify_auth(user_id: str):
         "client_id":     SPOTIFY_CLIENT_ID,
         "response_type": "code",
         "redirect_uri":  SPOTIFY_REDIRECT_URI,
-        "scope":         "user-read-playback-state user-modify-playback-state streaming",
+        "scope":         "user-read-playback-state user-modify-playback-state streaming user-read-private user-read-email",
         "state":         user_id
     })
     return JSONResponse({"url": f"https://accounts.spotify.com/authorize?{params}"})
