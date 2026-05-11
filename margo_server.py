@@ -1719,6 +1719,35 @@ def st_dispositivos(user_id: str):
         "dispositivos": [{"id": d.get("deviceId"), "nome": d.get("label")} for d in dispositivos]
     })
 
+@app.post("/debug/fishaudio")
+async def debug_fishaudio(request: Request):
+    """Diagnóstico Fish Audio"""
+    try:
+        data = await request.json()
+        chave = data.get("chave", "")
+        import urllib.request, json
+        payload = json.dumps({
+            "text": "teste",
+            "reference_id": "23c14f5db9dc40ba9c69f38575ae3a80",
+            "format": "mp3"
+        }).encode()
+        req = urllib.request.Request(
+            "https://api.fish.audio/v1/tts",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {chave}",
+                "Content-Type": "application/json",
+                "model": "s2-pro"
+            }
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=10)
+            return JSONResponse({"ok": True, "bytes": len(resp.read())})
+        except Exception as e:
+            return JSONResponse({"ok": False, "erro": str(e)})
+    except Exception as e:
+        return JSONResponse({"erro": str(e)})
+
 @app.get("/ping")
 def ping():
     return {"pong": True, "ts": datetime.now().isoformat()}
