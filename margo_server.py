@@ -1440,7 +1440,8 @@ def falar_fishaudio(texto, chave, voz_id, genero="F"):
             data=payload,
             headers={
                 "Authorization": f"Bearer {chave}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "model": "s2-pro"
             }
         )
         resp = urllib.request.urlopen(req, timeout=30)
@@ -1488,7 +1489,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.0.0",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.0.1",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
