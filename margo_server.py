@@ -1196,27 +1196,36 @@ Retorne APENAS um JSON válido se a mensagem pede:
 - Tocar no SoundCloud: {{"ferramenta":"soundcloud_play","query":"artista ou gênero"}}
 - Buscar vídeo: {{"ferramenta":"youtube_search","query":"tema do vídeo"}}
 - Ligar: {{"ferramenta":"phone_call","contato":"nome ou número"}}
-- Pesquisar: {{"ferramenta":"web_search","query":"termo"}}
+- Pesquisa na internet: {{"ferramenta":"web_search","query":"termo de busca"}}
 - Agenda: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601"}}
-- Casa inteligente: {{"ferramenta":"smart_home","acao":"ligar|desligar|ajustar","dispositivo":"nome exato do dispositivo","valor":"opcional"}}
+- Casa inteligente: {{"ferramenta":"smart_home","acao":"ligar|desligar|ajustar","dispositivo":"nome do dispositivo"}}
 
-Exemplos smart_home:
-"liga o ar da sala" → {{"ferramenta":"smart_home","acao":"ligar","dispositivo":"ar da sala"}}
-"desliga a tv" → {{"ferramenta":"smart_home","acao":"desligar","dispositivo":"tv"}}
-"apaga a luz do quarto" → {{"ferramenta":"smart_home","acao":"desligar","dispositivo":"luz do quarto"}}
-"liga a luminária" → {{"ferramenta":"smart_home","acao":"ligar","dispositivo":"luminária"}}
+REGRA CRÍTICA — Use web_search para QUALQUER pergunta sobre fatos do mundo real:
+- Tempo/clima atual ou futuro
+- Notícias, eventos recentes
+- Preços, cotações, valores
+- Resultados de jogos, competições
+- Informações sobre pessoas, lugares, empresas
+- Qualquer coisa que possa ter mudado recentemente
 
-Se conversa normal: null
+NÃO use web_search para:
+- Conversas pessoais ("como você está?", "me conta uma piada")
+- Perguntas sobre preferências pessoais
+- Pedidos de opinião
+- Comandos para apps (música, maps, etc)
 
-REGRAS:
-- Para música: use as preferências do usuário se não especificou gênero/artista
-- Para busca local: seja específico no query (ex: "restaurante brasileiro" não só "restaurante")
-- Para música sem especificação: use a preferência musical do usuário
+REGRAS para música: use preferências do usuário se não especificou.
 
 Exemplos:
-"toca uma música" (usuário gosta de sertanejo) → {{"ferramenta":"spotify_play","query":"sertanejo"}}
-"tem restaurante perto?" (usuário gosta de comida brasileira) → {{"ferramenta":"maps_search","query":"restaurante brasileiro"}}
+"toca uma música" → {{"ferramenta":"spotify_play","query":"sertanejo"}}
+"liga o ar" → {{"ferramenta":"smart_home","acao":"ligar","dispositivo":"ar"}}
+"vai chover hoje?" → {{"ferramenta":"web_search","query":"previsão do tempo hoje"}}
+"qual a cotação do dólar?" → {{"ferramenta":"web_search","query":"cotação dólar hoje"}}
+"quem é o presidente do brasil?" → {{"ferramenta":"web_search","query":"presidente do Brasil"}}
+"qual o resultado do jogo?" → {{"ferramenta":"web_search","query":"resultado jogo hoje"}}
+"me conta uma piada" → null
 "oi tudo bem?" → null
+"o que você acha de..." → null
 
 Retorne APENAS o JSON ou null."""
 
@@ -1479,7 +1488,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "1.9.9",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.0.0",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
