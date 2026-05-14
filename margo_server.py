@@ -1038,6 +1038,15 @@ def build_system_prompt(perfil: dict, config: dict) -> str:
     comida          = perfil.get("comida", "")
     hobbies         = perfil.get("hobbies", "")
     extra           = perfil.get("extra", "")
+    nascimento_raw  = perfil.get("nascimento", perfil.get("idade", ""))
+    # Interpreta data de nascimento em vários formatos
+    nascimento = ""
+    if nascimento_raw:
+        n = nascimento_raw.replace("/","").replace("-","").replace(".","").strip()
+        if n.isdigit() and len(n) == 8:
+            nascimento = f"{n[:2]}/{n[2:4]}/{n[4:]}"
+        else:
+            nascimento = nascimento_raw
     pronome = "ela" if genero == "F" else "ele"
 
     return f"""Você é {nome_assistente}, assistente pessoal de {nome_usuario}.
@@ -1063,6 +1072,7 @@ MUITO IMPORTANTE — quando trouxer informações da internet ou de uma busca:
 ===============================================================================
 QUEM É {nome_usuario.upper()}
 ===============================================================================
+{f"- Data de nascimento: {nascimento}" if nascimento else ""}
 - Profissão: {profissao or "não informado"}
 - Música favorita: {musica or "não informado"}
 - Comida favorita: {comida or "não informado"}
@@ -1505,7 +1515,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.0.3",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.0.5",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
@@ -1734,6 +1744,13 @@ def st_dispositivos(user_id: str):
         "conectado": True,
         "dispositivos": [{"id": d.get("deviceId"), "nome": d.get("label")} for d in dispositivos]
     })
+
+@app.post("/debug/busca")
+async def debug_busca(request: Request):
+    data = await request.json()
+    query = data.get("query", "")
+    resultado = buscar_brave(query)
+    return JSONResponse({"query": query, "resultado": resultado})
 
 @app.post("/debug/fishaudio")
 async def debug_fishaudio(request: Request):
