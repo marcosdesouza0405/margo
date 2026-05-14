@@ -1377,10 +1377,20 @@ Priorize lugares reais e próximos. Sem texto extra."""
     # Gera resposta natural
     resposta = chamar_deepseek(system + contexto_busca, mensagem, historico, max_tokens=500)
 
-    # Remove JSON da resposta caso o DeepSeek ainda emita (compatibilidade)
-    resposta_limpa = re.sub(r'\{[^{}]*"ferramenta"[^{}]*\}', '', resposta).strip()
+    # Remove JSON da resposta caso o DeepSeek emita ferramenta em vez de texto
+    resposta_limpa = resposta.strip()
+    # Remove se a resposta inteira é um JSON de ferramenta
+    if resposta_limpa.startswith('{') and '"ferramenta"' in resposta_limpa:
+        resposta_limpa = ""
+    else:
+        resposta_limpa = re.sub(r'\{[^{}]*"ferramenta"[^{}]*\}', '', resposta_limpa).strip()
     if not resposta_limpa:
-        resposta_limpa = resposta
+        # DeepSeek retornou ferramenta — faz nova chamada pedindo resposta em texto
+        resposta_limpa = chamar_deepseek(
+            system + contexto_busca + "\n\nIMPORTANTE: Responda em texto natural, não em JSON.",
+            mensagem, historico, max_tokens=300
+        )
+        resposta_limpa = re.sub(r'\{[^{}]*"ferramenta"[^{}]*\}', '', resposta_limpa).strip()
 
     # ── AGENDA ────────────────────────────────────────────────────────────────
     if ferramenta and ferramenta.get("ferramenta") == "agenda_add":
@@ -1495,7 +1505,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.0.2",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.0.3",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
