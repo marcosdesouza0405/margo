@@ -761,35 +761,39 @@ def st_executar_comando(access_token: str, device_id: str, componente: str, capa
         return False
 
 def st_resolver_dispositivo(access_token: str, nome_dispositivo: str) -> dict:
-    """Encontra um dispositivo pelo nome aproximado"""
+    """Encontra dispositivo priorizando tipo (ar, tv, luz) antes de localização"""
     dispositivos = st_listar_dispositivos(access_token)
     nome_lower = nome_dispositivo.lower().strip()
-    
+
     # 1. Busca exata
     for d in dispositivos:
         if d.get("label", "").lower() == nome_lower:
             return d
-    
-    # 2. Busca parcial — nome pedido dentro do label
+
+    # 2. Busca por todas as palavras do pedido (mais específico primeiro)
+    palavras = [p for p in nome_lower.split() if len(p) > 2]
+    for d in dispositivos:
+        label = d.get("label", "").lower()
+        if all(p in label for p in palavras):
+            return d
+
+    # 3. Busca parcial — nome dentro do label
     for d in dispositivos:
         label = d.get("label", "").lower()
         if nome_lower in label:
             return d
-    
-    # 3. Busca inversa — label dentro do nome pedido
+
+    # 4. Busca por palavras individuais — prioriza match com mais palavras
+    melhor = None
+    melhor_score = 0
     for d in dispositivos:
         label = d.get("label", "").lower()
-        if label in nome_lower:
-            return d
-    
-    # 4. Busca por palavras-chave
-    palavras = nome_lower.split()
-    for d in dispositivos:
-        label = d.get("label", "").lower()
-        if any(p in label for p in palavras if len(p) > 2):
-            return d
-    
-    return None
+        score = sum(1 for p in palavras if p in label)
+        if score > melhor_score:
+            melhor_score = score
+            melhor = d
+
+    return melhor if melhor_score > 0 else None
 
 def st_buscar_capabilities(access_token: str, device_id: str) -> list:
     """Busca as capabilities de um dispositivo"""
@@ -1249,7 +1253,7 @@ def extrair_onboarding_completo(texto):
             pass
     return None
 
-def processar_mensagem(user_id, mensagem, latitude=None, longitude=None):
+def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_local=""):
     config = banco.buscar_config(user_id)
     perfil = banco.buscar_perfil(user_id)
 
@@ -1277,6 +1281,8 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None):
     lembretes = banco.lembretes_proximos(user_id)
 
     contexto_extra = ""
+    if hora_local:
+        contexto_extra += f"\nHora e data atual do usuário: {hora_local}"
     if latitude and longitude:
         contexto_extra += f"\nLocalização atual do usuário: lat={latitude}, lng={longitude} — use isso quando relevante para Maps, restaurantes, rotas."
     if resumos:
@@ -1489,7 +1495,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.0.1",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.0.2",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
@@ -1888,6 +1894,7 @@ async def mensagem(request: Request):
         mensagem_ = data.get("mensagem", "").strip()
         latitude  = data.get("latitude")
         longitude = data.get("longitude")
+        hora_local = data.get("hora_local", "")
         if not mensagem_:
             return JSONResponse({"erro": "mensagem vazia"}, status_code=400)
 
@@ -1901,7 +1908,7 @@ async def mensagem(request: Request):
                 "ferramenta": None
             })
 
-        resultado = processar_mensagem(user_id, mensagem_, latitude, longitude)
+        resultado = processar_mensagem(user_id, mensagem_, latitude, longitude, hora_local=hora_local)
         banco.registrar_uso(user_id)
         return JSONResponse(resultado)
     except Exception as e:
@@ -1998,13 +2005,13 @@ async def salvar_perfil_completo(request: Request):
 
         # Salva perfil do usuário
         banco.salvar_perfil(user_id, {
-            "nome":     data.get("nome", "").strip(),
-            "idade":    data.get("idade", "").strip(),
-            "profissao":data.get("profissao", "").strip(),
-            "musica":   data.get("musica", "").strip(),
-            "comida":   data.get("comida", "").strip(),
-            "hobbies":  data.get("hobbies", "").strip(),
-            "extra":    data.get("extra", "").strip(),
+            "nome":       data.get("nome", "").strip(),
+            "idade":      data.get("nascimento", data.get("idade", "")).strip(),
+            "profissao":  data.get("profissao", "").strip(),
+            "musica":     data.get("musica", "").strip(),
+            "comida":     data.get("comida", "").strip(),
+            "hobbies":    data.get("hobbies", "").strip(),
+            "extra":      data.get("extra", "").strip(),
         })
 
         # Salva config da assistente
