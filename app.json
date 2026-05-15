@@ -1,29 +1,69 @@
 {
   "expo": {
-    "name": "margo-app",
-    "slug": "margo-app",
-    "version": "1.0.0",
+    "name": "Margo",
+    "slug": "margo",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0A0A0F",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0A0A0F"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.orbiby.margo",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "A Margo precisa do microfone para ouvir você.",
+        "NSSpeechRecognitionUsageDescription": "A Margo usa reconhecimento de voz para entender seus comandos.",
+        "NSLocationWhenInUseUsageDescription": "A Margo usa sua localização para ajudar com rotas e lugares próximos."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0A0A0F"
       },
-      "edgeToEdgeEnabled": true
+      "package": "com.orbiby.margo",
+      "permissions": [
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "INTERNET",
+        "POST_NOTIFICATIONS",
+        "READ_CONTACTS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "./modules/MicrophoneModule/plugin.js",
+      "expo-speech-recognition",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "A Margo usa sua localização para ajudar com rotas e lugares próximos."
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "A Margo acessa seus contatos para fazer ligações pelo seu nome."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "dc2ba6ea-0dee-4600-8c69-40dc78b5cb58"
+      }
     }
   }
 }
