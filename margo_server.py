@@ -227,7 +227,8 @@ class BancoMargo:
         conn = self._get_conn()
         try:
             cur = conn.cursor()
-            if self.use_postgres:
+            ph  = "%s" if self._pg else "?"
+            if self._pg:
                 cur.execute("""UPDATE usuarios SET plano=%s, stripe_customer_id=COALESCE(%s, stripe_customer_id),
                     stripe_subscription_id=COALESCE(%s, stripe_subscription_id) WHERE user_id=%s""",
                     (plano, stripe_customer_id, stripe_subscription_id, user_id))
@@ -240,17 +241,15 @@ class BancoMargo:
         except Exception as e:
             log(f"Erro atualizar_plano: {e}", "stripe")
         finally:
-            if self.use_postgres: conn.close()
+            if self._pg: conn.close()
 
     def buscar_por_stripe_customer(self, stripe_customer_id: str) -> dict:
         """Busca usuário pelo stripe_customer_id"""
         conn = self._get_conn()
         try:
             cur = conn.cursor()
-            if self.use_postgres:
-                cur.execute("SELECT * FROM usuarios WHERE stripe_customer_id=%s", (stripe_customer_id,))
-            else:
-                cur.execute("SELECT * FROM usuarios WHERE stripe_customer_id=?", (stripe_customer_id,))
+            ph  = "%s" if self._pg else "?"
+            cur.execute(f"SELECT * FROM usuarios WHERE stripe_customer_id={ph}", (stripe_customer_id,))
             row = cur.fetchone()
             if not row: return None
             cols = [d[0] for d in cur.description]
@@ -258,7 +257,7 @@ class BancoMargo:
         except:
             return None
         finally:
-            if self.use_postgres: conn.close()
+            if self._pg: conn.close()
 
     def verificar_limite(self, user_id: str) -> dict:
         """Verifica se usuário pode enviar mais mensagens hoje."""
@@ -269,17 +268,15 @@ class BancoMargo:
         conn = self._get_conn()
         try:
             cur = conn.cursor()
-            if self.use_postgres:
-                cur.execute("SELECT count FROM uso_diario WHERE user_id=%s AND data=%s", (user_id, hoje))
-            else:
-                cur.execute("SELECT count FROM uso_diario WHERE user_id=? AND data=?", (user_id, hoje))
+            ph  = "%s" if self._pg else "?"
+            cur.execute(f"SELECT msgs FROM uso_diario WHERE user_id={ph} AND data={ph}", (user_id, hoje))
             row = cur.fetchone()
             used = row[0] if row else 0
             return {"pode": used < limite, "usado": used, "limite": limite, "plano": plano, "faltam": max(0, limite - used)}
         except:
             return {"pode": True, "usado": 0, "limite": limite, "plano": plano, "faltam": limite}
         finally:
-            if self.use_postgres: conn.close()
+            if self._pg: conn.close()
 
     def registrar_uso(self, user_id: str):
         """Incrementa contador de mensagens do dia."""
@@ -1557,7 +1554,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.1.1",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.1.2",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
