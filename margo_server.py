@@ -259,28 +259,27 @@ class BancoMargo:
             return None
         finally:
             if self.use_postgres: conn.close()
+
+    def verificar_limite(self, user_id: str) -> dict:
         """Verifica se usuário pode enviar mais mensagens hoje."""
         usuario = self.buscar_usuario_por_id(user_id)
         plano   = usuario.get("plano", "free") if usuario else "free"
-        limite  = self.LIMITES.get(plano, 50)
-
+        limite  = self.LIMITES.get(plano, 10)
         hoje = datetime.now().strftime("%Y-%m-%d")
         conn = self._get_conn()
-        c    = conn.cursor()
-        ph   = "%s" if self._pg else "?"
-
-        c.execute(f'SELECT msgs FROM uso_diario WHERE user_id={ph} AND data={ph}', (user_id, hoje))
-        row  = c.fetchone()
-        used = row[0] if row else 0
-        conn.close()
-
-        return {
-            "pode":   used < limite,
-            "usado":  used,
-            "limite": limite,
-            "plano":  plano,
-            "faltam": max(0, limite - used)
-        }
+        try:
+            cur = conn.cursor()
+            if self.use_postgres:
+                cur.execute("SELECT count FROM uso_diario WHERE user_id=%s AND data=%s", (user_id, hoje))
+            else:
+                cur.execute("SELECT count FROM uso_diario WHERE user_id=? AND data=?", (user_id, hoje))
+            row = cur.fetchone()
+            used = row[0] if row else 0
+            return {"pode": used < limite, "usado": used, "limite": limite, "plano": plano, "faltam": max(0, limite - used)}
+        except:
+            return {"pode": True, "usado": 0, "limite": limite, "plano": plano, "faltam": limite}
+        finally:
+            if self.use_postgres: conn.close()
 
     def registrar_uso(self, user_id: str):
         """Incrementa contador de mensagens do dia."""
@@ -1558,7 +1557,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.1.0",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.1.1",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
