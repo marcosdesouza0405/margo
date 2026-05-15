@@ -46,6 +46,10 @@ ST_REDIRECT_URI     = os.environ.get("ST_REDIRECT_URI", "https://margo-productio
 SPOTIFY_CLIENT_ID     = os.environ.get("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
 SPOTIFY_REDIRECT_URI  = "https://margo-production-98a9.up.railway.app/spotify/callback"
+STRIPE_SECRET_KEY     = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_PRICE_PRO      = os.environ.get("STRIPE_PRICE_PRO", "")
+STRIPE_PRICE_PRO_PLUS = os.environ.get("STRIPE_PRICE_PRO_PLUS", "")
 
 # ── Detecta se usa Postgres ────────────────────────────────────────────────────
 
@@ -126,6 +130,8 @@ class BancoMargo:
             email TEXT UNIQUE,
             nome TEXT,
             plano TEXT DEFAULT 'free',
+            stripe_customer_id TEXT,
+            stripe_subscription_id TEXT,
             status TEXT DEFAULT 'ativo',
             senha_hash TEXT,
             email_verificado INTEGER DEFAULT 0,
@@ -210,12 +216,49 @@ class BancoMargo:
     # ── USO DIÁRIO ─────────────────────────────────────────────────────────────
 
     LIMITES = {
-        "free":  50,
-        "pro":   999999,
-        "admin": 999999,
+        "free":     10,
+        "pro":      50,
+        "pro_plus": 90,
+        "admin":    999999,
     }
 
-    def verificar_limite(self, user_id: str) -> dict:
+    def atualizar_plano(self, user_id: str, plano: str, stripe_customer_id: str = None, stripe_subscription_id: str = None):
+        """Atualiza o plano do usuário"""
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            if self.use_postgres:
+                cur.execute("""UPDATE usuarios SET plano=%s, stripe_customer_id=COALESCE(%s, stripe_customer_id),
+                    stripe_subscription_id=COALESCE(%s, stripe_subscription_id) WHERE user_id=%s""",
+                    (plano, stripe_customer_id, stripe_subscription_id, user_id))
+            else:
+                cur.execute("""UPDATE usuarios SET plano=?, stripe_customer_id=COALESCE(?,stripe_customer_id),
+                    stripe_subscription_id=COALESCE(?,stripe_subscription_id) WHERE user_id=?""",
+                    (plano, stripe_customer_id, stripe_subscription_id, user_id))
+            conn.commit()
+            log(f"Plano atualizado: {user_id} → {plano}", "stripe")
+        except Exception as e:
+            log(f"Erro atualizar_plano: {e}", "stripe")
+        finally:
+            if self.use_postgres: conn.close()
+
+    def buscar_por_stripe_customer(self, stripe_customer_id: str) -> dict:
+        """Busca usuário pelo stripe_customer_id"""
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            if self.use_postgres:
+                cur.execute("SELECT * FROM usuarios WHERE stripe_customer_id=%s", (stripe_customer_id,))
+            else:
+                cur.execute("SELECT * FROM usuarios WHERE stripe_customer_id=?", (stripe_customer_id,))
+            row = cur.fetchone()
+            if not row: return None
+            cols = [d[0] for d in cur.description]
+            return dict(zip(cols, row))
+        except:
+            return None
+        finally:
+            if self.use_postgres: conn.close()
         """Verifica se usuário pode enviar mais mensagens hoje."""
         usuario = self.buscar_usuario_por_id(user_id)
         plano   = usuario.get("plano", "free") if usuario else "free"
@@ -1515,7 +1558,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.0.5",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.1.0",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
@@ -1780,6 +1823,95 @@ async def debug_fishaudio(request: Request):
             return JSONResponse({"ok": False, "erro": str(e)})
     except Exception as e:
         return JSONResponse({"erro": str(e)})
+
+@app.post("/stripe/criar_checkout")
+async def stripe_criar_checkout(request: Request):
+    """Cria sessão de checkout no Stripe"""
+    try:
+        import urllib.parse as urlparse
+        data    = await request.json()
+        user_id = data.get("user_id", "")
+        plano   = data.get("plano", "pro")  # pro ou pro_plus
+        email   = data.get("email", "")
+        if not STRIPE_SECRET_KEY:
+            return JSONResponse({"erro": "Stripe não configurado"}, status_code=500)
+        price_id = STRIPE_PRICE_PRO if plano == "pro" else STRIPE_PRICE_PRO_PLUS
+        if not price_id:
+            return JSONResponse({"erro": "Produto não configurado"}, status_code=500)
+        payload = urlparse.urlencode({
+            "mode": "subscription",
+            "line_items[0][price]": price_id,
+            "line_items[0][quantity]": "1",
+            "success_url": f"https://margo-production-98a9.up.railway.app/stripe/sucesso?user_id={user_id}",
+            "cancel_url": "https://orbiby.com",
+            "client_reference_id": user_id,
+            "customer_email": email,
+        }).encode()
+        req = urllib.request.Request(
+            "https://api.stripe.com/v1/checkout/sessions",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {STRIPE_SECRET_KEY}",
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+        )
+        resp = urllib.request.urlopen(req, timeout=15)
+        session = json.loads(resp.read())
+        return JSONResponse({"url": session["url"]})
+    except Exception as e:
+        log(f"Stripe checkout erro: {e}", "stripe")
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.get("/stripe/sucesso")
+async def stripe_sucesso(user_id: str = ""):
+    return JSONResponse({"ok": True, "msg": "Pagamento realizado! Seu plano foi atualizado."})
+
+@app.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    """Recebe eventos do Stripe e atualiza planos"""
+    try:
+        payload = await request.body()
+        sig     = request.headers.get("stripe-signature", "")
+        # Verifica assinatura do webhook
+        if STRIPE_WEBHOOK_SECRET:
+            import hmac, hashlib, time
+            parts = {k: v for k, v in (p.split("=", 1) for p in sig.split(",") if "=" in p)}
+            timestamp = parts.get("t", "")
+            sig_v1    = parts.get("v1", "")
+            signed_payload = f"{timestamp}.{payload.decode()}"
+            expected = hmac.new(STRIPE_WEBHOOK_SECRET.encode(), signed_payload.encode(), hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(expected, sig_v1):
+                return JSONResponse({"erro": "Assinatura inválida"}, status_code=400)
+        event = json.loads(payload)
+        event_type = event.get("type", "")
+        log(f"Stripe evento: {event_type}", "stripe")
+        obj = event.get("data", {}).get("object", {})
+        if event_type == "checkout.session.completed":
+            user_id    = obj.get("client_reference_id", "")
+            customer   = obj.get("customer", "")
+            price_id   = obj.get("line_items", {})
+            sub_id     = obj.get("subscription", "")
+            # Determina plano pelo price_id
+            plano = "pro"
+            if STRIPE_PRICE_PRO_PLUS and sub_id:
+                plano = "pro_plus"
+            if user_id:
+                banco.atualizar_plano(user_id, plano, customer, sub_id)
+        elif event_type in ["customer.subscription.deleted"]:
+            customer = obj.get("customer", "")
+            usuario  = banco.buscar_por_stripe_customer(customer)
+            if usuario:
+                banco.atualizar_plano(usuario["user_id"], "free")
+        elif event_type == "customer.subscription.updated":
+            customer = obj.get("customer", "")
+            status   = obj.get("status", "")
+            usuario  = banco.buscar_por_stripe_customer(customer)
+            if usuario and status != "active":
+                banco.atualizar_plano(usuario["user_id"], "free")
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        log(f"Stripe webhook erro: {e}", "stripe")
+        return JSONResponse({"erro": str(e)}, status_code=500)
 
 @app.get("/ping")
 def ping():
