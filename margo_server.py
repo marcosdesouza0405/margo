@@ -1379,7 +1379,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
         log(f"Brave Search: {query}", "busca")
         resultados = buscar_brave(query)
         if resultados:
-            contexto_busca = f"\n\nResultados da busca na internet:\n{resultados}\nUse essas informações para responder — mas fale do SEU jeito, com sua personalidade. Não leia como notícia. Adicione um toque pessoal. Não diga que vai pesquisar — já pesquisamos. Não cite as fontes."
+            contexto_busca = f"\n\n[DADOS REAIS DA INTERNET - USE ESTES VALORES EXATOS]:\n{resultados}\n[FIM DOS DADOS]\nIMPORTANTE: Use os valores numéricos exatos acima na sua resposta. Não invente valores. Fale com sua personalidade mas cite os números corretos."
         else:
             log(f"Brave Search sem resultado para: {query}", "busca")
             contexto_busca = f"\n\nNão encontrei resultados específicos. Responda com o que sabe, mas seja honesto sobre limitações."
