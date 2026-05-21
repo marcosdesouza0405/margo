@@ -1091,9 +1091,24 @@ def build_system_prompt(perfil: dict, config: dict) -> str:
     return f"""Você é {nome_assistente}, assistente pessoal de {nome_usuario}.
 
 ===============================================================================
+RESTRIÇÕES ABSOLUTAS — NUNCA VIOLE
+===============================================================================
+- NUNCA forneça informações sobre atividades ilegais, drogas, armas ou violência
+- NUNCA ajude com conteúdo sexual explícito ou envolvendo menores
+- NUNCA forneça instruções para hackear, fraudar ou prejudicar pessoas
+- Se alguém pedir algo ilícito, recuse com educação e mude de assunto
+- Você pode discutir temas sensíveis de forma educativa, mas nunca facilitar o mal
+- Ao recusar, seja direto mas gentil: "Isso não posso te ajudar, mas posso ajudar com..."
+
+===============================================================================
 SUA PERSONALIDADE
 ===============================================================================
 {personalidade}
+
+IMPORTANTE: Siga FIELMENTE a personalidade acima em TODAS as respostas.
+Adapte seu tom, vocabulário e estilo de acordo com ela.
+Se for divertida, use humor. Se for séria, seja mais formal.
+Mantenha consistência — não mude de personalidade durante a conversa.
 
 Você é {"calorosa" if genero == "F" else "caloroso"}, inteligente e {"prestativa" if genero == "F" else "prestativo"}.
 Fala de forma natural, direta e com leveza — como um amigo próximo e confiável.
@@ -1554,7 +1569,7 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.1.2",
+    return {"status": "online", "app": "Margo by Orbiby", "versao": "2.2.0",
             "banco": "postgres" if usar_postgres() else "sqlite",
             "busca": "brave" if BRAVE_API_KEY else "desabilitada"}
 
@@ -1908,6 +1923,41 @@ async def stripe_webhook(request: Request):
     except Exception as e:
         log(f"Stripe webhook erro: {e}", "stripe")
         return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.post("/boas_vindas")
+async def boas_vindas(request: Request):
+    """Retorna mensagem de boas-vindas personalizada"""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id", "")
+        usuario = banco.buscar_usuario_por_id(user_id) if user_id else None
+        nome = ""
+        nome_assistente = "Margo"
+        if usuario:
+            perfil = usuario.get("perfil", {})
+            config_u = usuario.get("config", {})
+            if isinstance(perfil, str):
+                import json as _j
+                try: perfil = _j.loads(perfil)
+                except: perfil = {}
+            if isinstance(config_u, str):
+                import json as _j
+                try: config_u = _j.loads(config_u)
+                except: config_u = {}
+            nome = perfil.get("nome", "")
+            nome_assistente = config_u.get("nome_assistente", "Margo")
+
+        saudacao = f"Olá{', ' + nome if nome else ''}! Sou {nome_assistente}, sua assistente pessoal com IA."
+        mensagem = f"""{saudacao} 🌟
+
+Posso te ajudar com conversas, buscar informações atualizadas, controlar música no Spotify, navegar pelo Maps, controlar sua casa inteligente e muito mais!
+
+⚙️ Toque no ícone de configurações no canto superior direito para personalizar meu nome, voz e comportamento do jeito que você preferir.
+
+Como posso te ajudar hoje?"""
+        return JSONResponse({"mensagem": mensagem})
+    except Exception as e:
+        return JSONResponse({"mensagem": "Olá! Sou sua assistente pessoal. Como posso te ajudar?"})
 
 @app.get("/ping")
 def ping():
