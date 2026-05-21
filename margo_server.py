@@ -1172,6 +1172,13 @@ PESQUISA WEB — "pesquisa", "o que é", "me fala sobre":
 YOUTUBE — "abre um vídeo", "coloca no youtube":
 {{"ferramenta": "youtube_search", "query": "..."}}
 
+PASSAGENS AÉREAS — "passagem para", "voo para", "quanto custa ir de", "quero viajar para":
+{{"ferramenta": "skyscanner_search", "origem": "cidade de origem", "destino": "cidade destino", "data": "YYYYMMDD ou vazio"}}
+→ Tente extrair origem, destino e data da conversa. Se não souber a origem, use a cidade do usuário.
+
+HOTÉIS — "hotel em", "hospedagem em", "onde ficar em":
+{{"ferramenta": "booking_search", "destino": "cidade ou local"}}
+
 EXEMPLOS CORRETOS:
 Usuário: "coloca no spotify um sertanejo"
 Você: {{"ferramenta": "spotify_play", "query": "sertanejo"}}
@@ -1959,6 +1966,29 @@ Como posso te ajudar hoje?"""
     except Exception as e:
         return JSONResponse({"mensagem": "Olá! Sou sua assistente pessoal. Como posso te ajudar?"})
 
+@app.post("/verificar_device")
+async def verificar_device(request: Request):
+    """Verifica se device já tem conta free cadastrada"""
+    try:
+        data = await request.json()
+        device_id = data.get("device_id", "")
+        if not device_id:
+            return JSONResponse({"pode_criar": True})
+        conn = banco._get_conn()
+        cur = conn.cursor()
+        ph = "%s" if banco._pg else "?"
+        cur.execute(f"SELECT user_id, plano FROM usuarios WHERE device_id={ph}", (device_id,))
+        row = cur.fetchone()
+        if banco._pg: conn.close()
+        if row:
+            user_id, plano = row[0], row[1]
+            if plano == 'free':
+                return JSONResponse({"pode_criar": False, "user_id": user_id})
+        return JSONResponse({"pode_criar": True})
+    except Exception as e:
+        log(f"verificar_device erro: {e}", "erro")
+        return JSONResponse({"pode_criar": True})
+
 @app.get("/ping")
 def ping():
     return {"pong": True, "ts": datetime.now().isoformat()}
@@ -1975,6 +2005,8 @@ async def cadastro(request: Request):
         data  = await request.json()
         email = data.get("email", "").strip().lower()
         senha = data.get("senha", "").strip()
+        device_id = data.get("device_id", "")
+        device_id = data.get("device_id", "")
 
         if not email or "@" not in email:
             return JSONResponse({"erro": "Email inválido"}, status_code=400)
@@ -1997,14 +2029,14 @@ async def cadastro(request: Request):
         ph = "%s" if banco._pg else "?"
         if banco._pg:
             c.execute('''INSERT INTO usuarios
-                (user_id, email, nome, plano, status, senha_hash, criado_em, ultimo_acesso)
-                VALUES (%s,%s,%s,'free','ativo',%s,%s,%s)''',
-                (user_id, email, "", senha_hash, agora, agora))
+                (user_id, email, nome, plano, status, senha_hash, criado_em, ultimo_acesso, device_id)
+                VALUES (%s,%s,%s,'free','ativo',%s,%s,%s,%s)''',
+                (user_id, email, "", senha_hash, agora, agora, device_id))
         else:
             c.execute('''INSERT INTO usuarios
-                (user_id, email, nome, plano, status, senha_hash, criado_em, ultimo_acesso)
-                VALUES (?,?,?,'free','ativo',?,?,?)''',
-                (user_id, email, "", senha_hash, agora, agora))
+                (user_id, email, nome, plano, status, senha_hash, criado_em, ultimo_acesso, device_id)
+                VALUES (?,?,?,'free','ativo',?,?,?,?)''',
+                (user_id, email, "", senha_hash, agora, agora, device_id))
         conn.commit()
         conn.close()
         log(f"Novo cadastro: {email} → {user_id}", "usuarios")
@@ -2033,6 +2065,8 @@ async def login(request: Request):
         data  = await request.json()
         email = data.get("email", "").strip().lower()
         senha = data.get("senha", "").strip()
+        device_id = data.get("device_id", "")
+        device_id = data.get("device_id", "")
 
         if not email or "@" not in email:
             return JSONResponse({"erro": "Email inválido"}, status_code=400)
