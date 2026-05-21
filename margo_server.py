@@ -1153,8 +1153,25 @@ MÚSICA — "toca", "coloca uma música", "coloca no spotify", "quero ouvir":
 {{"ferramenta": "soundcloud_play", "query": "artista ou música"}}
 → Prefira Spotify. Use SoundCloud só se o usuário pedir explicitamente.
 
-BUSCA LOCAL — "tem restaurante", "onde posso", "procura um lugar":
+BUSCA LOCAL — "tem restaurante", "onde posso", "procura um lugar", "farmácia perto":
 {{"ferramenta": "maps_search", "query": "tipo de lugar"}}
+→ Use APENAS para lugares físicos próximos. NUNCA para hotéis ou passagens.
+
+PASSAGENS AÉREAS — "passagem para", "voo para", "quero ir de X para Y", "quanto custa voar":
+{{"ferramenta": "flight_search", "origem": "cidade origem", "destino": "cidade destino", "data_ida": "YYYY-MM-DD ou vazio", "data_volta": "YYYY-MM-DD ou vazio"}}
+→ SEMPRE use para passagens aéreas. Extraia origem, destino e datas da conversa.
+
+HOTÉIS — "hotel em", "hospedagem em", "onde ficar em", "quero me hospedar":
+{{"ferramenta": "hotel_search", "destino": "cidade ou local", "checkin": "YYYY-MM-DD ou vazio", "checkout": "YYYY-MM-DD ou vazio"}}
+→ SEMPRE use para hotéis. Extraia destino e datas da conversa.
+
+Usuário: "procura hotel em Tokyo em julho"
+Você: {{"ferramenta": "hotel_search", "destino": "Tokyo", "checkin": "2025-07-01", "checkout": "2025-07-05"}}
+Abrindo a busca de hotéis em Tokyo pra você!
+
+Usuário: "quero passagem de São Paulo para Tokyo em junho"
+Você: {{"ferramenta": "flight_search", "origem": "São Paulo", "destino": "Tokyo", "data_ida": "2025-06-01", "data_volta": ""}}
+Abrindo a busca de passagens pra você!
 
 CHAMADA — "liga para", "chama o/a":
 {{"ferramenta": "phone_call", "contato": "nome ou número"}}
