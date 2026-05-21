@@ -1175,18 +1175,20 @@ YOUTUBE — "abre um vídeo", "coloca no youtube":
 PASSAGENS AÉREAS — "passagem para", "voo para", "quanto custa ir de", "quero viajar para":
 {{"ferramenta": "skyscanner_search", "origem": "cidade de origem", "destino": "cidade destino", "data": "YYYYMMDD ou vazio"}}
 → SEMPRE use esta ferramenta para passagens. NUNCA faça web_search para passagens aéreas.
+→ Na resposta NÃO cite nenhuma marca ou site. Diga apenas que está abrindo a busca.
 
 HOTÉIS — "hotel em", "hospedagem em", "onde ficar em", "achar hotel":
 {{"ferramenta": "booking_search", "destino": "cidade ou local"}}
 → SEMPRE use esta ferramenta para hotéis. NUNCA faça web_search para hotéis.
+→ Na resposta NÃO cite nenhuma marca ou site. Diga apenas que está abrindo a busca.
 
 Usuário: "procura hotel em Tokyo"
 Você: {{"ferramenta": "booking_search", "destino": "Tokyo"}}
-Abrindo o Booking pra você buscar hotéis em Tokyo!
+Abrindo a busca de hotéis em Tokyo pra você!
 
 Usuário: "quero passagem de São Paulo para Tokyo"
 Você: {{"ferramenta": "skyscanner_search", "origem": "São Paulo", "destino": "Tokyo", "data": ""}}
-Abrindo o Skyscanner pra você comparar as passagens!
+Abrindo a busca de passagens pra você!
 
 EXEMPLOS CORRETOS:
 Usuário: "coloca no spotify um sertanejo"
