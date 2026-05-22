@@ -1277,7 +1277,9 @@ def detectar_intencao(mensagem: str, historico: list = None, perfil: dict = None
         if comida: preferencias += f"- Comida favorita: {comida}\n"
         if hobbies: preferencias += f"- Hobbies: {hobbies}\n"
 
+    data_hoje = datetime.now().strftime("%Y-%m-%d")
     prompt = f"""Analise a mensagem e retorne um JSON se ela pede uma ação específica.
+Data atual: {data_hoje}
 {f'Histórico recente:{chr(10)}{contexto}' if contexto else ''}
 {f'Preferências do usuário:{chr(10)}{preferencias}' if preferencias else ''}
 Mensagem atual: "{mensagem}"
