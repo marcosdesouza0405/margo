@@ -1292,6 +1292,8 @@ Retorne APENAS um JSON válido se a mensagem pede:
 - Pesquisa na internet: {{"ferramenta":"web_search","query":"termo de busca"}}
 - Agenda: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601"}}
 - Casa inteligente: {{"ferramenta":"smart_home","acao":"ligar|desligar|ajustar","dispositivo":"nome do dispositivo"}}
+- Hotel/hospedagem: {{"ferramenta":"hotel_search","destino":"cidade ou local","checkin":"YYYY-MM-DD ou vazio","checkout":"YYYY-MM-DD ou vazio"}}
+- Passagem aérea/voo: {{"ferramenta":"flight_search","origem":"cidade origem ou vazio","destino":"cidade destino","data_ida":"YYYY-MM-DD ou vazio","data_volta":"YYYY-MM-DD ou vazio"}}
 
 REGRA CRÍTICA — Use web_search para QUALQUER pergunta sobre fatos do mundo real:
 - Tempo/clima atual ou futuro
@@ -1306,6 +1308,8 @@ NÃO use web_search para:
 - Perguntas sobre preferências pessoais
 - Pedidos de opinião
 - Comandos para apps (música, maps, etc)
+- Hotéis ou hospedagem → use hotel_search
+- Passagens aéreas ou voos → use flight_search
 
 REGRAS para música: use preferências do usuário se não especificou.
 
@@ -1316,6 +1320,8 @@ Exemplos:
 "qual a cotação do dólar?" → {{"ferramenta":"web_search","query":"cotação dólar hoje"}}
 "quem é o presidente do brasil?" → {{"ferramenta":"web_search","query":"presidente do Brasil"}}
 "qual o resultado do jogo?" → {{"ferramenta":"web_search","query":"resultado jogo hoje"}}
+"procura hotel em Tokyo em junho" → {{"ferramenta":"hotel_search","destino":"Tokyo","checkin":"2025-06-01","checkout":"2025-06-05"}}
+"quero passagem de São Paulo para Tokyo" → {{"ferramenta":"flight_search","origem":"São Paulo","destino":"Tokyo","data_ida":"","data_volta":""}}
 "me conta uma piada" → null
 "oi tudo bem?" → null
 "o que você acha de..." → null
