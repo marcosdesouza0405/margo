@@ -1158,7 +1158,7 @@ BUSCA LOCAL — "tem restaurante", "onde posso", "procura um lugar", "farmácia 
 → Use APENAS para lugares físicos próximos. NUNCA para hotéis ou passagens.
 
 PASSAGENS AÉREAS — "passagem para", "voo para", "quero ir de X para Y", "quanto custa voar":
-{{"ferramenta": "flight_search", "origem": "cidade origem", "destino": "cidade destino", "data_ida": "YYYY-MM-DD ou vazio", "data_volta": "YYYY-MM-DD ou vazio"}}
+{{"ferramenta": "flight_search", "origem": "cidade origem", "destino": "cidade destino", "origem_iata": "código IATA 3 letras", "destino_iata": "código IATA 3 letras", "data_ida": "YYYY-MM-DD ou vazio", "data_volta": "YYYY-MM-DD ou vazio"}}
 → SEMPRE use para passagens aéreas. Extraia origem, destino e datas da conversa.
 
 HOTÉIS — "hotel em", "hospedagem em", "onde ficar em", "quero me hospedar":
@@ -1170,7 +1170,7 @@ Você: {{"ferramenta": "hotel_search", "destino": "Tokyo", "checkin": "2025-07-0
 Abrindo a busca de hotéis em Tokyo pra você!
 
 Usuário: "quero passagem de São Paulo para Tokyo em junho"
-Você: {{"ferramenta": "flight_search", "origem": "São Paulo", "destino": "Tokyo", "data_ida": "2025-06-01", "data_volta": ""}}
+Você: {{"ferramenta": "flight_search", "origem": "São Paulo", "destino": "Tokyo", "origem_iata": "GRU", "destino_iata": "NRT", "data_ida": "2025-06-01", "data_volta": ""}}
 Abrindo a busca de passagens pra você!
 
 CHAMADA — "liga para", "chama o/a":
@@ -1293,7 +1293,7 @@ Retorne APENAS um JSON válido se a mensagem pede:
 - Agenda: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601"}}
 - Casa inteligente: {{"ferramenta":"smart_home","acao":"ligar|desligar|ajustar","dispositivo":"nome do dispositivo"}}
 - Hotel/hospedagem: {{"ferramenta":"hotel_search","destino":"cidade ou local","checkin":"YYYY-MM-DD ou vazio","checkout":"YYYY-MM-DD ou vazio"}}
-- Passagem aérea/voo: {{"ferramenta":"flight_search","origem":"cidade origem ou vazio","destino":"cidade destino","data_ida":"YYYY-MM-DD ou vazio","data_volta":"YYYY-MM-DD ou vazio"}}
+- Passagem aérea/voo: {{"ferramenta":"flight_search","origem":"cidade origem ou vazio","destino":"cidade destino","origem_iata":"código IATA 3 letras","destino_iata":"código IATA 3 letras","data_ida":"YYYY-MM-DD ou vazio","data_volta":"YYYY-MM-DD ou vazio"}}
 
 REGRA CRÍTICA — Use web_search para QUALQUER pergunta sobre fatos do mundo real:
 - Tempo/clima atual ou futuro
@@ -1321,7 +1321,7 @@ Exemplos:
 "quem é o presidente do brasil?" → {{"ferramenta":"web_search","query":"presidente do Brasil"}}
 "qual o resultado do jogo?" → {{"ferramenta":"web_search","query":"resultado jogo hoje"}}
 "procura hotel em Tokyo em junho" → {{"ferramenta":"hotel_search","destino":"Tokyo","checkin":"2025-06-01","checkout":"2025-06-05"}}
-"quero passagem de São Paulo para Tokyo" → {{"ferramenta":"flight_search","origem":"São Paulo","destino":"Tokyo","data_ida":"","data_volta":""}}
+"quero passagem de São Paulo para Tokyo" → {{"ferramenta":"flight_search","origem":"São Paulo","destino":"Tokyo","origem_iata":"GRU","destino_iata":"NRT","data_ida":"","data_volta":""}}
 "me conta uma piada" → null
 "oi tudo bem?" → null
 "o que você acha de..." → null
