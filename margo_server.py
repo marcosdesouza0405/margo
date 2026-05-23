@@ -7,6 +7,41 @@ Arquitetura: FastAPI + DeepSeek + SQLite/Postgres + Fish Audio / ElevenLabs / We
 
 import os, re, json, time, sqlite3, threading, asyncio, base64
 from datetime import datetime, timedelta
+import re
+
+# Domínios descartáveis bloqueados
+DOMINIOS_BLOQUEADOS = {
+    'mailinator.com', 'tempmail.com', 'throwaway.email', 'guerrillamail.com',
+    'sharklasers.com', 'guerrillamailblock.com', 'grr.la', 'guerrillamail.info',
+    'spam4.me', 'trashmail.com', 'trashmail.me', 'trashmail.net', 'yopmail.com',
+    'yopmail.fr', 'cool.fr.nf', 'jetable.fr.nf', 'nospam.ze.tc', 'nomail.xl.cx',
+    'mega.zik.dj', 'speed.1s.fr', 'courriel.fr.nf', 'moncourrier.fr.nf',
+    'dispostable.com', 'spamgourmet.com', 'spamgourmet.net', 'spamgourmet.org',
+    'fakeinbox.com', 'mailnull.com', 'spamcorner.com', 'example.com', 'test.com',
+}
+
+# Prefixos obviamente falsos
+PREFIXOS_BLOQUEADOS = {'test', 'teste', 'abc', 'admin', 'fake', 'spam', 'null', 'none'}
+
+def validar_email(email: str) -> tuple[bool, str]:
+    email = email.lower().strip()
+    # Formato básico
+    if not re.match(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$', email):
+        return False, "Email inválido."
+    partes = email.split('@')
+    prefixo = partes[0]
+    dominio = partes[1]
+    # Domínio bloqueado
+    if dominio in DOMINIOS_BLOQUEADOS:
+        return False, "Email temporário não é permitido."
+    # Prefixo bloqueado
+    if prefixo in PREFIXOS_BLOQUEADOS:
+        return False, "Email inválido."
+    # Muito curto
+    if len(prefixo) < 3:
+        return False, "Email inválido."
+    return True, ""
+
 from collections import deque
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -2038,6 +2073,11 @@ async def cadastro(request: Request):
             return JSONResponse({"erro": "Email inválido"}, status_code=400)
         if len(senha) < 6:
             return JSONResponse({"erro": "Senha deve ter pelo menos 6 caracteres"}, status_code=400)
+
+        # Valida email
+        valido, erro_email = validar_email(email)
+        if not valido:
+            return JSONResponse({"erro": erro_email}, status_code=400)
 
         # Verifica se email já existe
         existente = banco.buscar_usuario_por_email(email)
