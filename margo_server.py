@@ -75,6 +75,7 @@ if os.path.exists(ENV_PATH):
 DEEPSEEK_API_KEY    = os.environ.get("DEEPSEEK_API_KEY", "")
 DATABASE_URL        = os.environ.get("DATABASE_URL", "")
 BRAVE_API_KEY       = os.environ.get("BRAVE_API_KEY", "")
+SERPER_API_KEY      = os.environ.get("SERPER_API_KEY", "")
 ST_CLIENT_ID        = os.environ.get("ST_CLIENT_ID", "")
 ST_CLIENT_SECRET    = os.environ.get("ST_CLIENT_SECRET", "")
 ST_REDIRECT_URI     = os.environ.get("ST_REDIRECT_URI", "https://margo-production-98a9.up.railway.app/smartthings/callback")
@@ -973,10 +974,48 @@ def st_executar_acao(user_id: str, acao: str, dispositivo_nome: str, valor: str 
 
     return f"Não entendi a ação '{acao}' para '{dispositivo_nome}'."
 
-# ── BRAVE SEARCH ──────────────────────────────────────────────────────────────
+# ── SEARCH (Brave + Serper fallback) ──────────────────────────────────────────
 
 def buscar_brave(query: str, max_results: int = 3) -> str:
-    """Chama Brave Search e retorna resumo dos resultados para o DeepSeek usar."""
+    """Tenta Brave primeiro, cai no Serper se Brave falhar ou atingir limite."""
+    import json as _json
+    # Brave primeiro (free tier 2000/mês)
+    if BRAVE_API_KEY:
+        try:
+            url = "https://api.search.brave.com/res/v1/web/search?q=" + urllib.parse.quote(query) + "&count=" + str(max_results)
+            req_b = urllib.request.Request(url, headers={"Accept": "application/json", "X-Subscription-Token": BRAVE_API_KEY})
+            with urllib.request.urlopen(req_b, timeout=10) as resp:
+                raw = resp.read()
+                if raw[:2] == b'\x1f\x8b':
+                    import gzip
+                    raw = gzip.decompress(raw)
+                data = _json.loads(raw)
+                resultados = []
+                for item in data.get("web", {}).get("results", [])[:max_results]:
+                    resultados.append(f"{item.get('title','')}: {item.get('description','')}")
+                if resultados:
+                    return "\n".join(resultados)
+        except Exception as e:
+            log(f"Brave falhou, tentando Serper: {e}", "busca")
+    # Serper fallback
+    if SERPER_API_KEY:
+        try:
+            url = "https://google.serper.dev/search"
+            payload = _json.dumps({"q": query, "num": max_results, "hl": "pt-br"}).encode()
+            headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
+            req_s = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+            with urllib.request.urlopen(req_s, timeout=10) as resp:
+                data = _json.loads(resp.read())
+            resultados = []
+            for item in data.get("organic", [])[:max_results]:
+                resultados.append(f"{item.get('title','')}: {item.get('snippet','')}")
+            return "\n".join(resultados) if resultados else ""
+        except Exception as e:
+            log(f"Serper erro: {e}", "busca")
+    return ""
+
+def _buscar_brave_legado(query: str, max_results: int = 3) -> str:
+    """Legado — não usar."""
     if not BRAVE_API_KEY:
         return ""
     try:
