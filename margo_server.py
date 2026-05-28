@@ -257,11 +257,12 @@ class BancoMargo:
     # ── USO DIÁRIO ─────────────────────────────────────────────────────────────
 
     LIMITES = {
-        "free":     10,
-        "pro":      50,
-        "pro_plus": 90,
+        "free":     999999,  # free trial: sem limite diário, mas tem total de 50
+        "pro":      20,
+        "pro_plus": 50,
         "admin":    999999,
     }
+    TRIAL_LIMITE = 50  # total de interações no free trial
 
     def atualizar_plano(self, user_id: str, plano: str, stripe_customer_id: str = None, stripe_subscription_id: str = None):
         """Atualiza o plano do usuário"""
@@ -301,10 +302,32 @@ class BancoMargo:
             if self._pg: conn.close()
 
     def verificar_limite(self, user_id: str) -> dict:
-        """Verifica se usuário pode enviar mais mensagens hoje."""
+        """Verifica se usuário pode enviar mais mensagens."""
         usuario = self.buscar_usuario_por_id(user_id)
         plano   = usuario.get("plano", "free") if usuario else "free"
-        limite  = self.LIMITES.get(plano, 10)
+        msgs_extras = usuario.get("msgs_extras", 0) or 0
+
+        # Free trial: verifica total histórico (não diário)
+        if plano == "free":
+            conn = self._get_conn()
+            try:
+                cur = conn.cursor()
+                ph  = "%s" if self._pg else "?"
+                cur.execute(f"SELECT COALESCE(SUM(msgs),0) FROM uso_diario WHERE user_id={ph}", (user_id,))
+                row = cur.fetchone()
+                total = row[0] if row else 0
+                faltam = max(0, self.TRIAL_LIMITE - total)
+                # Verifica msgs_extras se trial esgotado
+                if total >= self.TRIAL_LIMITE and msgs_extras > 0:
+                    return {"pode": True, "usado": total, "limite": self.TRIAL_LIMITE, "plano": plano, "faltam": msgs_extras, "usando_extras": True}
+                return {"pode": total < self.TRIAL_LIMITE, "usado": total, "limite": self.TRIAL_LIMITE, "plano": plano, "faltam": faltam, "trial": True}
+            except:
+                return {"pode": True, "usado": 0, "limite": self.TRIAL_LIMITE, "plano": plano, "faltam": self.TRIAL_LIMITE, "trial": True}
+            finally:
+                if self._pg: conn.close()
+
+        # Planos pagos: verifica limite diário
+        limite = self.LIMITES.get(plano, 20)
         hoje = datetime.now().strftime("%Y-%m-%d")
         conn = self._get_conn()
         try:
@@ -313,18 +336,22 @@ class BancoMargo:
             cur.execute(f"SELECT msgs FROM uso_diario WHERE user_id={ph} AND data={ph}", (user_id, hoje))
             row = cur.fetchone()
             used = row[0] if row else 0
+            # Se esgotou o diário, verifica msgs_extras
+            if used >= limite and msgs_extras > 0:
+                return {"pode": True, "usado": used, "limite": limite, "plano": plano, "faltam": msgs_extras, "usando_extras": True}
             return {"pode": used < limite, "usado": used, "limite": limite, "plano": plano, "faltam": max(0, limite - used)}
         except:
             return {"pode": True, "usado": 0, "limite": limite, "plano": plano, "faltam": limite}
         finally:
             if self._pg: conn.close()
 
-    def registrar_uso(self, user_id: str):
-        """Incrementa contador de mensagens do dia."""
+    def registrar_uso(self, user_id: str, usando_extras: bool = False):
+        """Incrementa contador de mensagens. Se usando_extras, decrementa msgs_extras."""
         hoje = datetime.now().strftime("%Y-%m-%d")
         conn = self._get_conn()
         c    = conn.cursor()
         ph   = "%s" if self._pg else "?"
+        # Sempre registra no uso_diario para histórico
         if self._pg:
             c.execute('''INSERT INTO uso_diario (user_id, data, msgs)
                 VALUES (%s, %s, 1)
@@ -334,6 +361,9 @@ class BancoMargo:
             c.execute('''INSERT INTO uso_diario (user_id, data, msgs) VALUES (?,?,1)
                 ON CONFLICT(user_id, data) DO UPDATE SET msgs = msgs + 1''',
                 (user_id, hoje))
+        # Se usando extras, decrementa
+        if usando_extras:
+            c.execute(f"UPDATE usuarios SET msgs_extras = MAX(0, COALESCE(msgs_extras,0) - 1) WHERE user_id={ph}", (user_id,))
         conn.commit()
         conn.close()
 
@@ -2052,9 +2082,9 @@ async def mp_criar_pix(request: Request):
         sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
 
         planos = {
-            "pro":      {"titulo": "Margo Pro — 20 msgs/dia",      "valor": 14.90},
-            "pro_plus": {"titulo": "Margo Pro+ — 50 msgs/dia",     "valor": 29.90},
-            "avulso":   {"titulo": "Margo — 50 interações extras", "valor": 10.00},
+            "pro":      {"titulo": "Margo Pro — 20 msgs/dia (promo 6 meses)",      "valor": 9.90},
+            "pro_plus": {"titulo": "Margo Pro+ — 50 msgs/dia (promo 6 meses)",     "valor": 19.90},
+            "avulso":   {"titulo": "Margo — 50 interações extras", "valor": 9.90},
         }
         p = planos.get(plano, planos["pro"])
 
@@ -2359,15 +2389,19 @@ async def mensagem(request: Request):
         # Verifica limite diário
         uso = banco.verificar_limite(user_id)
         if not uso["pode"]:
+            if uso.get("trial"):
+                msg_limite = "Você usou todas as 50 interações do seu trial gratuito! Assine um plano para continuar."
+            else:
+                msg_limite = f"Você atingiu seu limite de {uso['limite']} mensagens hoje. Volte amanhã ou compre interações extras!"
             return JSONResponse({
-                "resposta": f"Você atingiu seu limite de {uso['limite']} mensagens por hoje. "
-                            f"Volte amanhã ou fale comigo sobre o plano Pro para mensagens ilimitadas!",
+                "resposta": msg_limite,
                 "limite_atingido": True,
+                "plano": uso.get("plano", "free"),
                 "ferramenta": None
             })
 
         resultado = processar_mensagem(user_id, mensagem_, latitude, longitude, hora_local=hora_local)
-        banco.registrar_uso(user_id)
+        banco.registrar_uso(user_id, usando_extras=uso.get("usando_extras", False))
         return JSONResponse(resultado)
     except Exception as e:
         log(f"Erro /mensagem: {e}")
