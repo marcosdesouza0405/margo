@@ -2038,12 +2038,12 @@ async def stripe_webhook(request: Request):
 
 @app.post("/mp/criar_pix")
 async def mp_criar_pix(request: Request):
-    """Cria cobrança PIX via Mercado Pago"""
+    """Cria sessão de checkout Mercado Pago (cartão + PIX)"""
     try:
         import mercadopago
         data    = await request.json()
         user_id = data.get("user_id", "")
-        plano   = data.get("plano", "pro")  # pro, pro_plus, avulso
+        plano   = data.get("plano", "pro")
         email   = data.get("email", "")
 
         if not MP_ACCESS_TOKEN:
@@ -2052,39 +2052,52 @@ async def mp_criar_pix(request: Request):
         sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
 
         planos = {
-            "pro":      {"titulo": "Margo Pro — 20 msgs/dia",     "valor": 14.90},
-            "pro_plus": {"titulo": "Margo Pro+ — 50 msgs/dia",    "valor": 29.90},
+            "pro":      {"titulo": "Margo Pro — 20 msgs/dia",      "valor": 14.90},
+            "pro_plus": {"titulo": "Margo Pro+ — 50 msgs/dia",     "valor": 29.90},
             "avulso":   {"titulo": "Margo — 50 interações extras", "valor": 10.00},
         }
         p = planos.get(plano, planos["pro"])
 
-        payment_data = {
-            "transaction_amount": p["valor"],
-            "description": p["titulo"],
-            "payment_method_id": "pix",
+        preference_data = {
+            "items": [{
+                "title": p["titulo"],
+                "quantity": 1,
+                "currency_id": "BRL",
+                "unit_price": p["valor"],
+            }],
             "payer": {"email": email or "cliente@orbiby.com"},
             "external_reference": f"{user_id}|{plano}",
+            "back_urls": {
+                "success": f"https://margo-production-98a9.up.railway.app/mp/sucesso?user_id={user_id}&plano={plano}",
+                "failure": "https://orbiby.com",
+                "pending": "https://orbiby.com",
+            },
+            "auto_return": "approved",
             "notification_url": "https://margo-production-98a9.up.railway.app/webhook/mp",
         }
 
-        result = sdk.payment().create(payment_data)
-        payment = result["response"]
+        result = sdk.preference().create(preference_data)
+        preference = result["response"]
 
         if result["status"] == 201:
-            pix_data = payment["point_of_interaction"]["transaction_data"]
             return JSONResponse({
                 "ok": True,
-                "payment_id": payment["id"],
-                "qr_code": pix_data.get("qr_code"),
-                "qr_code_base64": pix_data.get("qr_code_base64"),
-                "valor": p["valor"],
-                "plano": plano,
+                "url": preference["init_point"],        # produção
+                "url_sandbox": preference["sandbox_init_point"],  # teste
+                "preference_id": preference["id"],
             })
         else:
-            return JSONResponse({"erro": str(payment)}, status_code=500)
+            return JSONResponse({"erro": str(preference)}, status_code=500)
     except Exception as e:
-        log(f"MP PIX erro: {e}", "mp")
+        log(f"MP checkout erro: {e}", "mp")
         return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.get("/mp/sucesso")
+async def mp_sucesso(user_id: str = "", plano: str = ""):
+    if user_id and plano and plano != "avulso":
+        banco.atualizar_plano(user_id, plano)
+        log(f"MP sucesso: plano {plano} para {user_id}", "mp")
+    return JSONResponse({"ok": True, "msg": "Pagamento realizado! Seu plano foi atualizado."})
 
 @app.post("/webhook/mp")
 async def webhook_mp(request: Request):
