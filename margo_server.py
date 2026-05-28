@@ -83,6 +83,7 @@ SPOTIFY_CLIENT_ID     = os.environ.get("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
 SPOTIFY_REDIRECT_URI  = "https://margo-production-98a9.up.railway.app/spotify/callback"
 STRIPE_SECRET_KEY     = os.environ.get("STRIPE_SECRET_KEY", "")
+MP_ACCESS_TOKEN       = os.environ.get("MP_ACCESS_TOKEN", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 STRIPE_PRICE_PRO      = os.environ.get("STRIPE_PRICE_PRO", "")
 STRIPE_PRICE_PRO_PLUS = os.environ.get("STRIPE_PRICE_PRO_PLUS", "")
@@ -167,11 +168,15 @@ class BancoMargo:
             nome TEXT,
             plano TEXT DEFAULT 'free',
             stripe_customer_id TEXT,
+            mp_payment_id TEXT,
+            msgs_extras INTEGER DEFAULT 0,
             stripe_subscription_id TEXT,
             status TEXT DEFAULT 'ativo',
             senha_hash TEXT,
             email_verificado INTEGER DEFAULT 0,
             stripe_customer_id TEXT,
+            mp_payment_id TEXT,
+            msgs_extras INTEGER DEFAULT 0,
             criado_em TEXT,
             ultimo_acesso TEXT
         )''')
@@ -2030,6 +2035,102 @@ async def stripe_webhook(request: Request):
     except Exception as e:
         log(f"Stripe webhook erro: {e}", "stripe")
         return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.post("/mp/criar_pix")
+async def mp_criar_pix(request: Request):
+    """Cria cobrança PIX via Mercado Pago"""
+    try:
+        import mercadopago
+        data    = await request.json()
+        user_id = data.get("user_id", "")
+        plano   = data.get("plano", "pro")  # pro, pro_plus, avulso
+        email   = data.get("email", "")
+
+        if not MP_ACCESS_TOKEN:
+            return JSONResponse({"erro": "Mercado Pago não configurado"}, status_code=500)
+
+        sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
+
+        planos = {
+            "pro":      {"titulo": "Margo Pro — 20 msgs/dia",     "valor": 14.90},
+            "pro_plus": {"titulo": "Margo Pro+ — 50 msgs/dia",    "valor": 29.90},
+            "avulso":   {"titulo": "Margo — 50 interações extras", "valor": 10.00},
+        }
+        p = planos.get(plano, planos["pro"])
+
+        payment_data = {
+            "transaction_amount": p["valor"],
+            "description": p["titulo"],
+            "payment_method_id": "pix",
+            "payer": {"email": email or "cliente@orbiby.com"},
+            "external_reference": f"{user_id}|{plano}",
+            "notification_url": "https://margo-production-98a9.up.railway.app/webhook/mp",
+        }
+
+        result = sdk.payment().create(payment_data)
+        payment = result["response"]
+
+        if result["status"] == 201:
+            pix_data = payment["point_of_interaction"]["transaction_data"]
+            return JSONResponse({
+                "ok": True,
+                "payment_id": payment["id"],
+                "qr_code": pix_data.get("qr_code"),
+                "qr_code_base64": pix_data.get("qr_code_base64"),
+                "valor": p["valor"],
+                "plano": plano,
+            })
+        else:
+            return JSONResponse({"erro": str(payment)}, status_code=500)
+    except Exception as e:
+        log(f"MP PIX erro: {e}", "mp")
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.post("/webhook/mp")
+async def webhook_mp(request: Request):
+    """Webhook do Mercado Pago — confirma pagamento e atualiza plano"""
+    try:
+        import mercadopago
+        data = await request.json()
+        log(f"MP webhook: {data}", "mp")
+
+        if data.get("type") != "payment":
+            return JSONResponse({"ok": True})
+
+        payment_id = data.get("data", {}).get("id")
+        if not payment_id:
+            return JSONResponse({"ok": True})
+
+        sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
+        result = sdk.payment().get(payment_id)
+        payment = result["response"]
+
+        if payment.get("status") != "approved":
+            return JSONResponse({"ok": True})
+
+        ref = payment.get("external_reference", "")
+        if "|" not in ref:
+            return JSONResponse({"ok": True})
+
+        user_id, plano = ref.split("|", 1)
+
+        if plano == "avulso":
+            # Adiciona 50 interações extras
+            conn = banco._get_conn()
+            c = conn.cursor()
+            ph = "%s" if banco._pg else "?"
+            c.execute(f"UPDATE usuarios SET msgs_extras = COALESCE(msgs_extras,0) + 50 WHERE user_id={ph}", (user_id,))
+            conn.commit()
+            conn.close()
+            log(f"MP: +50 interações extras para {user_id}", "mp")
+        else:
+            banco.atualizar_plano(user_id, plano, stripe_customer_id=None)
+            log(f"MP: plano {plano} ativado para {user_id}", "mp")
+
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        log(f"MP webhook erro: {e}", "mp")
+        return JSONResponse({"ok": True})
 
 @app.post("/boas_vindas")
 async def boas_vindas(request: Request):
