@@ -2103,6 +2103,7 @@ async def mp_criar_pix(request: Request):
                 "pending": "https://orbiby.com",
             },
             "auto_return": "approved",
+            "locale": "pt-BR",
             "notification_url": "https://margo-production-98a9.up.railway.app/webhook/mp",
         }
 
