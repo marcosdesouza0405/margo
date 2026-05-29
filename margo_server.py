@@ -2044,16 +2044,37 @@ async def stripe_webhook(request: Request):
         log(f"Stripe evento: {event_type}", "stripe")
         obj = event.get("data", {}).get("object", {})
         if event_type == "checkout.session.completed":
-            user_id    = obj.get("client_reference_id", "")
-            customer   = obj.get("customer", "")
-            price_id   = obj.get("line_items", {})
-            sub_id     = obj.get("subscription", "")
-            # Determina plano pelo price_id
+            user_id  = obj.get("client_reference_id", "")
+            customer = obj.get("customer", "")
+            sub_id   = obj.get("subscription", "")
+            metadata = obj.get("metadata", {})
+            # Determina plano pelo price_id via line_items ou metadata
             plano = "pro"
-            if STRIPE_PRICE_PRO_PLUS and sub_id:
-                plano = "pro_plus"
+            # Tenta pelo payment link — verifica pelo price_id dos line_items expandidos
+            line_items = obj.get("line_items", {}).get("data", [])
+            for item in line_items:
+                pid = item.get("price", {}).get("id", "")
+                if pid == STRIPE_PRICE_PRO_PLUS:
+                    plano = "pro_plus"
+                    break
+                elif pid == STRIPE_PRICE_PRO:
+                    plano = "pro"
+                    break
+            # Pacote avulso — sem subscription
+            if not sub_id:
+                plano = "avulso"
             if user_id:
-                banco.atualizar_plano(user_id, plano, customer, sub_id)
+                if plano == "avulso":
+                    # Adiciona 50 interações extras
+                    conn = banco._get_conn()
+                    c = conn.cursor()
+                    ph = "%s" if banco._pg else "?"
+                    c.execute(f"UPDATE usuarios SET msgs_extras = COALESCE(msgs_extras,0) + 50 WHERE user_id={ph}", (user_id,))
+                    conn.commit()
+                    conn.close()
+                    log(f"Stripe: +50 extras para {user_id}", "stripe")
+                else:
+                    banco.atualizar_plano(user_id, plano, customer, sub_id)
         elif event_type in ["customer.subscription.deleted"]:
             customer = obj.get("customer", "")
             usuario  = banco.buscar_por_stripe_customer(customer)
