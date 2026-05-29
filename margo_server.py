@@ -2011,6 +2011,10 @@ async def stripe_criar_checkout(request: Request):
         resp = urllib.request.urlopen(req, timeout=15)
         session = json.loads(resp.read())
         return JSONResponse({"url": session["url"]})
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        log(f"Stripe checkout erro: {e} — {body}", "stripe")
+        return JSONResponse({"erro": body}, status_code=500)
     except Exception as e:
         log(f"Stripe checkout erro: {e}", "stripe")
         return JSONResponse({"erro": str(e)}, status_code=500)
