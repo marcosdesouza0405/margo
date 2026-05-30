@@ -116,6 +116,82 @@ def enviar_push(token: str, titulo: str, corpo: str):
         log(f"Push erro: {e}", "fcm")
         return False
 SERPER_API_KEY      = os.environ.get("SERPER_API_KEY", "")
+KOKORO_ENABLED      = os.environ.get("KOKORO_ENABLED", "true").lower() == "true"
+
+# ── KOKORO TTS ────────────────────────────────────────────────────────────────
+import threading as _threading
+_kokoro_instance = None
+_kokoro_lock = _threading.Lock()
+_kokoro_ready = False
+
+KOKORO_DIR = "/data/kokoro"
+KOKORO_MODEL = f"{KOKORO_DIR}/kokoro-v1.0.onnx"
+KOKORO_VOICES = f"{KOKORO_DIR}/voices-v1.0.bin"
+
+def _baixar_kokoro():
+    global _kokoro_instance, _kokoro_ready
+    try:
+        os.makedirs(KOKORO_DIR, exist_ok=True)
+        if not os.path.exists(KOKORO_MODEL):
+            log("Baixando Kokoro model (~310MB)...", "kokoro")
+            import urllib.request
+            urllib.request.urlretrieve(
+                "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx",
+                KOKORO_MODEL
+            )
+            log("Kokoro model baixado!", "kokoro")
+        if not os.path.exists(KOKORO_VOICES):
+            log("Baixando Kokoro voices (~27MB)...", "kokoro")
+            import urllib.request
+            urllib.request.urlretrieve(
+                "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin",
+                KOKORO_VOICES
+            )
+            log("Kokoro voices baixado!", "kokoro")
+        from kokoro_onnx import Kokoro
+        with _kokoro_lock:
+            _kokoro_instance = Kokoro(KOKORO_MODEL, KOKORO_VOICES)
+            _kokoro_ready = True
+        log("Kokoro TTS pronto!", "kokoro")
+    except Exception as e:
+        log(f"Kokoro init erro: {e}", "kokoro")
+
+def get_kokoro():
+    global _kokoro_instance, _kokoro_ready
+    if _kokoro_ready:
+        return _kokoro_instance
+    return None
+
+# Inicia download em background
+if KOKORO_ENABLED:
+    _t = _threading.Thread(target=_baixar_kokoro, daemon=True)
+    _t.start()
+
+VOZES_KOKORO = {
+    "pt-br": {"F": "pf_dora", "M": "pm_alex"},
+    "en-us": {"F": "af_heart", "M": "am_michael"},
+}
+
+def kokoro_tts(texto: str, idioma: str = "pt-br", genero: str = "F") -> bytes:
+    """Gera áudio via Kokoro TTS. Retorna bytes WAV."""
+    try:
+        import io
+        import soundfile as sf
+        import numpy as np
+        kokoro = get_kokoro()
+        if not kokoro:
+            return None
+        lang_map = {"pt-br": "pt-br", "pt-BR": "pt-br", "en-us": "en-us", "en-US": "en-us"}
+        lang = lang_map.get(idioma, "pt-br")
+        gen = genero.upper() if genero else "F"
+        voz = VOZES_KOKORO.get(lang, VOZES_KOKORO["pt-br"]).get(gen, "pf_dora")
+        samples, sample_rate = kokoro.create(texto, voice=voz, speed=1.0, lang=lang)
+        buf = io.BytesIO()
+        sf.write(buf, samples, sample_rate, format="WAV")
+        return buf.getvalue()
+    except Exception as e:
+        log(f"Kokoro TTS erro: {e}", "kokoro")
+        return None
 ST_CLIENT_ID        = os.environ.get("ST_CLIENT_ID", "")
 ST_CLIENT_SECRET    = os.environ.get("ST_CLIENT_SECRET", "")
 ST_REDIRECT_URI     = os.environ.get("ST_REDIRECT_URI", "https://margo-production-98a9.up.railway.app/smartthings/callback")
@@ -2329,6 +2405,28 @@ def verificar_agenda():
 scheduler_thread = threading.Thread(target=verificar_agenda, daemon=True)
 scheduler_thread.start()
 log("Scheduler de agenda iniciado", "agenda")
+
+@app.post("/kokoro_tts")
+async def kokoro_tts_endpoint(request: Request):
+    """Gera áudio TTS via Kokoro. Body: { texto, idioma, genero }"""
+    try:
+        data = await request.json()
+        texto = data.get("texto", "")
+        idioma = data.get("idioma", "pt-br")
+        genero = data.get("genero", "F")
+        if not texto:
+            return JSONResponse({"erro": "texto obrigatório"}, status_code=400)
+        if not _kokoro_ready:
+            return JSONResponse({"erro": "Kokoro não está pronto ainda"}, status_code=503)
+        audio_bytes = kokoro_tts(texto, idioma, genero)
+        if not audio_bytes:
+            return JSONResponse({"erro": "Falha ao gerar áudio"}, status_code=500)
+        import base64
+        audio_b64 = base64.b64encode(audio_bytes).decode()
+        return JSONResponse({"audio_base64": audio_b64, "formato": "wav"})
+    except Exception as e:
+        log(f"Kokoro TTS endpoint erro: {e}", "kokoro")
+        return JSONResponse({"erro": str(e)}, status_code=500)
 
 @app.post("/boas_vindas")
 async def boas_vindas(request: Request):
