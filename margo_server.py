@@ -1136,6 +1136,38 @@ def st_executar_acao(user_id: str, acao: str, dispositivo_nome: str, valor: str 
 
     return f"Não entendi a ação '{acao}' para '{dispositivo_nome}'."
 
+# ── MODO TRADUTOR ─────────────────────────────────────────────────────────────
+
+_tradutor_estado = {}  # user_id -> {"ativo": bool, "origem": str, "destino": str, "aguardando": bool}
+
+def tradutor_get(user_id):
+    return _tradutor_estado.get(user_id, {"ativo": False, "origem": "", "destino": "", "aguardando": False})
+
+def tradutor_ativar(user_id, origem, destino):
+    _tradutor_estado[user_id] = {"ativo": True, "origem": origem, "destino": destino, "aguardando": False}
+    log(f"Tradutor ativado: {origem} -> {destino} para {user_id}", "tradutor")
+
+def tradutor_desativar(user_id):
+    if user_id in _tradutor_estado:
+        del _tradutor_estado[user_id]
+    log(f"Tradutor desativado para {user_id}", "tradutor")
+
+def traduzir_texto(texto, origem, destino):
+    prompt = (f"Você é um tradutor. Traduza o texto abaixo de {origem} para {destino}. "
+              f"Detecte automaticamente o idioma e inverta se necessário. "
+              f"Responda APENAS com a tradução, sem explicações.\n\nTexto: {texto}")
+    return chamar_deepseek_simples(prompt, max_tokens=300)
+
+def detectar_intencao_tradutor(mensagem):
+    msg = mensagem.lower()
+    desativar = any(p in msg for p in ["desativar", "desative", "desligar", "parar", "encerrar"])
+    ativar = any(p in msg for p in ["ativar", "ative", "ligar", "iniciar", "modo tradutor", "tradutor"])
+    if desativar and "tradutor" in msg:
+        return "desativar"
+    if ativar and "tradutor" in msg:
+        return "ativar"
+    return None
+
 # ── SEARCH (Brave + Serper fallback) ──────────────────────────────────────────
 
 def buscar_brave(query: str, max_results: int = 3) -> str:
@@ -1607,6 +1639,43 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
             log(f"Onboarding concluído para user {user_id}", "onboarding")
         sessoes.adicionar(user_id, mensagem, resposta)
         return {"resposta": limpar_resposta(resposta), "onboarding": not dados, "ferramenta": None}
+
+    # ── MODO TRADUTOR ──────────────────────────────────────────────────────────
+    trad = tradutor_get(user_id)
+
+    # Aguardando idiomas após pedido de ativação
+    if trad.get("aguardando"):
+        idiomas = chamar_deepseek_simples(
+            f'Extraia os dois idiomas desta frase e responda APENAS JSON: '
+            f'{{"origem": "idioma1", "destino": "idioma2"}}\n'
+            f'Frase: {mensagem}',
+            max_tokens=40
+        )
+        try:
+            dados_trad = json.loads(idiomas.replace("```json","").replace("```","").strip())
+            orig = dados_trad.get("origem", "português")
+            dest = dados_trad.get("destino", "inglês")
+            _tradutor_estado[user_id] = {"ativo": True, "origem": orig, "destino": dest, "aguardando": False}
+            resposta = f"Modo tradutor ativado! Traduzindo de {orig} para {dest}. Pode falar!"
+        except:
+            resposta = "Não entendi os idiomas. Pode repetir? Ex: português e inglês"
+        sessoes.adicionar(user_id, mensagem, resposta)
+        return {"resposta": resposta, "onboarding": False, "ferramenta": None}
+
+    # Detecta pedido de ativar/desativar tradutor
+    intencao_trad = detectar_intencao_tradutor(mensagem)
+    if intencao_trad == "desativar":
+        tradutor_desativar(user_id)
+        return {"resposta": "Modo tradutor desativado.", "onboarding": False, "ferramenta": None}
+    if intencao_trad == "ativar":
+        _tradutor_estado[user_id] = {"ativo": False, "origem": "", "destino": "", "aguardando": True}
+        return {"resposta": "Claro! Quais idiomas você quer traduzir?", "onboarding": False, "ferramenta": None}
+
+    # Modo tradutor ativo — traduz a mensagem
+    if trad.get("ativo"):
+        traducao = traduzir_texto(mensagem, trad["origem"], trad["destino"])
+        sessoes.adicionar(user_id, mensagem, traducao)
+        return {"resposta": traducao, "onboarding": False, "ferramenta": None}
 
     # ── MODO NORMAL ────────────────────────────────────────────────────────────
     historico = sessoes.get_historico(user_id)
