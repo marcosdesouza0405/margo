@@ -1334,7 +1334,7 @@ Você: {{"ferramenta": "flight_search", "origem": "São Paulo", "destino": "Toky
 Abrindo a busca de passagens pra você!
 
 CHAMADA — "liga para", "chama o/a":
-{{"ferramenta": "phone_call", "contato": "nome ou número"}}
+{{"ferramenta": "phone_call", "contato": "nome COMPLETO exatamente como foi dito ou número com código do país"}}
 
 AGENDA — "me lembra de", "agenda isso", "quais meus compromissos":
 {{"ferramenta": "agenda_add", "titulo": "...", "descricao": "...", "data_hora": "ISO8601"}}
@@ -1450,7 +1450,7 @@ Retorne APENAS um JSON válido se a mensagem pede:
 - Tocar música: {{"ferramenta":"spotify_play","query":"APENAS gênero, artista ou música específica"}}
 - Tocar no SoundCloud: {{"ferramenta":"soundcloud_play","query":"artista ou gênero"}}
 - Buscar vídeo: {{"ferramenta":"youtube_search","query":"tema do vídeo"}}
-- Ligar: {{"ferramenta":"phone_call","contato":"nome ou número"}}
+- Ligar/WhatsApp: {{"ferramenta":"phone_call","contato":"nome COMPLETO ou número"}}
 - Pesquisa na internet: {{"ferramenta":"web_search","query":"termo de busca"}}
 - Agenda: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601"}}
 - Casa inteligente: {{"ferramenta":"smart_home","acao":"ligar|desligar|ajustar","dispositivo":"nome do dispositivo"}}
