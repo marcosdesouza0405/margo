@@ -75,6 +75,46 @@ if os.path.exists(ENV_PATH):
 DEEPSEEK_API_KEY    = os.environ.get("DEEPSEEK_API_KEY", "")
 DATABASE_URL        = os.environ.get("DATABASE_URL", "")
 BRAVE_API_KEY       = os.environ.get("BRAVE_API_KEY", "")
+FIREBASE_CREDENTIALS = os.environ.get("FIREBASE_CREDENTIALS", "")
+
+# Inicializa Firebase Admin para push notifications
+_firebase_app = None
+def get_firebase_app():
+    global _firebase_app
+    if _firebase_app:
+        return _firebase_app
+    if not FIREBASE_CREDENTIALS:
+        return None
+    try:
+        import firebase_admin
+        from firebase_admin import credentials
+        import json as _json
+        cred_dict = _json.loads(FIREBASE_CREDENTIALS)
+        cred = credentials.Certificate(cred_dict)
+        _firebase_app = firebase_admin.initialize_app(cred)
+        return _firebase_app
+    except Exception as e:
+        log(f"Firebase init erro: {e}", "fcm")
+        return None
+
+def enviar_push(token: str, titulo: str, corpo: str):
+    """Envia push notification via FCM."""
+    try:
+        import firebase_admin
+        from firebase_admin import messaging
+        app = get_firebase_app()
+        if not app:
+            return False
+        msg = messaging.Message(
+            notification=messaging.Notification(title=titulo, body=corpo),
+            token=token,
+        )
+        messaging.send(msg)
+        log(f"Push enviado para {token[:20]}...", "fcm")
+        return True
+    except Exception as e:
+        log(f"Push erro: {e}", "fcm")
+        return False
 SERPER_API_KEY      = os.environ.get("SERPER_API_KEY", "")
 ST_CLIENT_ID        = os.environ.get("ST_CLIENT_ID", "")
 ST_CLIENT_SECRET    = os.environ.get("ST_CLIENT_SECRET", "")
@@ -170,6 +210,7 @@ class BancoMargo:
             stripe_customer_id TEXT,
             mp_payment_id TEXT,
             msgs_extras INTEGER DEFAULT 0,
+            fcm_token TEXT,
             stripe_subscription_id TEXT,
             status TEXT DEFAULT 'ativo',
             senha_hash TEXT,
@@ -177,6 +218,7 @@ class BancoMargo:
             stripe_customer_id TEXT,
             mp_payment_id TEXT,
             msgs_extras INTEGER DEFAULT 0,
+            fcm_token TEXT,
             criado_em TEXT,
             ultimo_acesso TEXT
         )''')
@@ -615,6 +657,15 @@ class BancoMargo:
         return result
 
     # ── AGENDA ─────────────────────────────────────────────────────────────────
+
+    def salvar_fcm_token(self, user_id: str, token: str):
+        """Salva o FCM token do dispositivo do usuário."""
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        c.execute(f"UPDATE usuarios SET fcm_token={ph} WHERE user_id={ph}", (token, user_id))
+        conn.commit()
+        conn.close()
 
     def salvar_lembrete(self, user_id, titulo, descricao, data_hora):
         conn = self._get_conn()
@@ -2200,6 +2251,84 @@ async def webhook_mp(request: Request):
     except Exception as e:
         log(f"MP webhook erro: {e}", "mp")
         return JSONResponse({"ok": True})
+
+@app.post("/fcm_token")
+async def salvar_fcm_token(request: Request):
+    """Salva o FCM token do dispositivo para push notifications."""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id", "")
+        token = data.get("token", "")
+        if user_id and token:
+            banco.salvar_fcm_token(user_id, token)
+            return JSONResponse({"ok": True})
+        return JSONResponse({"erro": "user_id e token obrigatórios"}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
+# ── SCHEDULER DE LEMBRETES ────────────────────────────────────────────────────
+import threading
+
+def verificar_agenda():
+    """Roda a cada 60 segundos verificando lembretes próximos e enviando push."""
+    import time
+    while True:
+        try:
+            conn = banco._get_conn()
+            c = conn.cursor()
+            ph = "%s" if banco._pg else "?"
+            agora = datetime.now()
+            # Busca lembretes que devem ser disparados agora (±2 min)
+            if banco._pg:
+                c.execute("""
+                    SELECT a.id, a.user_id, a.titulo, a.descricao, a.data_hora,
+                           u.fcm_token
+                    FROM agenda a
+                    JOIN usuarios u ON a.user_id = u.user_id
+                    WHERE a.data_hora BETWEEN %s AND %s
+                    AND a.lembrado_3h = 0
+                    AND u.fcm_token IS NOT NULL
+                """, (
+                    (agora - timedelta(minutes=2)).isoformat(),
+                    (agora + timedelta(minutes=2)).isoformat()
+                ))
+            else:
+                c.execute("""
+                    SELECT a.id, a.user_id, a.titulo, a.descricao, a.data_hora,
+                           u.fcm_token
+                    FROM agenda a
+                    JOIN usuarios u ON a.user_id = u.user_id
+                    WHERE a.data_hora BETWEEN ? AND ?
+                    AND a.lembrado_3h = 0
+                    AND u.fcm_token IS NOT NULL
+                """, (
+                    (agora - timedelta(minutes=2)).isoformat(),
+                    (agora + timedelta(minutes=2)).isoformat()
+                ))
+            rows = c.fetchall()
+            for row in rows:
+                cols = [d[0] for d in c.description]
+                item = dict(zip(cols, row))
+                # Envia push
+                enviado = enviar_push(
+                    item["fcm_token"],
+                    f"⏰ {item['titulo']}",
+                    item["descricao"] or "Lembrete da Margo"
+                )
+                if enviado:
+                    # Marca como lembrado
+                    c.execute(f"UPDATE agenda SET lembrado_3h=1 WHERE id={ph}", (item["id"],))
+                    conn.commit()
+                    log(f"Lembrete enviado: {item['titulo']} para {item['user_id']}", "agenda")
+            conn.close()
+        except Exception as e:
+            log(f"Scheduler erro: {e}", "agenda")
+        time.sleep(60)
+
+# Inicia scheduler em background
+scheduler_thread = threading.Thread(target=verificar_agenda, daemon=True)
+scheduler_thread.start()
+log("Scheduler de agenda iniciado", "agenda")
 
 @app.post("/boas_vindas")
 async def boas_vindas(request: Request):
