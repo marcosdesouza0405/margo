@@ -2473,6 +2473,7 @@ def verificar_agenda():
 # Inicia scheduler em background
 scheduler_thread = threading.Thread(target=verificar_agenda, daemon=True)
 scheduler_thread.start()
+print(">>> SCHEDULER AGENDA INICIADO <<<")
 log("Scheduler de agenda iniciado", "agenda")
 
 @app.post("/kokoro_tts")
