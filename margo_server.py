@@ -2602,11 +2602,12 @@ async def cadastro(request: Request):
         conn = banco._get_conn()
         c = conn.cursor()
         ph = "%s" if banco._pg else "?"
+        ip_cadastro = request.headers.get("x-forwarded-for", request.client.host if request.client else "")
         if banco._pg:
             c.execute('''INSERT INTO usuarios
-                (user_id, email, nome, plano, status, senha_hash, criado_em, ultimo_acesso, device_id)
-                VALUES (%s,%s,%s,'free','ativo',%s,%s,%s,%s)''',
-                (user_id, email, "", senha_hash, agora, agora, device_id))
+                (user_id, email, nome, plano, status, senha_hash, criado_em, ultimo_acesso, device_id, ip_cadastro)
+                VALUES (%s,%s,%s,'free','ativo',%s,%s,%s,%s,%s)''',
+                (user_id, email, "", senha_hash, agora, agora, device_id, ip_cadastro))
         else:
             c.execute('''INSERT INTO usuarios
                 (user_id, email, nome, plano, status, senha_hash, criado_em, ultimo_acesso, device_id)
