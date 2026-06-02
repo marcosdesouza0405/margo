@@ -1799,11 +1799,29 @@ Priorize lugares reais e próximos. Sem texto extra."""
 
     # ── AGENDA ────────────────────────────────────────────────────────────────
     if ferramenta and ferramenta.get("ferramenta") == "agenda_add":
+        data_hora_agenda = ferramenta.get("data_hora", "")
+        # Corrige fuso horário: se hora_local foi passado, ajusta data_hora
+        if hora_local and data_hora_agenda:
+            try:
+                from datetime import timezone
+                # Parse hora local do usuário
+                hora_local_dt = datetime.fromisoformat(hora_local.replace("Z", "+00:00"))
+                # Parse data_hora retornada pelo DeepSeek (sem fuso = UTC naive)
+                dt_agenda = datetime.fromisoformat(data_hora_agenda.replace("Z", ""))
+                # Se data_hora não tem fuso, assume que é UTC e converte para local
+                if dt_agenda.tzinfo is None:
+                    # Calcula offset do usuário
+                    offset = hora_local_dt.utcoffset()
+                    if offset:
+                        dt_agenda = dt_agenda + offset
+                data_hora_agenda = dt_agenda.strftime("%Y-%m-%dT%H:%M:%S")
+            except Exception as e:
+                log(f"Erro ajuste fuso agenda: {e}", "agenda")
         banco.salvar_lembrete(
             user_id,
             ferramenta.get("titulo", "Compromisso"),
             ferramenta.get("descricao", ""),
-            ferramenta.get("data_hora", "")
+            data_hora_agenda
         )
 
     # ── SMART HOME (SmartThings) ───────────────────────────────────────────────
