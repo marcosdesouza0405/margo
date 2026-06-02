@@ -1563,7 +1563,9 @@ Retorne APENAS um JSON válido se a mensagem pede:
 - Buscar vídeo: {{"ferramenta":"youtube_search","query":"tema do vídeo"}}
 - Ligar/WhatsApp: {{"ferramenta":"phone_call","contato":"nome COMPLETO ou número"}}
 - Pesquisa na internet: {{"ferramenta":"web_search","query":"termo de busca"}}
-- Agenda: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601"}}
+- Agenda/lembrete: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601"}}
+→ Use para: "me lembra de", "agenda", "lembrete", "daqui X minutos", "às X horas"
+→ NUNCA use web_search para lembretes/agenda
 - Casa inteligente: {{"ferramenta":"smart_home","acao":"ligar|desligar|ajustar","dispositivo":"nome do dispositivo"}}
 - Hotel/hospedagem: {{"ferramenta":"hotel_search","destino":"cidade ou local","checkin":"YYYY-MM-DD ou vazio","checkout":"YYYY-MM-DD ou vazio"}}
 - Passagem aérea/voo: {{"ferramenta":"flight_search","origem":"cidade origem ou vazio","destino":"cidade destino","origem_iata":"código IATA 3 letras","destino_iata":"código IATA 3 letras","data_ida":"YYYY-MM-DD ou vazio","data_volta":"YYYY-MM-DD ou vazio"}}
