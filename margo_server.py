@@ -1802,29 +1802,48 @@ Priorize lugares reais e próximos. Sem texto extra."""
     # ── AGENDA ────────────────────────────────────────────────────────────────
     if ferramenta and ferramenta.get("ferramenta") == "agenda_add":
         data_hora_agenda = ferramenta.get("data_hora", "")
-        # Corrige fuso horário: se hora_local foi passado, ajusta data_hora
-        if hora_local and data_hora_agenda:
+        minutos_relativos = ferramenta.get("minutos_relativos", 0)
+        titulo_agenda = ferramenta.get("titulo", "Compromisso")
+        descricao_agenda = ferramenta.get("descricao", "")
+
+        # Usa timestamp Unix se disponível (mais preciso)
+        if hora_local:
             try:
-                from datetime import timezone
-                # Parse hora local do usuário
                 hora_local_dt = datetime.fromisoformat(hora_local.replace("Z", "+00:00"))
-                # Parse data_hora retornada pelo DeepSeek (sem fuso = UTC naive)
-                dt_agenda = datetime.fromisoformat(data_hora_agenda.replace("Z", ""))
-                # Se data_hora não tem fuso, assume que é UTC e converte para local
-                if dt_agenda.tzinfo is None:
-                    # Calcula offset do usuário
-                    offset = hora_local_dt.utcoffset()
-                    if offset:
-                        dt_agenda = dt_agenda + offset
-                data_hora_agenda = dt_agenda.strftime("%Y-%m-%dT%H:%M:%S")
+                if minutos_relativos and int(minutos_relativos) > 0:
+                    # Calcula horário exato baseado no horário local + minutos relativos
+                    from datetime import timezone as tz
+                    dt_exato = hora_local_dt + timedelta(minutes=int(minutos_relativos))
+                    data_hora_agenda = dt_exato.strftime("%Y-%m-%dT%H:%M:%S")
+                elif data_hora_agenda:
+                    # Ajusta fuso da data absoluta
+                    dt_agenda = datetime.fromisoformat(data_hora_agenda.replace("Z", ""))
+                    if dt_agenda.tzinfo is None:
+                        offset = hora_local_dt.utcoffset()
+                        if offset:
+                            dt_agenda = dt_agenda + offset
+                    data_hora_agenda = dt_agenda.strftime("%Y-%m-%dT%H:%M:%S")
             except Exception as e:
                 log(f"Erro ajuste fuso agenda: {e}", "agenda")
-        banco.salvar_lembrete(
-            user_id,
-            ferramenta.get("titulo", "Compromisso"),
-            ferramenta.get("descricao", ""),
-            data_hora_agenda
-        )
+
+        # Gera mensagem personalizada da Margo
+        nome_usuario = perfil.get("nome", "você")
+        nome_assistente = config.get("nome_assistente", "Margo")
+        personalidade_config = config.get("personalidade", "")
+        try:
+            msg_prompt = (
+                f"Você é {nome_assistente}, assistente de {nome_usuario}. "
+                f"Sua personalidade: {personalidade_config[:100] if personalidade_config else 'prestativa e amigável'}. "
+                f"Crie uma mensagem CURTA (máximo 15 palavras) e no seu estilo para lembrar: '{titulo_agenda}'. "
+                f"Seja natural e no personagem. Responda APENAS a mensagem, sem explicações."
+            )
+            msg_personalizada = chamar_deepseek_simples(msg_prompt, max_tokens=50)
+            if msg_personalizada:
+                descricao_agenda = msg_personalizada.strip()
+        except:
+            pass
+
+        banco.salvar_lembrete(user_id, titulo_agenda, descricao_agenda, data_hora_agenda)
 
     # ── SMART HOME (SmartThings) ───────────────────────────────────────────────
     if ferramenta and ferramenta.get("ferramenta") == "smart_home":
@@ -2437,61 +2456,84 @@ async def salvar_fcm_token(request: Request):
 # ── SCHEDULER DE LEMBRETES ────────────────────────────────────────────────────
 import threading
 
+@app.get("/agenda/pendentes/{user_id}")
+async def agenda_pendentes(user_id: str):
+    """Retorna lembretes pendentes de notificação (12h antes, 1h antes, na hora)."""
+    try:
+        conn = banco._get_conn()
+        c = conn.cursor()
+        ph = "%s" if banco._pg else "?"
+        agora = datetime.now()
+        pendentes = []
+
+        if banco._pg:
+            c.execute(f"""
+                SELECT id, titulo, descricao, data_hora, lembrado_1d, lembrado_3h
+                FROM agenda WHERE user_id={ph} AND data_hora > {ph}
+                ORDER BY data_hora ASC
+            """, (user_id, (agora - timedelta(minutes=5)).isoformat()))
+        else:
+            c.execute(f"""
+                SELECT id, titulo, descricao, data_hora, lembrado_1d, lembrado_3h
+                FROM agenda WHERE user_id={ph} AND data_hora > {ph}
+                ORDER BY data_hora ASC
+            """, (user_id, (agora - timedelta(minutes=5)).isoformat()))
+
+        rows = c.fetchall()
+        cols = [d[0] for d in c.description]
+        for row in rows:
+            item = dict(zip(cols, row))
+            try:
+                dt = datetime.fromisoformat(item["data_hora"])
+                diff_horas = (dt - agora).total_seconds() / 3600
+
+                # Na hora (±5 min) e não lembrado ainda
+                if -0.08 <= diff_horas <= 0.08 and not item["lembrado_3h"]:
+                    pendentes.append({
+                        "id": item["id"],
+                        "tipo": "agora",
+                        "titulo": item["titulo"],
+                        "descricao": item["descricao"],
+                        "data_hora": item["data_hora"]
+                    })
+                    c.execute(f"UPDATE agenda SET lembrado_3h=1 WHERE id={ph}", (item["id"],))
+
+                # 1 hora antes (entre 55min e 65min) e não lembrado 3h
+                elif 0.9 <= diff_horas <= 1.1 and not item["lembrado_3h"]:
+                    pendentes.append({
+                        "id": item["id"],
+                        "tipo": "1h",
+                        "titulo": item["titulo"],
+                        "descricao": item["descricao"],
+                        "data_hora": item["data_hora"]
+                    })
+                    c.execute(f"UPDATE agenda SET lembrado_3h=1 WHERE id={ph}", (item["id"],))
+
+                # 12 horas antes (entre 11.5h e 12.5h) e não lembrado 1d
+                elif 11.5 <= diff_horas <= 12.5 and not item["lembrado_1d"]:
+                    pendentes.append({
+                        "id": item["id"],
+                        "tipo": "12h",
+                        "titulo": item["titulo"],
+                        "descricao": item["descricao"],
+                        "data_hora": item["data_hora"]
+                    })
+                    c.execute(f"UPDATE agenda SET lembrado_1d=1 WHERE id={ph}", (item["id"],))
+
+            except: pass
+
+        conn.commit()
+        conn.close()
+        return JSONResponse({"pendentes": pendentes})
+    except Exception as e:
+        log(f"Agenda pendentes erro: {e}", "agenda")
+        return JSONResponse({"pendentes": []})
+
 def verificar_agenda():
-    """Roda a cada 60 segundos verificando lembretes próximos e enviando push."""
+    """Scheduler mantido para compatibilidade — lógica migrada para /agenda/pendentes."""
     import time
     while True:
-        try:
-            conn = banco._get_conn()
-            c = conn.cursor()
-            ph = "%s" if banco._pg else "?"
-            agora = datetime.now()
-            # Busca lembretes que devem ser disparados agora (±2 min)
-            if banco._pg:
-                c.execute("""
-                    SELECT a.id, a.user_id, a.titulo, a.descricao, a.data_hora,
-                           u.fcm_token
-                    FROM agenda a
-                    JOIN usuarios u ON a.user_id = u.user_id
-                    WHERE a.data_hora BETWEEN %s AND %s
-                    AND a.lembrado_3h = 0
-                    AND u.fcm_token IS NOT NULL
-                """, (
-                    (agora - timedelta(minutes=2)).isoformat(),
-                    (agora + timedelta(minutes=2)).isoformat()
-                ))
-            else:
-                c.execute("""
-                    SELECT a.id, a.user_id, a.titulo, a.descricao, a.data_hora,
-                           u.fcm_token
-                    FROM agenda a
-                    JOIN usuarios u ON a.user_id = u.user_id
-                    WHERE a.data_hora BETWEEN ? AND ?
-                    AND a.lembrado_3h = 0
-                    AND u.fcm_token IS NOT NULL
-                """, (
-                    (agora - timedelta(minutes=2)).isoformat(),
-                    (agora + timedelta(minutes=2)).isoformat()
-                ))
-            rows = c.fetchall()
-            for row in rows:
-                cols = [d[0] for d in c.description]
-                item = dict(zip(cols, row))
-                # Envia push
-                enviado = enviar_push(
-                    item["fcm_token"],
-                    f"⏰ {item['titulo']}",
-                    item["descricao"] or "Lembrete da Margo"
-                )
-                if enviado:
-                    # Marca como lembrado
-                    c.execute(f"UPDATE agenda SET lembrado_3h=1 WHERE id={ph}", (item["id"],))
-                    conn.commit()
-                    log(f"Lembrete enviado: {item['titulo']} para {item['user_id']}", "agenda")
-            conn.close()
-        except Exception as e:
-            log(f"Scheduler erro: {e}", "agenda")
-        time.sleep(60)
+        time.sleep(300)
 
 # Inicia scheduler em background
 scheduler_thread = threading.Thread(target=verificar_agenda, daemon=True)
