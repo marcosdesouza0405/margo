@@ -1687,7 +1687,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
 
     contexto_extra = ""
     if hora_local:
-        contexto_extra += f"\nHora e data atual do usuário: {hora_local} — USE ESTE HORÁRIO para calcular datas em agendamentos (data_hora em ISO8601 deve respeitar este fuso horário), previsões e qualquer cálculo de tempo."
+        contexto_extra += f"\nHora e data atual do usuário: {hora_local} — CRÍTICO: Use EXATAMENTE este horário como base para calcular agendamentos. Se o usuário pedir 'daqui X minutos', some X minutos ao horário acima e use como data_hora no ISO8601. NÃO use horário UTC nem fuso diferente."
     if latitude and longitude:
         contexto_extra += f"\nLocalização atual do usuário: lat={latitude}, lng={longitude} — use isso quando relevante para Maps, restaurantes, rotas."
     if resumos:
