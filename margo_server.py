@@ -116,6 +116,7 @@ def enviar_push(token: str, titulo: str, corpo: str):
         log(f"Push erro: {e}", "fcm")
         return False
 SERPER_API_KEY      = os.environ.get("SERPER_API_KEY", "")
+RESEND_API_KEY      = os.environ.get("RESEND_API_KEY", "")
 KOKORO_ENABLED      = os.environ.get("KOKORO_ENABLED", "true").lower() == "true"
 
 # ── KOKORO TTS ────────────────────────────────────────────────────────────────
@@ -336,6 +337,19 @@ class BancoMargo:
             resumo TEXT,
             criado_em TEXT
         )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS email_verificacao (
+            email TEXT PRIMARY KEY,
+            codigo TEXT,
+            expira_em TEXT,
+            criado_em TEXT
+        )''' if self._pg else '''CREATE TABLE IF NOT EXISTS email_verificacao (
+            email TEXT PRIMARY KEY,
+            codigo TEXT,
+            expira_em TEXT,
+            criado_em TEXT
+        )''')
+        conn.commit()
 
         c.execute('''CREATE TABLE IF NOT EXISTS agenda (
             id SERIAL PRIMARY KEY,
@@ -1167,6 +1181,48 @@ def detectar_intencao_tradutor(mensagem):
     if ativar and "tradutor" in msg:
         return "ativar"
     return None
+
+# ── EMAIL (Resend) ─────────────────────────────────────────────────────────────
+
+def enviar_email_verificacao(email: str, codigo: str, nome: str = ""):
+    """Envia email de verificação via Resend."""
+    if not RESEND_API_KEY:
+        log("Resend não configurado", "email")
+        return False
+    try:
+        payload = json.dumps({
+            "from": "Margo by Orbiby <noreply@orbiby.com>",
+            "to": [email],
+            "subject": "Confirme seu email — Margo",
+            "html": f"""
+            <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
+                <h2 style="color: #2E9AAF;">Olá{', ' + nome if nome else ''}! 👋</h2>
+                <p>Obrigado por se cadastrar no <strong>Margo by Orbiby</strong>.</p>
+                <p>Use o código abaixo para confirmar seu email:</p>
+                <div style="background: #f0f9fa; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
+                    <span style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #2E9AAF;">{codigo}</span>
+                </div>
+                <p style="color: #666; font-size: 13px;">Este código expira em 15 minutos.</p>
+                <p style="color: #666; font-size: 13px;">Se você não se cadastrou no Margo, ignore este email.</p>
+                <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;">
+                <p style="color: #999; font-size: 12px;">Margo by Orbiby • orbiby.com</p>
+            </div>
+            """
+        }).encode()
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json"
+            }
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        log(f"Email enviado para {email}", "email")
+        return True
+    except Exception as e:
+        log(f"Erro ao enviar email: {e}", "email")
+        return False
 
 # ── SEARCH (Brave + Serper fallback) ──────────────────────────────────────────
 
@@ -2625,6 +2681,57 @@ async def verificar_device(request: Request):
 def ping():
     return {"pong": True, "ts": datetime.now().isoformat()}
 
+@app.post("/verificar_email")
+async def verificar_email(request: Request):
+    """Verifica código e finaliza cadastro."""
+    try:
+        import hashlib, uuid
+        data = await request.json()
+        email = data.get("email", "").strip().lower()
+        codigo = data.get("codigo", "").strip()
+        senha_hash = data.get("senha_hash", "")
+        device_id = data.get("device_id", "")
+
+        conn = banco._get_conn()
+        c = conn.cursor()
+        ph = "%s" if banco._pg else "?"
+        c.execute(f"SELECT codigo, expira_em FROM email_verificacao WHERE email={ph}", (email,))
+        row = c.fetchone()
+        conn.close()
+
+        if not row:
+            return JSONResponse({"erro": "Código não encontrado. Cadastre-se novamente."}, status_code=400)
+
+        cod_salvo, expira_em = row[0], row[1]
+        if datetime.now() > datetime.fromisoformat(expira_em):
+            return JSONResponse({"erro": "Código expirado. Cadastre-se novamente."}, status_code=400)
+        if codigo != cod_salvo:
+            return JSONResponse({"erro": "Código incorreto."}, status_code=400)
+
+        # Cria a conta
+        agora = datetime.now().isoformat()
+        user_id = "u_" + str(uuid.uuid4()).replace("-", "")[:16]
+        ip_cadastro = request.headers.get("x-forwarded-for", request.client.host if request.client else "")
+        conn2 = banco._get_conn()
+        c2 = conn2.cursor()
+        ph = "%s" if banco._pg else "?"
+        if banco._pg:
+            c2.execute("""INSERT INTO usuarios (user_id, email, nome, plano, status, senha_hash, criado_em, ultimo_acesso, device_id, ip_cadastro)
+                VALUES (%s,%s,%s,'free','ativo',%s,%s,%s,%s,%s)""",
+                (user_id, email, "", senha_hash, agora, agora, device_id, ip_cadastro))
+        else:
+            c2.execute("INSERT INTO usuarios (user_id, email, nome, plano, status, senha_hash, criado_em, ultimo_acesso, device_id) VALUES (?,?,?,'free','ativo',?,?,?,?)",
+                (user_id, email, "", senha_hash, agora, agora, device_id))
+        # Remove código usado
+        c2.execute(f"DELETE FROM email_verificacao WHERE email={ph}", (email,))
+        conn2.commit()
+        conn2.close()
+        log(f"Cadastro verificado: {email} → {user_id}", "usuarios")
+        return JSONResponse({"ok": True, "user_id": user_id, "email": email, "plano": "free", "tem_perfil": False})
+    except Exception as e:
+        log(f"Erro verificar_email: {e}", "usuarios")
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
 @app.post("/cadastro")
 async def cadastro(request: Request):
     """
@@ -2654,6 +2761,24 @@ async def cadastro(request: Request):
         existente = banco.buscar_usuario_por_email(email)
         if existente:
             return JSONResponse({"erro": "Email já cadastrado. Use a opção Entrar."}, status_code=400)
+
+        # Gera código de verificação 6 dígitos
+        import random
+        codigo = str(random.randint(100000, 999999))
+        expira_em = (datetime.now() + timedelta(minutes=15)).isoformat()
+        conn2 = banco._get_conn()
+        c2 = conn2.cursor()
+        ph2 = "%s" if banco._pg else "?"
+        if banco._pg:
+            c2.execute(f"INSERT INTO email_verificacao (email, codigo, expira_em, criado_em) VALUES ({ph2},{ph2},{ph2},{ph2}) ON CONFLICT (email) DO UPDATE SET codigo=EXCLUDED.codigo, expira_em=EXCLUDED.expira_em", (email, codigo, expira_em, datetime.now().isoformat()))
+        else:
+            c2.execute(f"INSERT OR REPLACE INTO email_verificacao (email, codigo, expira_em, criado_em) VALUES ({ph2},{ph2},{ph2},{ph2})", (email, codigo, expira_em, datetime.now().isoformat()))
+        conn2.commit()
+        conn2.close()
+        enviar_email_verificacao(email, codigo)
+        # Salva senha para usar após verificação
+        senha_hash_temp = hashlib.sha256((email + data.get("senha","") + "margo_orbiby_salt").encode()).hexdigest()
+        return JSONResponse({"ok": True, "verificacao_pendente": True, "email": email, "senha_hash": senha_hash_temp, "device_id": device_id, "msg": "Código enviado para seu email!"})
 
         # Hash da senha com salt
         senha_hash = hashlib.sha256((email + senha + "margo_orbiby_salt").encode()).hexdigest()
