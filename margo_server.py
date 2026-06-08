@@ -1351,6 +1351,36 @@ def chamar_deepseek(system_prompt, mensagem, historico=None, max_tokens=1000):
         log(f"DeepSeek erro: {e}")
         return "Desculpa, tive um probleminha aqui. Pode repetir?"
 
+def chamar_deepseek_vision(system_prompt, mensagem, imagem_base64, max_tokens=1000):
+    """Chama DeepSeek com suporte a imagem (vision)."""
+    try:
+        msgs = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{imagem_base64}"}},
+                {"type": "text", "text": mensagem}
+            ]}
+        ]
+        body = json.dumps({
+            "model": "deepseek-chat",
+            "messages": msgs,
+            "temperature": 0.5,
+            "max_tokens": max_tokens
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.deepseek.com/v1/chat/completions",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
+            }
+        )
+        resp = urllib.request.urlopen(req, timeout=60)
+        return json.loads(resp.read())["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        log(f"DeepSeek vision erro: {e}")
+        return "Não consegui analisar a imagem. Tente novamente."
+
 # ── SYSTEM PROMPTS ─────────────────────────────────────────────────────────────
 
 SYSTEM_ONBOARDING = """Você é Margo, a assistente de IA da Orbiby.
@@ -1679,7 +1709,7 @@ def extrair_onboarding_completo(texto):
             pass
     return None
 
-def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_local=""):
+def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_local="", imagem_base64=""):
     config = banco.buscar_config(user_id)
     perfil = banco.buscar_perfil(user_id)
 
@@ -1838,7 +1868,11 @@ Priorize lugares reais e próximos. Sem texto extra."""
                 pass
 
     # Gera resposta natural
-    resposta = chamar_deepseek(system + contexto_busca, mensagem, historico, max_tokens=500)
+    # Usa vision se tiver imagem
+    if imagem_base64:
+        resposta = chamar_deepseek_vision(system + contexto_busca, mensagem, imagem_base64, max_tokens=500)
+    else:
+        resposta = chamar_deepseek(system + contexto_busca, mensagem, historico, max_tokens=500)
 
     # Remove JSON da resposta caso o DeepSeek emita ferramenta em vez de texto
     resposta_limpa = resposta.strip()
@@ -2897,8 +2931,11 @@ async def mensagem(request: Request):
         latitude  = data.get("latitude")
         longitude = data.get("longitude")
         hora_local = data.get("hora_local", "")
-        if not mensagem_:
+        imagem_base64 = data.get("imagem_base64", "")
+        if not mensagem_ and not imagem_base64:
             return JSONResponse({"erro": "mensagem vazia"}, status_code=400)
+        if not mensagem_ and imagem_base64:
+            mensagem_ = "O que você vê nessa imagem? Descreva detalhadamente.
 
         # Verifica limite diário
         uso = banco.verificar_limite(user_id)
@@ -2914,7 +2951,7 @@ async def mensagem(request: Request):
                 "ferramenta": None
             })
 
-        resultado = processar_mensagem(user_id, mensagem_, latitude, longitude, hora_local=hora_local)
+        resultado = processar_mensagem(user_id, mensagem_, latitude, longitude, hora_local=hora_local, imagem_base64=imagem_base64)
         banco.registrar_uso(user_id, usando_extras=uso.get("usando_extras", False))
         return JSONResponse(resultado)
     except Exception as e:
