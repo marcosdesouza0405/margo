@@ -1362,7 +1362,7 @@ def chamar_deepseek_vision(system_prompt, mensagem, imagem_base64, max_tokens=10
             ]}
         ]
         body = json.dumps({
-            "model": "deepseek-v4-vision",
+            "model": "deepseek-v4-flash",
             "messages": msgs,
             "temperature": 0.5,
             "max_tokens": max_tokens
