@@ -1352,28 +1352,31 @@ def chamar_deepseek(system_prompt, mensagem, historico=None, max_tokens=1000):
         log(f"DeepSeek erro: {e}")
         return "Desculpa, tive um probleminha aqui. Pode repetir?"
 
-def chamar_gemini_vision(system_prompt, mensagem, imagem_base64, max_tokens=1000):
-    """Chama Google Gemini com suporte a imagem (vision)."""
-    if not GEMINI_API_KEY:
-        return "Análise de imagens não configurada."
+def chamar_deepseek_vision(system_prompt, mensagem, imagem_base64, max_tokens=1000):
+    """Chama DeepSeek com suporte a imagem (vision)."""
     try:
-        prompt_completo = f"{system_prompt}\n\nUsuário: {mensagem}"
+        msgs = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{imagem_base64}"}},
+                {"type": "text", "text": mensagem}
+            ]}
+        ]
         body = json.dumps({
-            "contents": [{
-                "parts": [
-                    {"text": prompt_completo},
-                    {"inline_data": {"mime_type": "image/jpeg", "data": imagem_base64}}
-                ]
-            }],
-            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.5}
+            "model": "deepseek-chat",
+            "messages": msgs,
+            "temperature": 0.5,
+            "max_tokens": max_tokens
         }).encode("utf-8")
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(
+            "https://api.deepseek.com/v1/chat/completions",
+            data=body,
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
+        )
         resp = urllib.request.urlopen(req, timeout=60)
-        result = json.loads(resp.read())
-        return result["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return json.loads(resp.read())["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        log(f"Gemini vision erro: {e}", "vision")
+        log(f"DeepSeek vision erro: {e}", "vision")
         return "Não consegui analisar a imagem. Tente novamente."
 
 # ── SYSTEM PROMPTS ─────────────────────────────────────────────────────────────
@@ -1865,7 +1868,7 @@ Priorize lugares reais e próximos. Sem texto extra."""
     # Gera resposta natural
     # Usa vision se tiver imagem
     if imagem_base64:
-        resposta = chamar_gemini_vision(system + contexto_busca, mensagem, imagem_base64, max_tokens=500)
+        resposta = chamar_deepseek_vision(system + contexto_busca, mensagem, imagem_base64, max_tokens=500)
     else:
         resposta = chamar_deepseek(system + contexto_busca, mensagem, historico, max_tokens=500)
 
