@@ -1378,8 +1378,9 @@ def chamar_deepseek_vision(system_prompt, mensagem, imagem_base64, max_tokens=10
         resp = urllib.request.urlopen(req, timeout=60)
         return json.loads(resp.read())["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        log(f"DeepSeek vision erro: {e}")
-        return "Não consegui analisar a imagem. Tente novamente."
+        import traceback
+        log(f"DeepSeek vision erro: {e} — {traceback.format_exc()}", "vision")
+        return f"Erro vision: {str(e)}"
 
 # ── SYSTEM PROMPTS ─────────────────────────────────────────────────────────────
 
