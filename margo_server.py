@@ -2935,7 +2935,7 @@ async def mensagem(request: Request):
         if not mensagem_ and not imagem_base64:
             return JSONResponse({"erro": "mensagem vazia"}, status_code=400)
         if not mensagem_ and imagem_base64:
-            mensagem_ = "O que você vê nessa imagem? Descreva detalhadamente.
+            mensagem_ = "O que voce ve nessa imagem? Descreva detalhadamente."
 
         # Verifica limite diário
         uso = banco.verificar_limite(user_id)
