@@ -2416,13 +2416,13 @@ async def stripe_webhook(request: Request):
 
 @app.post("/mp/criar_pix")
 async def mp_criar_pix(request: Request):
-    """Cria sessão de checkout Mercado Pago (cartão + PIX)"""
+    """Cria pagamento PIX via Mercado Pago — retorna QR Code"""
     try:
         import mercadopago
         data    = await request.json()
         user_id = data.get("user_id", "")
         plano   = data.get("plano", "pro")
-        email   = data.get("email", "")
+        email   = data.get("email", "") or "cliente@orbiby.com"
 
         if not MP_ACCESS_TOKEN:
             return JSONResponse({"erro": "Mercado Pago não configurado"}, status_code=500)
@@ -2430,33 +2430,40 @@ async def mp_criar_pix(request: Request):
         sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
 
         planos = {
-            "pro":      {"titulo": "Margo Pro — 20 msgs/dia (promo 6 meses)",      "valor": 9.90},
-            "pro_plus": {"titulo": "Margo Pro+ — 50 msgs/dia (promo 6 meses)",     "valor": 19.90},
+            "pro":      {"titulo": "Margo Pro — 20 msgs/dia",      "valor": 9.90},
+            "pro_plus": {"titulo": "Margo Pro+ — 50 msgs/dia",     "valor": 19.90},
             "avulso":   {"titulo": "Margo — 50 interações extras", "valor": 9.90},
         }
         p = planos.get(plano, planos["pro"])
 
-        preference_data = {
-            "items": [{
-                "title": p["titulo"],
-                "quantity": 1,
-                "currency_id": "BRL",
-                "unit_price": p["valor"],
-            }],
-            "payer": {"email": email or "cliente@orbiby.com"},
+        payment_data = {
+            "transaction_amount": p["valor"],
+            "description": p["titulo"],
+            "payment_method_id": "pix",
+            "payer": {"email": email},
             "external_reference": f"{user_id}|{plano}",
-            "back_urls": {
-                "success": f"https://margo-production-98a9.up.railway.app/mp/sucesso?user_id={user_id}&plano={plano}",
-                "failure": "https://orbiby.com",
-                "pending": "https://orbiby.com",
-            },
-            "auto_return": "approved",
-            "locale": "pt-BR",
             "notification_url": "https://margo-production-98a9.up.railway.app/webhook/mp",
         }
 
-        result = sdk.preference().create(preference_data)
-        preference = result["response"]
+        result = sdk.payment().create(payment_data)
+        payment = result["response"]
+        
+        if "point_of_interaction" not in payment:
+            log(f"MP PIX erro: {payment}", "mp")
+            return JSONResponse({"erro": "Erro ao gerar PIX"}, status_code=500)
+
+        qr_code = payment["point_of_interaction"]["transaction_data"]["qr_code"]
+        qr_code_base64 = payment["point_of_interaction"]["transaction_data"]["qr_code_base64"]
+        payment_id = payment["id"]
+
+        return JSONResponse({
+            "ok": True,
+            "payment_id": payment_id,
+            "qr_code": qr_code,
+            "qr_code_base64": qr_code_base64,
+            "valor": p["valor"],
+            "titulo": p["titulo"]
+        })
 
         if result["status"] == 201:
             return JSONResponse({
