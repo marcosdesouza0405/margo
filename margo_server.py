@@ -1966,6 +1966,10 @@ Priorize lugares reais e próximos. Sem texto extra."""
                 log(f"Spotify search erro: {e}", "spotify")
 
     sessoes.adicionar(user_id, mensagem, resposta_limpa)
+    # Injeta data_hora corrigida na ferramenta de agenda
+    if ferramenta and ferramenta.get("ferramenta") == "agenda_add" and data_hora_agenda:
+        ferramenta = dict(ferramenta)
+        ferramenta["data_hora"] = data_hora_agenda
     return {
         "resposta":   limpar_resposta(resposta_limpa),
         "onboarding": False,
