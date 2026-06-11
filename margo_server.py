@@ -1895,7 +1895,11 @@ Priorize lugares reais e próximos. Sem texto extra."""
         # Usa timestamp Unix se disponível (mais preciso)
         if hora_local:
             try:
-                hora_local_dt = datetime.fromisoformat(hora_local.replace("Z", "+00:00"))
+                # Normaliza offset: +0900 → +09:00
+                hl = hora_local.replace("Z", "+00:00")
+                import re as _re
+                hl = _re.sub(r'([+-])(\d{2})(\d{2})$', r':', hl)
+                hora_local_dt = datetime.fromisoformat(hl)
                 if minutos_relativos and int(minutos_relativos) > 0:
                     # Calcula horário exato baseado no horário local + minutos relativos
                     from datetime import timezone as tz
