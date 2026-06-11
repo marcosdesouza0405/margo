@@ -1897,8 +1897,8 @@ Priorize lugares reais e próximos. Sem texto extra."""
             try:
                 # Normaliza offset: +0900 → +09:00
                 hl = hora_local.replace("Z", "+00:00")
-                import re as _re
-                hl = _re.sub(r'([+-])(\d{2})(\d{2})$', r':', hl)
+                if len(hl) > 5 and hl[-5] in '+-' and ':' not in hl[-5:]:
+                    hl = hl[:-2] + ':' + hl[-2:]
                 hora_local_dt = datetime.fromisoformat(hl)
                 if minutos_relativos and int(minutos_relativos) > 0:
                     from datetime import timezone as tz
