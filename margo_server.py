@@ -1644,7 +1644,8 @@ Retorne APENAS um JSON válido se a mensagem pede:
 - Buscar vídeo: {{"ferramenta":"youtube_search","query":"tema do vídeo"}}
 - Ligar/WhatsApp: {{"ferramenta":"phone_call","contato":"nome COMPLETO ou número"}}
 - Pesquisa na internet: {{"ferramenta":"web_search","query":"termo de busca"}}
-- Agenda/lembrete: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601"}}
+- Agenda/lembrete: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601","minutos_relativos":0}}
+→ minutos_relativos: OBRIGATÓRIO! "daqui 5 min"=5, "daqui 2 horas"=120, "daqui 1h30"=90. Horário fixo=0.
 → Use para: "me lembra de", "agenda", "lembrete", "daqui X minutos", "às X horas"
 → NUNCA use web_search para lembretes/agenda
 - Casa inteligente: {{"ferramenta":"smart_home","acao":"ligar|desligar|ajustar","dispositivo":"nome do dispositivo"}}
