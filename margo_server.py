@@ -2544,6 +2544,34 @@ async def webhook_mp(request: Request):
         log(f"MP webhook erro: {e}", "mp")
         return JSONResponse({"ok": True})
 
+@app.post("/teste/simular_pagamento")
+async def teste_simular_pagamento(request: Request):
+    """Simula webhook de pagamento aprovado — apenas para testes"""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id", "")
+        plano = data.get("plano", "avulso")
+
+        if not user_id:
+            return JSONResponse({"erro": "user_id obrigatório"}, status_code=400)
+
+        if plano == "avulso":
+            conn = banco._get_conn()
+            c = conn.cursor()
+            ph = "%s" if banco._pg else "?"
+            c.execute(f"UPDATE usuarios SET msgs_extras = COALESCE(msgs_extras,0) + 50 WHERE user_id={ph}", (user_id,))
+            conn.commit()
+            conn.close()
+            log(f"TESTE: +50 interações extras para {user_id}", "teste")
+        else:
+            banco.atualizar_plano(user_id, plano, stripe_customer_id=None)
+            log(f"TESTE: plano {plano} ativado para {user_id}", "teste")
+
+        return JSONResponse({"ok": True, "user_id": user_id, "plano": plano})
+    except Exception as e:
+        log(f"TESTE simular_pagamento erro: {e}", "teste")
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
 @app.post("/fcm_token")
 async def salvar_fcm_token(request: Request):
     """Salva o FCM token do dispositivo para push notifications."""
