@@ -7,3 +7,4 @@ firebase-admin
 kokoro-onnx
 soundfile
 pykakasi
+resend

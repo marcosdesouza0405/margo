@@ -1192,11 +1192,9 @@ def enviar_email_verificacao(email: str, codigo: str, nome: str = ""):
         log("Resend não configurado", "email")
         return False
     try:
-        payload = json.dumps({
-            "from": "Margo by Orbiby <noreply@orbiby.com>",
-            "to": [email],
-            "subject": "Confirme seu email — Margo",
-            "html": f"""
+        import resend
+        resend.api_key = RESEND_API_KEY
+        html = f"""
             <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
                 <h2 style="color: #2E9AAF;">Olá{', ' + nome if nome else ''}! 👋</h2>
                 <p>Obrigado por se cadastrar no <strong>Margo by Orbiby</strong>.</p>
@@ -1209,23 +1207,16 @@ def enviar_email_verificacao(email: str, codigo: str, nome: str = ""):
                 <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;">
                 <p style="color: #999; font-size: 12px;">Margo by Orbiby • orbiby.com</p>
             </div>
-            """
-        }).encode()
-        req = urllib.request.Request(
-            "https://api.resend.com/emails",
-            data=payload,
-            headers={
-                "Authorization": f"Bearer {RESEND_API_KEY}",
-                "Content-Type": "application/json"
-            }
-        )
-        resp = urllib.request.urlopen(req, timeout=10)
+        """
+        params = {
+            "from": "Margo by Orbiby <noreply@orbiby.com>",
+            "to": [email],
+            "subject": "Confirme seu email — Margo",
+            "html": html
+        }
+        resend.Emails.send(params)
         log(f"Email enviado para {email}", "email")
         return True
-    except urllib.error.HTTPError as e:
-        body = e.read().decode()
-        log(f"Erro ao enviar email: {e} | body: {body}", "email")
-        return False
     except Exception as e:
         log(f"Erro ao enviar email: {e}", "email")
         return False
