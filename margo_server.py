@@ -1222,6 +1222,10 @@ def enviar_email_verificacao(email: str, codigo: str, nome: str = ""):
         resp = urllib.request.urlopen(req, timeout=10)
         log(f"Email enviado para {email}", "email")
         return True
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        log(f"Erro ao enviar email: {e} | body: {body}", "email")
+        return False
     except Exception as e:
         log(f"Erro ao enviar email: {e}", "email")
         return False
