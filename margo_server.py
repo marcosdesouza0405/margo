@@ -2541,6 +2541,7 @@ async def webhook_mp(request: Request):
             return JSONResponse({"ok": True})
 
         user_id, plano = ref.split("|", 1)
+        plano = plano.replace("pro+", "pro_plus")  # normaliza
 
         if plano == "avulso":
             # Adiciona 50 interações extras
@@ -2567,6 +2568,7 @@ async def teste_simular_pagamento(request: Request):
         data = await request.json()
         user_id = data.get("user_id", "")
         plano = data.get("plano", "avulso")
+        plano = plano.replace("pro+", "pro_plus")  # normaliza
 
         if not user_id:
             return JSONResponse({"erro": "user_id obrigatório"}, status_code=400)
