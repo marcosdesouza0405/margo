@@ -3115,7 +3115,19 @@ async def salvar_perfil_completo(request: Request):
 @app.get("/uso/{user_id}")
 def uso(user_id: str):
     """Retorna uso diário do usuário — para o frontend mostrar msgs restantes"""
-    return JSONResponse(banco.verificar_limite(user_id))
+    dados = banco.verificar_limite(user_id)
+    # Adiciona msgs_extras explicitamente
+    try:
+        conn = banco._get_conn()
+        c = conn.cursor()
+        ph = "%s" if banco._pg else "?"
+        c.execute(f"SELECT msgs_extras FROM usuarios WHERE user_id={ph}", (user_id,))
+        row = c.fetchone()
+        conn.close()
+        dados["msgs_extras"] = row[0] if row and row[0] else 0
+    except:
+        dados["msgs_extras"] = 0
+    return JSONResponse(dados)
 
 @app.get("/agenda/{user_id}")
 def agenda(user_id: str):
