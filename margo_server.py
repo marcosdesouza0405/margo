@@ -117,6 +117,7 @@ def enviar_push(token: str, titulo: str, corpo: str):
         return False
 SERPER_API_KEY      = os.environ.get("SERPER_API_KEY", "")
 RESEND_API_KEY      = os.environ.get("RESEND_API_KEY", "")
+log(f"RESEND_API_KEY carregada: {'OK len='+str(len(RESEND_API_KEY)) if RESEND_API_KEY else 'VAZIA'}", "email")
 GEMINI_API_KEY      = os.environ.get("GEMINI_API_KEY", "")
 KOKORO_ENABLED      = os.environ.get("KOKORO_ENABLED", "true").lower() == "true"
 
