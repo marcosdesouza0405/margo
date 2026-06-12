@@ -2502,10 +2502,14 @@ async def webhook_mp(request: Request):
         data = await request.json()
         log(f"MP webhook: {data}", "mp")
 
-        if data.get("type") != "payment":
+        # Suporte aos dois formatos do MP
+        if data.get("type") == "payment":
+            payment_id = data.get("data", {}).get("id")
+        elif data.get("topic") == "payment":
+            payment_id = data.get("resource") or data.get("data", {}).get("id")
+        else:
             return JSONResponse({"ok": True})
 
-        payment_id = data.get("data", {}).get("id")
         if not payment_id:
             return JSONResponse({"ok": True})
 
