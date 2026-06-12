@@ -397,6 +397,26 @@ class BancoMargo:
     }
     TRIAL_LIMITE = 50  # total de interações no free trial
 
+    def _migrar_colunas(self):
+        """Adiciona colunas que podem estar faltando no banco"""
+        if not self._pg: return
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            for col, tipo in [
+                ("stripe_subscription_id", "TEXT"),
+                ("stripe_customer_id", "TEXT"),
+                ("msgs_extras", "INTEGER DEFAULT 0")
+            ]:
+                try:
+                    cur.execute(f"ALTER TABLE usuarios ADD COLUMN {col} {tipo}")
+                    conn.commit()
+                    log(f"Coluna {col} adicionada", "db")
+                except:
+                    pass
+        finally:
+            conn.close()
+
     def atualizar_plano(self, user_id: str, plano: str, stripe_customer_id: str = None, stripe_subscription_id: str = None):
         """Atualiza o plano do usuário"""
         conn = self._get_conn()
@@ -806,6 +826,7 @@ class BancoMargo:
         return resultado
 
 banco = BancoMargo()
+banco._migrar_colunas()
 
 # ── GERENCIADOR DE SESSÃO ──────────────────────────────────────────────────────
 
