@@ -1986,10 +1986,25 @@ Priorize lugares reais e próximos. Sem texto extra."""
     if ferramenta and ferramenta.get("ferramenta") == "agenda_add" and data_hora_agenda:
         ferramenta = dict(ferramenta)
         ferramenta["data_hora"] = data_hora_agenda
+    # Detecta despedida via DeepSeek para cobrir todas as formas culturais
+    try:
+        prompt_despedida = (
+            f"O usuario disse: '{mensagem}'\n"
+            "Esta mensagem indica uma despedida ou encerramento de conversa? "
+            "Considere expressoes brasileiras como: valeu, era isso, obrigado, abraco, "
+            "ate, flw, falou, pode fechar, boa noite, etc.\n"
+            "Responda APENAS com: SIM ou NAO"
+        )
+        resposta_despedida = chamar_deepseek_simples(prompt_despedida, max_tokens=5)
+        encerrar = "SIM" in resposta_despedida.upper()
+    except:
+        encerrar = False
+
     return {
-        "resposta":   limpar_resposta(resposta_limpa),
-        "onboarding": False,
-        "ferramenta": ferramenta
+        "resposta":        limpar_resposta(resposta_limpa),
+        "onboarding":      False,
+        "ferramenta":      ferramenta,
+        "encerrar_sessao": encerrar
     }
 
 # ── TTS — Fish Audio ───────────────────────────────────────────────────────────
