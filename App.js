@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, ScrollView,
+  View, Text, TextInput, TouchableOpacity, ScrollView, AppState, NativeModules,
   StyleSheet, KeyboardAvoidingView, Platform, StatusBar,
   ActivityIndicator, Linking, Alert, SafeAreaView, Modal, Image,
 } from 'react-native';
@@ -10,11 +10,47 @@ import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import * as Contacts from 'expo-contacts';
 import { Audio } from 'expo-av';
+import * as Notifications from 'expo-notifications';
+import * as Localization from 'expo-localization';
+import * as TaskManager from 'expo-task-manager';
+import { iniciarWakeWord, pararWakeWord } from './src/services/WakeWordService';
 
-// Módulo nativo de microfone
-import { NativeModules, NativeEventEmitter } from 'react-native';
-const { MicrophoneModule } = NativeModules;
-const micEmitter = MicrophoneModule ? new NativeEventEmitter(MicrophoneModule) : null;
+// Configura canal de notificação Android
+if (Platform.OS === 'android') {
+  Notifications.setNotificationChannelAsync('default', {
+    name: 'Margo',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: '#2E9AAF',
+  });
+  Notifications.setNotificationChannelAsync('lembretes', {
+    name: 'Lembretes',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 250, 250, 250],
+  });
+}
+
+// Configura notificação persistente (foreground service)
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
+const MARGO_TASK = 'margo-foreground-task';
+import * as Device from 'expo-device';
+
+// Módulo nativo de microfone (Expo Modules API)
+let ExpoMicrophoneModule = null;
+let micEmitter = null;
+try {
+  const micMod = require('./modules/modules/expo-microphone');
+  ExpoMicrophoneModule = micMod.default || micMod;
+  const { EventEmitter } = require('expo-modules-core');
+  if (ExpoMicrophoneModule) micEmitter = new EventEmitter(ExpoMicrophoneModule);
+} catch(e) { console.log('Módulo nativo não disponível:', e.message); }
 
 // expo-speech-recognition — mantido como fallback
 let ExpoSpeechRecognitionModule = null;
@@ -29,10 +65,10 @@ const ICON = require('./assets/icon.png');
 const BACKEND = 'https://margo-production-98a9.up.railway.app';
 
 const C = {
-  bg:      '#0A0A0F', bg2: '#111118', bg3: '#1A1A24',
-  cyan:    '#00D4FF', cyanDim: 'rgba(0,212,255,0.12)',
+  bg:      '#0D1A1C', bg2: '#112225', bg3: '#1A3035',
+  cyan:    '#2E9AAF', cyanDim: 'rgba(46,154,175,0.15)',
   text:    '#E8E8F0', text2: '#8888A0', text3: '#555568',
-  border:  'rgba(255,255,255,0.07)', red: '#FF6B6B',
+  border:  'rgba(46,154,175,0.15)', red: '#FF6B6B',
 };
 
 const CFG_PADRAO = {
@@ -43,11 +79,204 @@ const CFG_PADRAO = {
   personalidade: '', perfilNome: '', perfilNascimento: '',
   perfilProfissao: '', perfilMusica: '', perfilComida: '',
   perfilHobbies: '', perfilExtra: '',
-  wakeWordOn: true,
+  wakeWordOn: false,
+  idioma: 'pt-BR',
+  idioma: 'pt-BR',
   backendUrl: BACKEND,
 };
 
 const hora = () => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+async function verificarLembretesPendentes(userId, backendUrl, agendarNotificacao) {
+  try {
+    const r = await fetch(`${backendUrl}/agenda/pendentes/${userId}`);
+    const d = await r.json();
+    for (const lembrete of d.pendentes || []) {
+      let prefixo = '';
+      if (lembrete.tipo === '12h') prefixo = '📅 Amanhã: ';
+      else if (lembrete.tipo === '1h') prefixo = '⏰ Em 1 hora: ';
+      else prefixo = '🔔 Agora: ';
+      
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `${prefixo}${lembrete.titulo}`,
+          body: lembrete.descricao || lembrete.titulo,
+          sound: true,
+        },
+        trigger: { type: "timeInterval", seconds: 2, repeats: false },
+      });
+    }
+  } catch(e) { console.log('Lembretes pendentes erro:', e); }
+}
+
+// ── TRADUÇÕES ─────────────────────────────────────────────────────────────────
+const STRINGS = {
+  'pt-BR': {
+    // Boas vindas
+    app_desc: 'Sua assistente pessoal de IA\ncom personalidade única',
+    criar_conta: 'Criar conta',
+    ja_tenho_conta: 'Já tenho conta',
+    by_orbiby: 'by Orbiby',
+    // Cadastro
+    voltar: '← Voltar',
+    titulo_cadastro: 'Criar conta',
+    sub_cadastro: 'Crie sua conta para acessar a Margo em qualquer dispositivo.',
+    placeholder_email: 'Seu email',
+    placeholder_senha: 'Senha (mínimo 6 caracteres)',
+    placeholder_confirmar: 'Confirmar senha',
+    // Login
+    titulo_login: 'Entrar',
+    sub_login: 'Entre com sua conta para continuar.',
+    placeholder_senha_login: 'Sua senha',
+    btn_entrar: 'Entrar',
+    // Configurações
+    titulo_config: 'Configurações',
+    sobre_voce: 'SOBRE VOCÊ',
+    sua_assistente: 'SUA ASSISTENTE',
+    placeholder_nome_assistente: 'Nome da assistente',
+    placeholder_personalidade: 'Personalidade — ex: divertida, fala gírias, adora música, sempre bem-humorada, usa emojis, fala como amiga próxima...',
+    voz: 'VOZ',
+    genero_voz: 'Escolha o gênero da voz do assistente.',
+    provedor_voz: 'Provedor de voz:',
+    kokoro_desc: '✨ Voz neural gratuita com tecnologia Kokoro AI',
+    fish_link: '📖 Como criar conta no Fish Audio',
+    eleven_link: '📖 Como criar conta no ElevenLabs',
+    spotify_label: 'SPOTIFY',
+    spotify_desc: 'Conecte sua conta para tocar músicas direto pelo app.',
+    salvar: 'Salvar configurações',
+    sair: 'Sair / Trocar conta',
+    // Chat
+    placeholder_msg: 'Digite uma mensagem...',
+    online: 'online',
+    ouvindo: 'ouvindo...',
+    pensando: 'pensando...',
+    // Planos
+    plano_free: 'Free trial (50 interações)',
+    plano_pro: 'Pro ✓ (20 msgs/dia)',
+    plano_pro_plus: 'Pro+ ✓ (50 msgs/dia)',
+    plano_admin: 'Admin ✓',
+    // Alerts
+    sair_titulo: 'Sair',
+    sair_msg: 'Tem certeza?',
+    sair_btn: 'Sair',
+    cancelar: 'Cancelar',
+    contato_nao_encontrado: 'Contato não encontrado na agenda.',
+    numero_invalido: 'Número inválido.',
+    pagamento_titulo: 'Forma de pagamento',
+    pagamento_msg: 'Como deseja pagar?',
+    pagamento_cartao: '💳 Cartão de crédito',
+    pagamento_pix: '🏦 PIX',
+    paywall_trial_titulo: '🎉 Trial encerrado!',
+    paywall_trial_msg: 'Você usou todas as 50 interações gratuitas. Assine um plano para continuar!',
+    paywall_limite_titulo: '⚠️ Limite atingido!',
+    paywall_limite_msg: 'Você atingiu seu limite diário. Assine um plano superior ou compre interações extras!',
+    btn_pro: '🔥 Pro — R$9,90/mês',
+    btn_pro_plus: '🚀 Pro+ — R$19,90/mês',
+    btn_avulso: '💊 50 interações — R$9,90',
+  },
+  'en-US': {
+    app_desc: 'Your personal AI assistant\nwith a unique personality',
+    criar_conta: 'Create account',
+    ja_tenho_conta: 'I already have an account',
+    by_orbiby: 'by Orbiby',
+    voltar: '← Back',
+    titulo_cadastro: 'Create account',
+    sub_cadastro: 'Create your account to access Margo on any device.',
+    placeholder_email: 'Your email',
+    placeholder_senha: 'Password (minimum 6 characters)',
+    placeholder_confirmar: 'Confirm password',
+    titulo_login: 'Sign in',
+    sub_login: 'Sign in to your account to continue.',
+    placeholder_senha_login: 'Your password',
+    btn_entrar: 'Sign in',
+    titulo_config: 'Settings',
+    sobre_voce: 'ABOUT YOU',
+    sua_assistente: 'YOUR ASSISTANT',
+    placeholder_nome_assistente: 'Assistant name',
+    placeholder_personalidade: 'Personality — ex: fun, uses slang, loves music, always cheerful, uses emojis, talks like a close friend...',
+    voz: 'VOICE',
+    genero_voz: 'Choose the voice gender for your assistant.',
+    provedor_voz: 'Voice provider:',
+    kokoro_desc: '✨ Free neural voice powered by Kokoro AI',
+    fish_link: '📖 How to create a Fish Audio account',
+    eleven_link: '📖 How to create an ElevenLabs account',
+    spotify_label: 'SPOTIFY',
+    spotify_desc: 'Connect your account to play music directly from the app.',
+    salvar: 'Save settings',
+    sair: 'Sign out / Switch account',
+    placeholder_msg: 'Type a message...',
+    online: 'online',
+    ouvindo: 'listening...',
+    pensando: 'thinking...',
+    plano_free: 'Free trial (50 interactions)',
+    plano_pro: 'Pro ✓ (20 msgs/day)',
+    plano_pro_plus: 'Pro+ ✓ (50 msgs/day)',
+    plano_admin: 'Admin ✓',
+    sair_titulo: 'Sign out',
+    sair_msg: 'Are you sure?',
+    sair_btn: 'Sign out',
+    cancelar: 'Cancel',
+    contato_nao_encontrado: 'Contact not found in your contacts.',
+    numero_invalido: 'Invalid number.',
+    pagamento_titulo: 'Payment method',
+    pagamento_msg: 'How would you like to pay?',
+    pagamento_cartao: '💳 Credit card',
+    pagamento_pix: '🏦 PIX',
+    paywall_trial_titulo: '🎉 Trial ended!',
+    paywall_trial_msg: 'You used all 50 free interactions. Subscribe to continue!',
+    paywall_limite_titulo: '⚠️ Limit reached!',
+    paywall_limite_msg: 'You reached your daily limit. Subscribe or buy extra interactions!',
+    btn_pro: '🔥 Pro — R$9.90/mo',
+    btn_pro_plus: '🚀 Pro+ — R$19.90/mo',
+    btn_avulso: '💊 50 interactions — R$9.90',
+  }
+};
+
+const useStrings = (idioma) => STRINGS[idioma] || STRINGS['pt-BR'];
+
+// ── NOTIFICAÇÃO PERSISTENTE ───────────────────────────────────────────────────
+let _notifId = null;
+
+async function testarNotificacao() {
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '🔔 Teste Margo',
+        body: 'Notificação funcionando! ✅',
+        sound: true,
+      },
+      trigger: { type: "timeInterval", seconds: 5, repeats: false },
+    });
+    Alert.alert('OK', 'Notificação em 5 segundos!');
+  } catch(e) { Alert.alert('Erro', String(e)); }
+}
+
+async function iniciarNotificacaoPersistente(nomeAssistente) {
+  try {
+    if (_notifId) return;
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') return;
+    _notifId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: nomeAssistente || 'Margo',
+        body: 'Ouvindo... Toque para abrir',
+        sticky: true,
+        autoDismiss: false,
+        data: { type: 'foreground' },
+      },
+      trigger: null,
+    });
+  } catch(e) { console.log('Notif persistente erro:', e); }
+}
+
+async function pararNotificacaoPersistente() {
+  try {
+    if (_notifId) {
+      await Notifications.dismissNotificationAsync(_notifId);
+      _notifId = null;
+    }
+  } catch(e) {}
+}
 
 function limpar(txt) {
   return txt
@@ -59,8 +288,8 @@ function limpar(txt) {
     .replace(/\s+/g, ' ').trim();
 }
 
-// ── TELA BOAS-VINDAS ──────────────────────────────────────────────────────────
-function TelaBoasVindas({ onEntrar, onCadastrar }) {
+// ── TELA SELEÇÃO DE IDIOMA ───────────────────────────────────────────────────
+function TelaIdioma({ onSelecionar }) {
   return (
     <View style={s.fullCenter}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
@@ -68,13 +297,13 @@ function TelaBoasVindas({ onEntrar, onCadastrar }) {
         <Image source={ICON} style={{ width: 80, height: 80, borderRadius: 40 }} />
       </View>
       <Text style={s.welcomeName}>Margo</Text>
-      <Text style={s.welcomeDesc}>Sua assistente pessoal de IA{'\n'}com personalidade única</Text>
-      <View style={{ width: '100%', gap: 12, marginTop: 48 }}>
-        <TouchableOpacity style={s.btnP} onPress={onCadastrar}>
-          <Text style={s.btnPTxt}>Criar conta</Text>
+      <Text style={[s.welcomeDesc, { marginBottom: 48 }]}>Choose your language / Escolha seu idioma</Text>
+      <View style={{ width: '100%', gap: 16 }}>
+        <TouchableOpacity style={s.btnP} onPress={() => onSelecionar('pt-BR')}>
+          <Text style={s.btnPTxt}>🇧🇷  Português</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={s.btnS} onPress={onEntrar}>
-          <Text style={s.btnSTxt}>Já tenho conta</Text>
+        <TouchableOpacity style={s.btnP} onPress={() => onSelecionar('en-US')}>
+          <Text style={s.btnPTxt}>🇺🇸  English</Text>
         </TouchableOpacity>
       </View>
       <Text style={{ color: C.text3, fontSize: 11, marginTop: 48 }}>by Orbiby</Text>
@@ -82,15 +311,44 @@ function TelaBoasVindas({ onEntrar, onCadastrar }) {
   );
 }
 
+// ── TELA BOAS-VINDAS ──────────────────────────────────────────────────────────
+function TelaBoasVindas({ onEntrar, onCadastrar, idioma }) {
+  const s_ = useStrings(idioma);
+  return (
+    <View style={s.fullCenter}>
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <View style={s.logoCircle}>
+        <Image source={ICON} style={{ width: 80, height: 80, borderRadius: 40 }} />
+      </View>
+      <Text style={s.welcomeName}>Margo</Text>
+      <Text style={s.welcomeDesc}>{s_['app_desc']}</Text>
+      <View style={{ width: '100%', gap: 12, marginTop: 48 }}>
+        <TouchableOpacity style={s.btnP} onPress={onCadastrar}>
+          <Text style={s.btnPTxt}>{s_['criar_conta']}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.btnS} onPress={onEntrar}>
+          <Text style={s.btnSTxt}>{s_['ja_tenho_conta']}</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={{ color: C.text3, fontSize: 11, marginTop: 48 }}>{s_['by_orbiby']}</Text>
+    </View>
+  );
+}
+
 // ── TELA CADASTRO ─────────────────────────────────────────────────────────────
-function TelaCadastro({ onSuccess, onVoltar, backendUrl }) {
+function TelaCadastro({ onSuccess, onVoltar, backendUrl, idioma }) {
+  const s_ = useStrings(idioma);
   const [email, setEmail]       = useState('');
   const [senha, setSenha]       = useState('');
   const [confirma, setConfirma] = useState('');
   const [erro, setErro]         = useState('');
   const [loading, setLoading]   = useState(false);
-  const [verSenha, setVerSenha] = useState(false);
-  const [verConf, setVerConf]   = useState(false);
+  const [verSenha, setVerSenha]     = useState(false);
+  const [verConf, setVerConf]       = useState(false);
+  const [etapa, setEtapa]           = useState('cadastro');
+  const [codigo, setCodigo]         = useState('');
+  const [senhaHash, setSenhaHash]   = useState('');
+  const [deviceIdSalvo, setDeviceIdSalvo] = useState('');
 
   async function cadastrar() {
     if (!email.includes('@'))   { setErro('Email inválido.'); return; }
@@ -98,12 +356,28 @@ function TelaCadastro({ onSuccess, onVoltar, backendUrl }) {
     if (senha !== confirma)     { setErro('As senhas não coincidem.'); return; }
     setLoading(true); setErro('');
     try {
+      // Verifica device ID antes de criar conta free
+      const deviceId = await getDeviceId();
+      const rv = await fetch(`${backendUrl}/verificar_device`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id: deviceId })
+      });
+      const dv = await rv.json();
+      if (!dv.pode_criar) {
+        setErro('Este dispositivo já possui uma conta gratuita.');
+        setLoading(false); return;
+      }
       const r = await fetch(`${backendUrl}/cadastro`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.toLowerCase().trim(), senha })
+        body: JSON.stringify({ email: email.toLowerCase().trim(), senha, device_id: deviceId })
       });
       const d = await r.json();
-      if (d.ok) {
+      if (d.ok && d.verificacao_pendente) {
+        // Mostra tela de verificação
+        setEtapa('verificar');
+        setSenhaHash(d.senha_hash);
+        setDeviceIdSalvo(deviceId);
+      } else if (d.ok) {
         await AsyncStorage.setItem('margo_user_id', d.user_id);
         await AsyncStorage.setItem('margo_email', d.email);
         onSuccess(d);
@@ -112,23 +386,61 @@ function TelaCadastro({ onSuccess, onVoltar, backendUrl }) {
     setLoading(false);
   }
 
+  // Tela de verificação de email
+  if (etapa === 'verificar') {
+    const verificar = async () => {
+      if (codigo.length !== 6) { setErro('Digite o código de 6 dígitos.'); return; }
+      setLoading(true); setErro('');
+      try {
+        const r = await fetch(`${backendUrl}/verificar_email`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.toLowerCase().trim(), codigo, senha_hash: senhaHash, device_id: deviceIdSalvo })
+        });
+        const d = await r.json();
+        if (d.ok) {
+          await AsyncStorage.setItem('margo_user_id', d.user_id);
+          await AsyncStorage.setItem('margo_email', d.email);
+          onSuccess(d);
+        } else setErro(d.erro || 'Código incorreto.');
+      } catch(e) { setErro('Sem conexão.'); }
+      setLoading(false);
+    };
+    return (
+      <KeyboardAvoidingView style={s.authWrap} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+        <Text style={s.authTitle}>✉️ Verifique seu email</Text>
+        <Text style={s.authSub}>Enviamos um código de 6 dígitos para {email}. Digite abaixo para ativar sua conta.</Text>
+        <TextInput style={[s.authInput, { fontSize: 28, letterSpacing: 8, textAlign: 'center' }]}
+          placeholder="000000" placeholderTextColor={C.text3}
+          value={codigo} onChangeText={setCodigo} keyboardType="number-pad" maxLength={6} />
+        {!!erro && <Text style={s.authErro}>{erro}</Text>}
+        <TouchableOpacity style={s.btnP} onPress={verificar} disabled={loading}>
+          {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPTxt}>Confirmar</Text>}
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setEtapa('cadastro')}>
+          <Text style={[s.voltarTxt, { marginTop: 16 }]}>← Voltar</Text>
+        </TouchableOpacity>
+      </KeyboardAvoidingView>
+    );
+  }
+
   return (
     <KeyboardAvoidingView style={s.authWrap} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-      <TouchableOpacity onPress={onVoltar}><Text style={s.voltarTxt}>← Voltar</Text></TouchableOpacity>
-      <Text style={s.authTitle}>Criar conta</Text>
-      <Text style={s.authSub}>Crie sua conta para acessar a Margo em qualquer dispositivo.</Text>
-      <TextInput style={s.authInput} placeholder="Seu email" placeholderTextColor={C.text3}
+      <TouchableOpacity onPress={onVoltar}><Text style={s.voltarTxt}>{s_['voltar']}</Text></TouchableOpacity>
+      <Text style={s.authTitle}>{s_['titulo_cadastro']}</Text>
+      <Text style={s.authSub}>{s_['sub_cadastro']}</Text>
+      <TextInput style={s.authInput} placeholder={s_['placeholder_email']} placeholderTextColor={C.text3}
         value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
       <View style={s.senhaWrap}>
-        <TextInput style={[s.authInput, { flex: 1, marginBottom: 0 }]} placeholder="Senha (mínimo 6 caracteres)"
+        <TextInput style={[s.authInput, { flex: 1, marginBottom: 0 }]} placeholder={s_['placeholder_senha']}
           placeholderTextColor={C.text3} value={senha} onChangeText={setSenha} secureTextEntry={!verSenha} />
         <TouchableOpacity style={s.olho} onPress={() => setVerSenha(v => !v)}>
           <Text style={{ fontSize: 18 }}>{verSenha ? '🙈' : '👁️'}</Text>
         </TouchableOpacity>
       </View>
       <View style={s.senhaWrap}>
-        <TextInput style={[s.authInput, { flex: 1, marginBottom: 0 }]} placeholder="Confirmar senha"
+        <TextInput style={[s.authInput, { flex: 1, marginBottom: 0 }]} placeholder={s_['placeholder_confirmar']}
           placeholderTextColor={C.text3} value={confirma} onChangeText={setConfirma} secureTextEntry={!verConf} />
         <TouchableOpacity style={s.olho} onPress={() => setVerConf(v => !v)}>
           <Text style={{ fontSize: 18 }}>{verConf ? '🙈' : '👁️'}</Text>
@@ -136,14 +448,15 @@ function TelaCadastro({ onSuccess, onVoltar, backendUrl }) {
       </View>
       {!!erro && <Text style={s.authErro}>{erro}</Text>}
       <TouchableOpacity style={s.btnP} onPress={cadastrar} disabled={loading}>
-        {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPTxt}>Criar conta</Text>}
+        {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPTxt}>{s_['criar_conta']}</Text>}
       </TouchableOpacity>
     </KeyboardAvoidingView>
   );
 }
 
 // ── TELA LOGIN ────────────────────────────────────────────────────────────────
-function TelaLogin({ onSuccess, onVoltar, backendUrl }) {
+function TelaLogin({ onSuccess, onVoltar, backendUrl, idioma }) {
+  const s_ = useStrings(idioma);
   const [email, setEmail]       = useState('');
   const [senha, setSenha]       = useState('');
   const [erro, setErro]         = useState('');
@@ -172,13 +485,13 @@ function TelaLogin({ onSuccess, onVoltar, backendUrl }) {
   return (
     <KeyboardAvoidingView style={s.authWrap} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-      <TouchableOpacity onPress={onVoltar}><Text style={s.voltarTxt}>← Voltar</Text></TouchableOpacity>
-      <Text style={s.authTitle}>Entrar</Text>
-      <Text style={s.authSub}>Entre com sua conta para continuar.</Text>
-      <TextInput style={s.authInput} placeholder="Seu email" placeholderTextColor={C.text3}
+      <TouchableOpacity onPress={onVoltar}><Text style={s.voltarTxt}>{s_['voltar']}</Text></TouchableOpacity>
+      <Text style={s.authTitle}>{s_['titulo_login']}</Text>
+      <Text style={s.authSub}>{s_['sub_login']}</Text>
+      <TextInput style={s.authInput} placeholder={s_['placeholder_email']} placeholderTextColor={C.text3}
         value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
       <View style={s.senhaWrap}>
-        <TextInput style={[s.authInput, { flex: 1, marginBottom: 0 }]} placeholder="Sua senha"
+        <TextInput style={[s.authInput, { flex: 1, marginBottom: 0 }]} placeholder={s_['placeholder_senha_login']}
           placeholderTextColor={C.text3} value={senha} onChangeText={setSenha} secureTextEntry={!verSenha} />
         <TouchableOpacity style={s.olho} onPress={() => setVerSenha(v => !v)}>
           <Text style={{ fontSize: 18 }}>{verSenha ? '🙈' : '👁️'}</Text>
@@ -186,14 +499,15 @@ function TelaLogin({ onSuccess, onVoltar, backendUrl }) {
       </View>
       {!!erro && <Text style={s.authErro}>{erro}</Text>}
       <TouchableOpacity style={s.btnP} onPress={entrar} disabled={loading}>
-        {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPTxt}>Entrar</Text>}
+        {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPTxt}>{s_['btn_entrar']}</Text>}
       </TouchableOpacity>
     </KeyboardAvoidingView>
   );
 }
 
 // ── PAINEL CONFIGURAÇÕES ──────────────────────────────────────────────────────
-function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, email, plano, userId }) {
+function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, email, plano, userId, idioma }) {
+  const s_ = useStrings(idioma);
   const [cfg, setCfg]             = useState(config);
   const [verApiKey, setVerApiKey] = useState(false);
   useEffect(() => setCfg(config), [config]);
@@ -203,7 +517,7 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
     <Modal visible={visivel} animationType="slide" presentationStyle="pageSheet" onRequestClose={onFechar}>
       <View style={{ flex: 1, backgroundColor: C.bg2 }}>
         <View style={s.modalHead}>
-          <Text style={s.modalTitle}>Configurações</Text>
+          <Text style={s.modalTitle}>{s_['titulo_config']}</Text>
           <TouchableOpacity onPress={onFechar} style={s.iconBtn}>
             <Text style={{ color: C.text2, fontSize: 20 }}>✕</Text>
           </TouchableOpacity>
@@ -213,7 +527,7 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
 
           {/* SOBRE VOCÊ */}
           <View style={s.secao}>
-            <Text style={s.secLabel}>SOBRE VOCÊ</Text>
+            <Text style={s.secLabel}>{s_['sobre_voce']}</Text>
             {[
               ['perfilNome','Seu nome'],['perfilNascimento','Data de nascimento (DD/MM/AAAA)'],
               ['perfilProfissao','Sua profissão'],['perfilMusica','Música favorita'],
@@ -229,38 +543,36 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
 
           {/* SUA ASSISTENTE */}
           <View style={s.secao}>
-            <Text style={s.secLabel}>SUA ASSISTENTE</Text>
-            <TextInput style={s.cfgInput} placeholder="Nome da assistente"
-              placeholderTextColor={C.text3} value={cfg.assistantName || 'Margo'}
+            <Text style={s.secLabel}>{s_['sua_assistente']}</Text>
+            <TextInput style={s.cfgInput} placeholder={s_['placeholder_nome_assistente']}
+              placeholderTextColor={C.text3} value={cfg.assistantName}
               onChangeText={v => set('assistantName', v)}
               autoComplete="off" autoCorrect={false} autoCapitalize="words" />
-            <TextInput style={[s.cfgInput, { height: 90, textAlignVertical: 'top' }]}
-              placeholder="Personalidade — descreva como quiser..."
+            <TextInput style={[s.cfgInput, { height: 110, textAlignVertical: 'top' }]}
+              placeholder="Personalidade — ex: divertida, fala gírias, adora música, sempre bem-humorada, usa emojis, fala como amiga próxima..."
               placeholderTextColor={C.text3} value={cfg.personalidade || ''}
-              onChangeText={v => set('personalidade', v)} multiline />
-            <TouchableOpacity
-              style={[s.cfgInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
-              onPress={() => set('wakeWordOn', !cfg.wakeWordOn)}>
-              <View>
-                <Text style={{ color: C.text, fontSize: 13 }}>Palavra-chave</Text>
-                <Text style={s.secSub}>
-                  {cfg.wakeWordOn
-                    ? `Ativa — diga "${cfg.assistantName || 'Margo'}" antes do comando`
-                    : 'Desativada — responde tudo que ouve'}
-                </Text>
-              </View>
-              <View style={[s.toggleBase, cfg.wakeWordOn && s.toggleOn]}>
-                <View style={[s.toggleDot, cfg.wakeWordOn && s.toggleDotOn]} />
-              </View>
-            </TouchableOpacity>
-            <Text style={s.secSub}>Gênero da voz</Text>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              {['F','M'].map(g => (
-                <TouchableOpacity key={g} style={[s.chip, cfg.voiceGender === g && s.chipOn]}
-                  onPress={() => set('voiceGender', g)}>
-                  <Text style={[s.chipTxt, cfg.voiceGender === g && s.chipTxtOn]}>
-                    {g === 'F' ? 'Feminina' : 'Masculina'}
-                  </Text>
+              onChangeText={v => set('personalidade', v.slice(0, 300))} multiline
+              maxLength={300} />
+            <Text style={{ color: C.text3, fontSize: 10, textAlign: 'right', marginTop: -4 }}>
+              {(cfg.personalidade || '').length}/300
+            </Text>
+
+
+          </View>
+
+          {/* IDIOMA */}
+          <View style={s.secao}>
+            <Text style={s.secLabel}>{idioma === 'en-US' ? 'LANGUAGE' : 'IDIOMA'}</Text>
+            <Text style={s.secSub}>{idioma === 'en-US' ? 'Choose the app language.' : 'Escolha o idioma do app.'}</Text>
+            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+              {[['pt-BR','🇧🇷 Português'],['en-US','🇺🇸 English']].map(([lang, label]) => (
+                <TouchableOpacity key={lang} style={[s.chip, cfg.idioma === lang && s.chipOn]}
+                  onPress={async () => {
+                    set('idioma', lang);
+                    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+                    await AsyncStorage.setItem('margo_idioma', lang);
+                  }}>
+                  <Text style={[s.chipTxt, cfg.idioma === lang && s.chipTxtOn]}>{label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -268,16 +580,28 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
 
           {/* VOZ PREMIUM */}
           <View style={s.secao}>
-            <Text style={s.secLabel}>VOZ PREMIUM (opcional)</Text>
-            <Text style={s.secSub}>Sem chave, usa voz do dispositivo.</Text>
+            <Text style={s.secLabel}>{s_['voz']}</Text>
+            <Text style={s.secSub}>{s_['genero_voz']}</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+              {[['F','🙍‍♀️ Feminino'],['M','🙍‍♂️ Masculino']].map(([g, label]) => (
+                <TouchableOpacity key={g} style={[s.chip, cfg.voiceGender === g && s.chipOn]}
+                  onPress={() => set('voiceGender', g)}>
+                  <Text style={[s.chipTxt, cfg.voiceGender === g && s.chipTxtOn]}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={[s.secSub, { marginBottom: 8 }]}>{s_['provedor_voz']}</Text>
             <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-              {[['device','Dispositivo'],['fishaudio','Fish Audio'],['elevenlabs','ElevenLabs']].map(([p, label]) => (
+              {[['device','🤖 Margo Voice'],['fishaudio','Fish Audio'],['elevenlabs','ElevenLabs']].map(([p, label]) => (
                 <TouchableOpacity key={p} style={[s.chip, cfg.voiceProvider === p && s.chipOn]}
                   onPress={() => set('voiceProvider', p)}>
                   <Text style={[s.chipTxt, cfg.voiceProvider === p && s.chipTxtOn]}>{label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
+            {cfg.voiceProvider === 'device' && (
+              <Text style={[s.secSub, { marginTop: 6 }]}>{s_['kokoro_desc']}</Text>
+            )}
 
             {/* Fish Audio */}
             <View style={[s.cfgInput, { gap: 6, backgroundColor: cfg.voiceProvider === 'fishaudio' ? C.cyanDim : C.bg3 }]}>
@@ -295,7 +619,7 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
                 placeholder="ID da voz" placeholderTextColor={C.text3}
                 value={cfg.voiceIdFish || ''} onChangeText={v => set('voiceIdFish', v)} />
               <TouchableOpacity onPress={() => Linking.openURL('https://fish.audio')}>
-                <Text style={{ color: C.cyan, fontSize: 11 }}>📖 Como criar conta no Fish Audio</Text>
+                <Text style={{ color: C.cyan, fontSize: 11 }}>{s_['fish_link']}</Text>
               </TouchableOpacity>
             </View>
 
@@ -315,15 +639,15 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
                 placeholder="ID da voz" placeholderTextColor={C.text3}
                 value={cfg.voiceIdEleven || ''} onChangeText={v => set('voiceIdEleven', v)} />
               <TouchableOpacity onPress={() => Linking.openURL('https://elevenlabs.io')}>
-                <Text style={{ color: C.cyan, fontSize: 11 }}>📖 Como criar conta no ElevenLabs (10.000 chars/mês grátis)</Text>
+                <Text style={{ color: C.cyan, fontSize: 11 }}>{s_['eleven_link']}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
           {/* SPOTIFY */}
           <View style={s.secao}>
-            <Text style={s.secLabel}>SPOTIFY</Text>
-            <Text style={s.secSub}>Conecte sua conta para tocar músicas direto pelo app.</Text>
+            <Text style={s.secLabel}>{s_['spotify_label']}</Text>
+            <Text style={s.secSub}>{s_['spotify_desc']}</Text>
             <TouchableOpacity
               style={[s.btnS, { borderColor: '#1DB954' }]}
               onPress={async () => {
@@ -376,7 +700,7 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
             <View style={[s.cfgInput, { gap: 2 }]}>
               <Text style={{ color: C.text, fontSize: 13 }}>{email}</Text>
               <Text style={{ color: C.text2, fontSize: 11 }}>
-                Plano: {plano === 'free' ? 'Free (10 msgs/dia)' : plano === 'pro' ? 'Pro ✓ (50 msgs/dia)' : plano === 'pro_plus' ? 'Pro+ ✓ (90 msgs/dia)' : 'Admin ✓'}
+                Plano: {plano === 'free' ? s_['plano_free'] : plano === 'pro' ? s_['plano_pro'] : plano === 'pro_plus' || plano === 'pro+' ? s_['plano_pro_plus'] : s_['plano_admin']}
               </Text>
             </View>
             {(plano === 'free' || plano === 'pro') && (
@@ -384,22 +708,32 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
                 {plano === 'free' && (
                   <TouchableOpacity style={[s.btnP, { backgroundColor: '#7C3AED' }]}
                     onPress={() => onUpgrade('pro')}>
-                    <Text style={s.btnPTxt}>⬆ Upgrade Pro — R$19,90/mês (50 msgs/dia)</Text>
+                    <Text style={s.btnPTxt}>🔥 Pro — 20 msgs/dia{'  '}
+                      <Text style={{ textDecorationLine: 'line-through', opacity: 0.7 }}>R$14,90</Text>
+                      {' '}R$9,90/mês
+                    </Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity style={[s.btnP, { backgroundColor: '#059669' }]}
                   onPress={() => onUpgrade('pro_plus')}>
-                  <Text style={s.btnPTxt}>⬆ Upgrade Pro+ — R$29,90/mês (90 msgs/dia)</Text>
+                  <Text style={s.btnPTxt}>🔥 Pro+ — 50 msgs/dia{'  '}
+                    <Text style={{ textDecorationLine: 'line-through', opacity: 0.7 }}>R$29,90</Text>
+                    {' '}R$19,90/mês
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.btnP, { backgroundColor: '#2E9AAF' }]}
+                  onPress={() => onUpgrade('avulso')}>
+                  <Text style={s.btnPTxt}>💊 50 interações extras — R$9,90</Text>
                 </TouchableOpacity>
               </View>
             )}
             <TouchableOpacity style={s.btnS} onPress={onSair}>
-              <Text style={s.btnSTxt}>Sair / Trocar conta</Text>
+              <Text style={s.btnSTxt}>{s_['sair']}</Text>
             </TouchableOpacity>
           </View>
 
           <TouchableOpacity style={s.btnP} onPress={() => onSalvar(cfg)}>
-            <Text style={s.btnPTxt}>Salvar configurações</Text>
+            <Text style={s.btnPTxt}>{s_['salvar']}</Text>
           </TouchableOpacity>
           <View style={{ height: 60 }} />
         </ScrollView>
@@ -421,7 +755,7 @@ function Bolha({ msg, avatarUri }) {
         }
       </View>
       <View style={[s.bubble, isUser ? s.bubbleU : s.bubbleM]}>
-        <Text style={[{ fontSize: 14, lineHeight: 22, color: C.text }, isUser && { color: '#000', fontWeight: '500' }]}>
+        <Text selectable={true} style={[{ fontSize: 14, lineHeight: 22, color: C.text }, isUser && { color: '#000', fontWeight: '500' }]}>
           {msg.texto}
         </Text>
         <Text style={{ fontSize: 10, color: isUser ? 'rgba(0,0,0,0.5)' : C.text3, marginTop: 4 }}>{msg.hora}</Text>
@@ -431,13 +765,28 @@ function Bolha({ msg, avatarUri }) {
 }
 
 // ── APP PRINCIPAL ─────────────────────────────────────────────────────────────
+// Gera Device ID único e persistente
+async function getDeviceId() {
+  try {
+    let deviceId = await AsyncStorage.getItem('margo_device_id');
+    if (!deviceId) {
+      deviceId = 'dev_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      await AsyncStorage.setItem('margo_device_id', deviceId);
+    }
+    return deviceId;
+  } catch(e) { return 'unknown'; }
+}
+
 export default function App() {
-  const [tela, setTela]           = useState('boas_vindas');
+  const [tela, setTela]           = useState('idioma');
   const [userId, setUserId]       = useState(null);
+  const s_i = useStrings(config?.idioma || 'pt-BR');
   const [email, setEmail]         = useState('');
   const [plano, setPlano]         = useState('free');
   const [msgs, setMsgs]           = useState([]);
+  const [msgExtras, setMsgExtras]  = useState(0);
   const [input, setInput]         = useState('');
+  const [imagemBase64, setImagemBase64] = useState(null);
   const [pensando, setPensando]   = useState(false);
   const [micAtivo, setMicAtivo]   = useState(false);
   const [location, setLocation]   = useState(null);
@@ -449,6 +798,7 @@ export default function App() {
   const [wakeDetected, setWakeDetected] = useState(false);
   const scrollRef                 = useRef(null);
   const micAtivoRef               = useRef(false);
+  const ttsAtivoRef                = useRef(false);
   const wakeWordRef               = useRef(true); // ref para usar dentro de callbacks
 
   // ── INIT ──────────────────────────────────────────────────────────────────
@@ -457,6 +807,104 @@ export default function App() {
     pedirLocalizacao();
     Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
   }, []);
+
+  // Listener wake word — ativa microfone quando detectada
+  useEffect(() => {
+    const { DeviceEventEmitter } = require('react-native');
+    const sub = DeviceEventEmitter.addListener('wakeWordDetectada', () => {
+      console.log('[WakeWord] App aberto por wake word!');
+      setMicAtivo(true);
+    });
+
+    // Fallback: verifica SharedPreferences ao abrir o app
+    async function verificarWakeWordPendente() {
+      try {
+        const pendente = await AsyncStorage.getItem('wakeword_detectada');
+        if (pendente === 'true') {
+          console.log('[WakeWord] Wake word pendente detectada via AsyncStorage!');
+          await AsyncStorage.removeItem('wakeword_detectada');
+          setMicAtivo(true);
+        }
+      } catch(e) {}
+    }
+    verificarWakeWordPendente();
+
+    return () => sub.remove();
+  }, []);
+
+  // Pausa/retoma WakeWord conforme app vai para background ou foreground
+  useEffect(() => {
+    const { pausarWakeWord, retomarWakeWord } = require('./src/services/WakeWordService');
+    const sub = AppState.addEventListener('change', async (nextState) => {
+      if (nextState === 'active') {
+        console.log('[WakeWord] App em foreground — pausando microfone do servico');
+        await pausarWakeWord();
+      } else if (nextState === 'background') {
+        console.log('[WakeWord] App em background');
+        // retomar desativado temporariamente
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Reagenda lembretes ao abrir o app e verifica pendentes a cada 5 min
+  useEffect(() => {
+    if (!userId) return;
+
+    async function reagendarLembretes() {
+      try {
+        // Cancela todas notificações antigas
+        await Notifications.cancelAllScheduledNotificationsAsync();
+        
+        // Busca lembretes futuros do servidor
+        const r = await fetch(`${config.backendUrl}/agenda/${userId}`);
+        const d = await r.json();
+        const lembretes = d.lembretes || [];
+        const agora = new Date();
+
+        for (const l of lembretes) {
+          if (!l.data_hora) continue;
+          const partes = l.data_hora.split('T');
+          const data = partes[0].split('-');
+          const hora = partes[1] ? partes[1].split(':') : ['0','0','0'];
+          const dataHora = new Date(
+            parseInt(data[0]), parseInt(data[1])-1, parseInt(data[2]),
+            parseInt(hora[0]), parseInt(hora[1]), parseInt(hora[2] || 0)
+          );
+          const diffSegundos = Math.floor((dataHora - agora) / 1000);
+          if (diffSegundos <= 0) continue;
+
+          // Na hora
+          await Notifications.scheduleNotificationAsync({
+            content: { title: `⏰ ${l.titulo}`, body: l.descricao || l.titulo, sound: true },
+            trigger: { type: "timeInterval", seconds: diffSegundos, repeats: false },
+          });
+          // 1h antes
+          if (diffSegundos > 3600) {
+            await Notifications.scheduleNotificationAsync({
+              content: { title: `⏰ Em 1 hora: ${l.titulo}`, body: l.descricao || l.titulo, sound: true },
+              trigger: { type: "timeInterval", seconds: diffSegundos - 3600, repeats: false },
+            });
+          }
+          // 12h antes
+          if (diffSegundos > 43200) {
+            await Notifications.scheduleNotificationAsync({
+              content: { title: `📅 Amanhã: ${l.titulo}`, body: l.descricao || l.titulo, sound: true },
+              trigger: { type: "timeInterval", seconds: diffSegundos - 43200, repeats: false },
+            });
+          }
+        }
+        console.log(`${lembretes.length} lembretes reagendados`);
+      } catch(e) { console.log('Reagendar erro:', e); }
+    }
+
+    reagendarLembretes();
+    verificarLembretesPendentes(userId, config.backendUrl);
+    const interval = setInterval(() => {
+      verificarLembretesPendentes(userId, config.backendUrl);
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [userId]);
 
   // Heartbeat — só para garantir que não travou, a cada 60s
   useEffect(() => {
@@ -467,7 +915,7 @@ export default function App() {
       // Só reinicia se não está ouvindo ativamente
       if (micAtivoRef.current && ExpoSpeechRecognitionModule) {
         try {
-          ExpoSpeechRecognitionModule.start({ lang: 'pt-BR', interimResults: false });
+          ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
         } catch(e) {}
       }
     }, 60000);
@@ -475,6 +923,37 @@ export default function App() {
   }, [micAtivo, config.wakeWordOn]);
 
   async function iniciar() {
+    // Registra token FCM para push notifications
+    if (Device.isDevice) {
+      try {
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+        if (existingStatus !== 'granted') {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+        if (finalStatus === 'granted') {
+          const tokenData = await Notifications.getDevicePushTokenAsync();
+          const fcmToken = tokenData.data;
+          await AsyncStorage.setItem('margo_fcm_token', fcmToken);
+          console.log('FCM token:', fcmToken);
+        }
+      } catch(e) { console.log('FCM token erro:', e); }
+    }
+
+    const idiomaSalvo = await AsyncStorage.getItem('margo_idioma');
+    const locales = Localization.getLocales();
+    const idiomaSistema = locales[0]?.languageTag || 'pt-BR';
+    let idiomaDetectado;
+    if (idiomaSistema.startsWith('pt')) idiomaDetectado = 'pt-BR';
+    else if (idiomaSistema.startsWith('ja')) idiomaDetectado = 'ja-JP';
+    else idiomaDetectado = 'en-US';
+    // Usa idioma salvo só se for diferente do sistema (usuário escolheu manualmente)
+    // Na primeira vez sempre usa o sistema
+    const idiomaFinal = idiomaSalvo || idiomaDetectado;
+    setConfig(c => ({ ...c, idioma: idiomaFinal }));
+    await AsyncStorage.setItem('margo_idioma', idiomaFinal);
+    setTela('boas_vindas');
     const uid  = await AsyncStorage.getItem('margo_user_id');
     const em   = await AsyncStorage.getItem('margo_email');
     const av   = await AsyncStorage.getItem('margo_avatar');
@@ -483,11 +962,32 @@ export default function App() {
     if (av) setAvatarUri(av);
     if (cfg) { try { setConfig(c => ({ ...c, ...JSON.parse(cfg) })); } catch(e) {} }
     if (uid) {
+      const idiomaLocal = await AsyncStorage.getItem('margo_idioma');
+      if (idiomaLocal) setConfig(c => ({ ...c, idioma: idiomaLocal }));
       setUserId(uid); setEmail(em || ''); setTela('chat');
       const hist = await AsyncStorage.getItem('margo_chat');
       if (hist) { try { setMsgs(JSON.parse(hist)); } catch(e) {} }
       contarMsgs(uid);
+      // Boas-vindas na primeira abertura
+      const jaViu = await AsyncStorage.getItem('margo_boas_vindas');
+      if (!jaViu) {
+        try {
+          const backendUrl = config.backendUrl || 'https://margo-production-98a9.up.railway.app';
+          const rb = await fetch(`${backendUrl}/boas_vindas`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: uid })
+          });
+          const db = await rb.json();
+          if (db.mensagem) {
+            const msgBv = { id: Date.now(), role: 'assistant', text: db.mensagem };
+            setMsgs([msgBv]);
+            await AsyncStorage.setItem('margo_boas_vindas', '1');
+          }
+        } catch(e) {}
+      }
     }
+    // WakeWord Service temporariamente desativado
+    // await NativeModules.WakeWordModule.iniciar('toktok');
   }
 
   async function pedirLocalizacao() {
@@ -502,8 +1002,11 @@ export default function App() {
     try {
       const r = await fetch(`${config.backendUrl}/uso/${uid}`);
       const d = await r.json();
-      setFaltam(d.plano === 'free' ? d.faltam : null);
       setPlano(d.plano || 'free');
+      setMsgExtras(d.msgs_extras || 0);
+      const extras = d.msgs_extras || 0;
+      const diarias = d.faltam || Math.max(0, (d.limite || 0) - (d.usado || 0));
+      setFaltam(diarias + extras);
     } catch(e) {}
   }
 
@@ -515,13 +1018,30 @@ export default function App() {
       const { data } = await Contacts.getContactsAsync({
         fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Name],
       });
-      const nomeLower = nome.toLowerCase();
-      const contato = data.find(c =>
-        c.name && c.name.toLowerCase().includes(nomeLower)
+      // Remove emojis e caracteres especiais para comparação
+      const limparTexto = (t) => t.toLowerCase().replace(/[^a-záàâãéèêíïóôõöúüçñ\s]/gi, '').trim();
+      const nomeLower = limparTexto(nome);
+      const encontrados = data.filter(c =>
+        c.name && limparTexto(c.name).includes(nomeLower) &&
+        c.phoneNumbers && c.phoneNumbers.length > 0
       );
-      if (contato && contato.phoneNumbers && contato.phoneNumbers.length > 0) {
-        return contato.phoneNumbers[0].number;
-      }
+
+      if (encontrados.length === 0) return null;
+      if (encontrados.length === 1) return encontrados[0].phoneNumbers[0].number;
+      // Mais de um contato — mostra opções
+      return new Promise(resolve => {
+        Alert.alert(
+          'Qual contato?',
+          'Encontrei mais de um contato com esse nome:',
+          [
+            ...encontrados.slice(0, 4).map(c => ({
+              text: `${c.name} (${c.phoneNumbers[0].number})`,
+              onPress: () => resolve(c.phoneNumbers[0].number)
+            })),
+            { text: 'Cancelar', style: 'cancel', onPress: () => resolve(null) }
+          ]
+        );
+      });
     } catch(e) { console.log('Contatos erro:', e); }
     return null;
   }
@@ -540,7 +1060,7 @@ export default function App() {
   // ── ENVIAR ────────────────────────────────────────────────────────────────
   async function enviar(msg) {
     msg = (msg || input).trim();
-    if (!msg || pensando || !userId) return;
+    if (!msg || pensando || !userId || ttsAtivoRef.current) return;
     setInput('');
     addMsg('user', msg);
     setPensando(true);
@@ -548,7 +1068,13 @@ export default function App() {
       const body = { user_id: userId, mensagem: msg };
       if (location) { body.latitude = location.lat; body.longitude = location.lng; }
       // Passa hora local do dispositivo
-      body.hora_local = new Date().toLocaleString('pt-BR', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      const _now = new Date();
+      const _off = -_now.getTimezoneOffset();
+      const _sign = _off >= 0 ? '+' : '-';
+      const _hh = String(Math.floor(Math.abs(_off)/60)).padStart(2,'0');
+      const _mm = String(Math.abs(_off)%60).padStart(2,'0');
+      const _local = new Date(_now.getTime() + _off * 60000);
+      body.hora_local = _local.toISOString().replace('Z', '') + _sign + _hh + ':' + _mm;
       const r = await fetch(`${config.backendUrl}/mensagem`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
       });
@@ -556,12 +1082,47 @@ export default function App() {
       const texto = d.resposta || 'Sem resposta.';
       addMsg('margo', texto);
       falar(limpar(texto));
+
+      // Encerra sessao
+      if (d.encerrar_sessao) {
+        console.log('[WakeWord] Sessao encerrada');
+        setTimeout(() => setMicAtivo(false), 1000);
+      }
+
+      // Paywall — limite atingido
+      if (d.limite_atingido) {
+        const isTrial = d.plano === 'free';
+        setTimeout(() => {
+          Alert.alert(
+            isTrial ? s_i['paywall_trial_titulo'] : s_i['paywall_limite_titulo'],
+            isTrial ? s_i['paywall_trial_msg'] : s_i['paywall_limite_msg'],
+            [
+              {
+                text: '🔥 Pro — 20 msgs/dia  R$14,90 ➜ R$9,90',
+                onPress: () => handleUpgrade('pro')
+              },
+              {
+                text: '🚀 Pro+ — 50 msgs/dia  R$29,90 ➜ R$19,90',
+                onPress: () => handleUpgrade('pro_plus')
+              },
+              {
+                text: s_i['btn_avulso'],
+                onPress: () => handleUpgrade('avulso')
+              },
+              { text: 'Agora não', style: 'cancel' }
+            ]
+          );
+        }, 2000);
+        setPensando(false);
+        return;
+      }
+
       // Delay para Margo terminar de falar antes de abrir apps
       if (d.ferramenta) {
         const t = d.ferramenta.ferramenta;
-        const precisaDelay = ['maps_navigate','maps_search','spotify_play','youtube_search','soundcloud_play'].includes(t);
+        const precisaDelay = ['maps_navigate','maps_search','spotify_play','youtube_search','soundcloud_play','flight_search','hotel_search','skyscanner_search','booking_search','web_search'].includes(t);
         if (precisaDelay) {
-          setTimeout(() => executarFerramenta(d.ferramenta), 3000);
+          setTimeout(() => executarFerramenta(d.ferramenta), 5000);
         } else {
           await executarFerramenta(d.ferramenta);
         }
@@ -585,7 +1146,29 @@ export default function App() {
 
   // ── FERRAMENTAS ───────────────────────────────────────────────────────────
   async function executarFerramenta(f) {
-    const t = f.ferramenta;
+    let t = f.ferramenta;
+
+    // Redireciona web_search para ferramenta correta quando possível
+    if (t === 'web_search') {
+      const q = (f.query || '').toLowerCase();
+      if (q.includes('hotel') || q.includes('hospedagem') || q.includes('pousada')) {
+        t = 'hotel_search';
+        f = { ...f, ferramenta: 'hotel_search', destino: f.query };
+      } else if (q.includes('passagem') || q.includes('voo') || q.includes('aéreo') || q.includes('aereo') || q.includes('flight')) {
+        t = 'flight_search';
+        f = { ...f, ferramenta: 'flight_search', origem: '', destino: f.query };
+      }
+    }
+
+    // Espera Margo terminar de falar antes de abrir apps
+    if (ttsAtivoRef.current) {
+      await new Promise(resolve => {
+        const check = setInterval(() => {
+          if (!ttsAtivoRef.current) { clearInterval(check); resolve(); }
+        }, 200);
+        setTimeout(() => { clearInterval(check); resolve(); }, 10000);
+      });
+    }
 
     if (t === 'maps_navigate') {
       const dest = encodeURIComponent(f.destino);
@@ -630,14 +1213,132 @@ export default function App() {
       const supported = await Linking.canOpenURL(appUrl).catch(() => false);
       Linking.openURL(supported ? appUrl : webUrl).catch(() => {});
 
+    } else if (t === 'flight_search' || t === 'skyscanner_search') {
+      const origemIata = (f.origem_iata || '').toLowerCase();
+      const destinoIata = (f.destino_iata || '').toLowerCase();
+      const formatarData = (d) => {
+        if (!d) return '';
+        const anoAtual = new Date().getFullYear();
+        let [ano, mes, dia] = d.split('-');
+        if (parseInt(ano) < anoAtual) ano = String(anoAtual);
+        return `${String(ano).slice(2)}${mes}${dia}`;
+      };
+      const dataIda = formatarData(f.data_ida);
+      const dataVolta = formatarData(f.data_volta);
+      let url = `https://www.skyscanner.com.br/transporte/passagens-aereas/${origemIata}/${destinoIata}/`;
+      if (dataIda) url += `${dataIda}/`;
+      if (dataVolta) url += `${dataVolta}/`;
+      url += `?adultsv2=1&cabinclass=economy`;
+      Linking.openURL(url).catch(() => {});
+
+    } else if (t === 'hotel_search' || t === 'booking_search') {
+      const destino = encodeURIComponent(f.destino || f.query || '');
+      let url = `https://www.booking.com/searchresults.html?ss=${destino}&group_adults=2&no_rooms=1`;
+      if (f.checkin) url += `&checkin=${f.checkin}`;
+      if (f.checkout) url += `&checkout=${f.checkout}`;
+      Linking.openURL(url).catch(() => {});
+
     } else if (t === 'phone_call') {
-      // Busca nos contatos primeiro
-      let numero = f.contato;
-      if (isNaN(f.contato.replace(/\D/g, ''))) {
-        const encontrado = await buscarContato(f.contato);
-        if (encontrado) numero = encontrado;
-      }
-      Linking.openURL(`tel:${numero}`).catch(() => {});
+      // Busca contato e abre WhatsApp
+      try {
+        const { status } = await Contacts.requestPermissionsAsync();
+        if (status !== 'granted') return;
+        const { data } = await Contacts.getContactsAsync({
+          fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Name],
+        });
+        const limparTxt = (txt) => txt.toLowerCase().replace(/[^a-záàâãéèêíïóôõöúüçñ\s]/gi, '').trim();
+        const nomeLower = limparTxt(f.contato);
+        const encontrados = data.filter(c => c.name && limparTxt(c.name).includes(nomeLower) && c.phoneNumbers?.length > 0);
+
+        if (encontrados.length === 0) {
+          addMsg('sistema', `Contato "${f.contato}" não encontrado.`);
+          return;
+        }
+
+        const abrirWhatsApp = (contato) => {
+          let tel = contato.phoneNumbers[0].number.replace(/\D/g, '');
+          if (tel.startsWith('0')) tel = tel.replace(/^0+/, '');
+          Linking.openURL(`https://wa.me/${tel}`).catch(() => addMsg('sistema', 'Não foi possível abrir o WhatsApp'));
+        };
+
+        if (encontrados.length === 1) {
+          abrirWhatsApp(encontrados[0]);
+        } else {
+          Alert.alert('Qual contato?', 'Encontrei mais de um:', [
+            ...encontrados.slice(0, 4).map(c => ({
+              text: c.name,
+              onPress: () => abrirWhatsApp(c)
+            })),
+            { text: 'Cancelar', style: 'cancel' }
+          ]);
+        }
+      } catch(e) { addMsg('sistema', 'Erro ao buscar contato.'); }
+
+    } else if (t === 'agenda_add') {
+      // Agenda notificação local
+      try {
+        const agora = new Date();
+        let dataHora = new Date(f.data_hora);
+        
+        // data_hora vem sem timezone do servidor — trata como horário local
+        // Recria a data usando os componentes como horário local do dispositivo
+        if (f.data_hora && !f.data_hora.includes('+') && !f.data_hora.includes('Z')) {
+          const partes = f.data_hora.split('T');
+          const data = partes[0].split('-');
+          const hora = partes[1] ? partes[1].split(':') : ['0','0','0'];
+          dataHora = new Date(
+            parseInt(data[0]), parseInt(data[1])-1, parseInt(data[2]),
+            parseInt(hora[0]), parseInt(hora[1]), parseInt(hora[2] || 0)
+          );
+        }
+        
+        // Se ainda está no passado, agenda para amanhã mesmo horário
+        if (dataHora < agora) {
+          dataHora.setDate(dataHora.getDate() + 1);
+        }
+        
+        const diffSegundos = Math.floor((dataHora - agora) / 1000);
+        
+        // Agenda notificação na hora
+        if (diffSegundos > 0) {
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: `⏰ ${f.titulo}`,
+              body: f.descricao || f.titulo,
+              sound: true,
+            },
+            trigger: { type: "timeInterval", seconds: diffSegundos, repeats: false },
+          });
+        }
+
+        // Agenda 1h antes
+        const diff1h = diffSegundos - 3600;
+        if (diff1h > 0) {
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: `⏰ Em 1 hora: ${f.titulo}`,
+              body: f.descricao || f.titulo,
+              sound: true,
+            },
+            trigger: { type: "timeInterval", seconds: diff1h, repeats: false },
+          });
+        }
+
+        // Agenda 12h antes
+        const diff12h = diffSegundos - 43200;
+        if (diff12h > 0) {
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: `📅 Amanhã: ${f.titulo}`,
+              body: f.descricao || f.titulo,
+              sound: true,
+            },
+            trigger: { type: "timeInterval", seconds: diff12h, repeats: false },
+          });
+        }
+
+        console.log(`Lembrete agendado: ${diffSegundos}s (+ avisos 1h e 12h antes)`);
+      } catch(e) { console.log('Agenda notif erro:', e); }
 
     } else if (t === 'web_search') {
       // Não abre browser — backend já fez a busca e incluiu na resposta
@@ -666,15 +1367,17 @@ export default function App() {
   }
 
   function religarMic() {
+    ttsAtivoRef.current = false;
     if (micAtivoRef.current && ExpoSpeechRecognitionModule) {
       setTimeout(() => {
-        try { ExpoSpeechRecognitionModule.start({ lang: 'pt-BR', interimResults: false }); } catch(e) {}
-      }, 500);
+        try { ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true }); } catch(e) {}
+      }, 3000);
     }
   }
 
   async function falar(texto) {
     if (!vozAtiva) return;
+    ttsAtivoRef.current = true;
     if (micAtivoRef.current && ExpoSpeechRecognitionModule) {
       try { ExpoSpeechRecognitionModule.stop(); } catch(e) {}
     }
@@ -724,6 +1427,7 @@ export default function App() {
       } catch(e) { console.log('Fish Audio direto erro:', e); }
     }
 
+    console.log('TTS debug:', config.voiceProvider, '| chave:', chave ? 'ok' : 'vazia', '| vozId:', vozId ? 'ok' : 'vazio');
     if (config.voiceProvider === 'elevenlabs' && chave && vozId) {
       try {
         // Chama ElevenLabs DIRETAMENTE
@@ -739,18 +1443,52 @@ export default function App() {
             voice_settings: { stability: 0.5, similarity_boost: 0.75 }
           })
         });
+        console.log('ElevenLabs status:', r.status);
         if (r.ok) {
           const buffer = await r.arrayBuffer();
-          const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+          const bytes = new Uint8Array(buffer);
+          let binary = '';
+          const chunkSize = 8192;
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+          }
+          const base64 = btoa(binary);
           const ok = await tocarAudioBase64(base64, religarMic);
           if (ok) return;
+        } else {
+          console.log('ElevenLabs erro body:', await r.text());
         }
-      } catch(e) { console.log('ElevenLabs direto erro:', e); }
+      } catch(e) { console.log('ElevenLabs direto erro:', e.message || e); }
     }
 
+    // Tenta Kokoro no servidor (PT-BR e EN)
+    const temJapones = /[\u3040-\u30FF\u4E00-\u9FFF]/.test(texto);
+    const temPortugues = /[ãõáéíóúâêîôûàèìòùç]/i.test(texto) ||
+      /\b(você|não|sim|olá|obrigado|para|com|uma|isso|aqui|está|minha|seu|sua)\b/i.test(texto);
+    if (!temJapones) {
+      try {
+        const idiomaKokoro = temPortugues ? 'pt-br' : (config.idioma || 'pt-br').toLowerCase();
+        const r = await fetch(`${config.backendUrl}/kokoro_tts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            texto: limpar(texto),
+            idioma: idiomaKokoro,
+            genero: config.voiceGender || 'F'
+          })
+        });
+        const d = await r.json();
+        if (d.audio_base64) {
+          const ok = await tocarAudioBase64(d.audio_base64, religarMic);
+          if (ok) return;
+        }
+      } catch(e) { console.log('Kokoro erro:', e); }
+    }
     // Fallback: voz do dispositivo
+    const idiomaBase = config.idioma || 'en-US';
+    const langTTS = temJapones ? 'ja-JP' : temPortugues ? 'pt-BR' : idiomaBase;
     Speech.speak(texto, {
-      language: 'pt-BR',
+      language: langTTS,
       pitch: config.voiceGender === 'F' ? 1.2 : 0.8,
       rate: 1.0,
       onDone: religarMic,
@@ -781,54 +1519,109 @@ export default function App() {
   });
 
   useSpeechRecognitionEvent('end', () => {
-    // Não reinicia automaticamente — evita pipoco
-    // Usuário aperta o botão quando quiser falar
-    setMicAtivo(false);
-    micAtivoRef.current = false;
+    // Só reinicia se microfone ativo E não está falando
+    if (micAtivoRef.current && !ttsAtivoRef.current) {
+      setTimeout(() => {
+        if (micAtivoRef.current && !ttsAtivoRef.current && ExpoSpeechRecognitionModule) {
+          try {
+            ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+          } catch(e) { console.log('Reinicio mic erro:', e); }
+        }
+      }, 3000);
+    }
   });
 
   // Eventos do módulo nativo
   useEffect(() => {
     if (!micEmitter) return;
-    const sub = micEmitter.addListener('onSpeechResult', (e) => {
-      const text = e.text;
-      if (!text) return;
-      if (e.wakeWordDetected || !wakeWordRef.current) {
-        enviar(text);
-      }
+    const sub = micEmitter.addListener('onSpeechDetected', (e) => {
+      if (!e.text || !e.isFinal) return;
+      if (e.hasWakeWord || !wakeWordRef.current) enviar(e.text);
     });
     return () => sub.remove();
   }, []);
 
   async function iniciarMicrofone() {
-    if (MicrophoneModule) {
-      // Usa módulo nativo
-      try {
-        const nome = config.assistantName || 'Margo';
-        await MicrophoneModule.startListening(nome, true);
-        setMicAtivo(true);
-        micAtivoRef.current = true;
-      } catch(e) { console.log('Mic nativo erro:', e); }
-    } else if (ExpoSpeechRecognitionModule) {
-      // Fallback expo
-      try {
-        const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-        if (!perm.granted) return;
-        ExpoSpeechRecognitionModule.start({ lang: 'pt-BR', interimResults: false });
-        setMicAtivo(true);
-        micAtivoRef.current = true;
-      } catch(e) { console.log('Mic expo erro:', e); }
-    }
+    if (!ExpoSpeechRecognitionModule) return;
+    try {
+      const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!perm.granted) return;
+      setMicAtivo(true);
+      micAtivoRef.current = true;
+      ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+      iniciarNotificacaoPersistente(config.assistantName);
+    } catch(e) { console.log('Mic erro:', e); }
   }
 
   async function pararMicrofone() {
     micAtivoRef.current = false;
     setMicAtivo(false);
-    if (MicrophoneModule) {
-      try { await MicrophoneModule.stopListening(); } catch(e) {}
+    pararNotificacaoPersistente();
+    if (ExpoMicrophoneModule) {
+      try { await ExpoMicrophoneModule.stopListening(); } catch(e) {}
     } else if (ExpoSpeechRecognitionModule) {
       try { ExpoSpeechRecognitionModule.stop(); } catch(e) {}
     }
+  }
+
+  async function selecionarImagem() {
+    Alert.alert('Debug2', 'selecionarImagem chamado!');
+    Alert.alert('Enviar imagem', 'Escolha a origem:', [
+      {
+        text: '📷 Câmera',
+        onPress: async () => {
+          const perm = await ImagePicker.requestCameraPermissionsAsync();
+          if (!perm.granted) { Alert.alert('Permissão negada', 'Permite acesso à câmera nas configurações.'); return; }
+          const result = await ImagePicker.launchCameraAsync({
+            allowsEditing: true, quality: 0.5, base64: true,
+          });
+          if (!result.canceled && result.assets[0]) {
+            addMsg('user', '📷 Imagem enviada');
+            await enviarImagem(result.assets[0].base64);
+          }
+        }
+      },
+      {
+        text: '🖼️ Galeria',
+        onPress: async () => {
+          const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (!perm.granted) { Alert.alert('Permissão negada', 'Permite acesso à galeria nas configurações.'); return; }
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true, quality: 0.5, base64: true,
+          });
+          if (!result.canceled && result.assets[0]) {
+            addMsg('user', '📷 Imagem enviada');
+            await enviarImagem(result.assets[0].base64);
+          }
+        }
+      },
+      { text: 'Cancelar', style: 'cancel' }
+    ]);
+  }
+
+  async function enviarImagem(base64) {
+    if (!userId) return;
+    Alert.alert('Debug', `Enviando imagem... base64 length: ${base64?.length || 0}`);
+    setPensando(true);
+    try {
+      const body = { user_id: userId, mensagem: 'O que você vê nessa imagem?', imagem_base64: base64 };
+      const _now = new Date();
+      const _off = -_now.getTimezoneOffset();
+      const _sign = _off >= 0 ? '+' : '-';
+      const _hh = String(Math.floor(Math.abs(_off)/60)).padStart(2,'0');
+      const _mm = String(Math.abs(_off)%60).padStart(2,'0');
+      const _local = new Date(_now.getTime() + _off * 60000);
+      body.hora_local = _local.toISOString().replace('Z', '') + _sign + _hh + ':' + _mm;
+      const r = await fetch(`${config.backendUrl}/mensagem`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
+      const d = await r.json();
+      const texto = d.resposta || 'Sem resposta.';
+      addMsg('margo', texto);
+      falar(limpar(texto));
+    } catch(e) { addMsg('margo', 'Erro ao processar imagem.'); }
+    setPensando(false);
   }
 
   async function toggleMic() {
@@ -844,9 +1637,20 @@ export default function App() {
   async function onAuthSuccess(data) {
     setUserId(data.user_id); setEmail(data.email); setPlano(data.plano || 'free'); setTela('chat');
     contarMsgs(data.user_id);
+    // Envia FCM token para o servidor
+    try {
+      const fcmToken = await AsyncStorage.getItem('margo_fcm_token');
+      if (fcmToken) {
+        fetch(`${config.backendUrl}/fcm_token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: data.user_id, token: fcmToken })
+        });
+      }
+    } catch(e) { console.log('FCM envio erro:', e); }
     if (data.novo) {
       setTimeout(() => {
-        addMsg('margo', `Olá! Sou a ${config.assistantName}. Preencha seu perfil nas configurações — toque em ⚙ acima!`);
+        addMsg('margo', `Olá! Sou a ${config.assistantName} 👋 Antes de começar, configure seu perfil tocando em ⚙ acima.\n\nO que consigo fazer:\n🎙️ Voz e chat • 🌐 Busca na web • 📍 Maps • 🎵 Spotify/SoundCloud • ▶️ YouTube • ✈️ Passagens aéreas • 🏨 Hotéis • 🏠 Casa inteligente • 📞 Ligações e WhatsApp\n\nVamos lá? 😊`);
         setCfgAberto(true);
       }, 500);
     } else {
@@ -896,13 +1700,12 @@ export default function App() {
   async function salvarConfig(cfg) {
     setConfig(cfg);
     await AsyncStorage.setItem('margo_config', JSON.stringify(cfg));
+    await AsyncStorage.setItem('margo_idioma', cfg.idioma || 'pt-BR');
     setCfgAberto(false);
     try {
       const chaveEnviar = cfg.voiceProvider === 'fishaudio'
         ? (cfg.apiKeyFish || '')
-        : cfg.voiceProvider === 'elevenlabs'
-        ? (cfg.apiKeyEleven || '')
-        : '';
+        : '';  // ElevenLabs: chave fica só local, nunca vai pro servidor
       const vozIdEnviar = cfg.voiceProvider === 'fishaudio'
         ? (cfg.voiceIdFish || '')
         : cfg.voiceProvider === 'elevenlabs'
@@ -938,36 +1741,95 @@ export default function App() {
   }
 
   async function handleUpgrade(planoEscolhido) {
-    try {
-      const r = await fetch(`${config.backendUrl}/stripe/criar_checkout`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, plano: planoEscolhido, email })
-      });
-      const d = await r.json();
-      if (d.url) {
-        setCfgAberto(false);
-        Linking.openURL(d.url);
-      }
-    } catch(e) { console.log('Upgrade erro:', e); }
+    const stripeLinks = {
+      'pro':      'https://buy.stripe.com/fZu00icrB57V2ba84r2oE01',
+      'pro_plus': 'https://buy.stripe.com/dRmfZgfDNfMzdTS2K72oE02',
+      'avulso':   'https://buy.stripe.com/fZu00ibnx57V032acz2oE00',
+    };
+
+    Alert.alert(
+      s_i['pagamento_titulo'],
+      s_i['pagamento_msg'],
+      [
+        {
+          text: s_i['pagamento_cartao'],
+          onPress: () => {
+            const url = `${stripeLinks[planoEscolhido]}?client_reference_id=${userId}&prefilled_email=${encodeURIComponent(email)}`;
+            setCfgAberto(false);
+            Linking.openURL(url);
+          }
+        },
+        {
+          text: s_i['pagamento_pix'],
+          onPress: async () => {
+            try {
+              const r = await fetch(`${config.backendUrl}/mp/criar_pix`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId, plano: planoEscolhido, email })
+              });
+              const d = await r.json();
+              if (d.qr_code) {
+                setCfgAberto(false);
+                // Copia o código PIX para área de transferência
+                const { Clipboard } = require('react-native');
+                Alert.alert(
+                  '💙 Pagar via PIX',
+                  `${d.titulo}\nValor: R$${d.valor.toFixed(2)}\n\nCódigo PIX copiado! Cole no seu banco para pagar.\n\n${d.qr_code}`,
+                  [
+                    { text: '📋 Copiar código', onPress: () => {
+                      Clipboard.setString(d.qr_code);
+                      Alert.alert('✅ Copiado!', 'Cole o código no app do seu banco para pagar via PIX.');
+                    }},
+                    { text: 'Fechar', style: 'cancel' }
+                  ]
+                );
+                // Polling para detectar pagamento aprovado
+                const ru0 = await fetch(`${config.backendUrl}/uso/${userId}`);
+                const du0 = await ru0.json();
+                const saldoAntes = du0.msgs_extras || 0;
+                let tentativas = 0;
+                const intervalo = setInterval(async () => {
+                  tentativas++;
+                  if (tentativas > 36) { clearInterval(intervalo); return; } // 3 min
+                  try {
+                    const ru = await fetch(`${config.backendUrl}/uso/${userId}`);
+                    const du = await ru.json();
+                    const novoExtras = du.msgs_extras || 0;
+                    console.log(`[POLLING] tentativa ${tentativas} saldoAntes=${saldoAntes} novoExtras=${novoExtras}`);
+                    if (novoExtras > saldoAntes) {
+                      clearInterval(intervalo);
+                      setMsgExtras(novoExtras);
+                      Alert.alert('✅ Pagamento confirmado!', `+50 interações adicionadas! Saldo: ${novoExtras}`);
+                    }
+                  } catch(e) { console.log('[POLLING] erro:', e); Alert.alert('POLLING ERRO', String(e)); }
+                }, 5000);
+              } else { Alert.alert('Erro', d.erro || 'Erro ao gerar PIX'); }
+            } catch(e) { console.log('MP erro:', e); Alert.alert('Erro', 'Sem conexão'); }
+          }
+        },
+        { text: 'Cancelar', style: 'cancel' }
+      ]
+    );
   }
 
   async function sair() {
-    Alert.alert('Sair', 'Tem certeza?', [
-      { text: 'Cancelar' },
-      { text: 'Sair', style: 'destructive', onPress: async () => {
+    Alert.alert(s_i['sair_titulo'], s_i['sair_msg'], [
+      { text: s_i['cancelar'] },
+      { text: s_i['sair_btn'], style: 'destructive', onPress: async () => {
         await pararMicrofone();
         await AsyncStorage.multiRemove(['margo_user_id', 'margo_email', 'margo_chat', 'margo_config', 'margo_avatar']);
         setConfig(CFG_PADRAO);
         setAvatarUri(null);
-        setUserId(null); setMsgs([]); setCfgAberto(false); setTela('boas_vindas');
+        setUserId(null); setMsgs([]); setCfgAberto(false); setTela('idioma');
       }}
     ]);
   }
 
   // ── RENDER ────────────────────────────────────────────────────────────────
-  if (tela === 'boas_vindas') return <TelaBoasVindas onEntrar={() => setTela('login')} onCadastrar={() => setTela('cadastro')} />;
-  if (tela === 'cadastro')    return <TelaCadastro onSuccess={onAuthSuccess} onVoltar={() => setTela('boas_vindas')} backendUrl={config.backendUrl} />;
-  if (tela === 'login')       return <TelaLogin    onSuccess={onAuthSuccess} onVoltar={() => setTela('boas_vindas')} backendUrl={config.backendUrl} />;
+
+  if (tela === 'boas_vindas') return <TelaBoasVindas onEntrar={() => setTela('login')} onCadastrar={() => setTela('cadastro')} idioma={config.idioma} />;
+  if (tela === 'cadastro')    return <TelaCadastro onSuccess={onAuthSuccess} onVoltar={() => setTela('boas_vindas')} backendUrl={config.backendUrl} idioma={config.idioma} />;
+  if (tela === 'login')       return <TelaLogin    onSuccess={onAuthSuccess} onVoltar={() => setTela('boas_vindas')} backendUrl={config.backendUrl} idioma={config.idioma} />;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
@@ -982,7 +1844,7 @@ export default function App() {
           </TouchableOpacity>
           <View>
             <Text style={s.headerName}>{config.assistantName}</Text>
-            <Text style={s.headerSub}>{pensando ? 'pensando...' : micAtivo ? 'ouvindo...' : 'online'}</Text>
+            <Text style={s.headerSub}>{pensando ? s_i['pensando'] : micAtivo ? s_i['ouvindo'] : s_i['online']}</Text>
           </View>
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -1030,7 +1892,7 @@ export default function App() {
           <View style={s.inputRow}>
             <TextInput
               style={s.inputTxt}
-              placeholder="Digite uma mensagem..."
+              placeholder={s_i['placeholder_msg']}
               placeholderTextColor={C.text3}
               value={input}
               onChangeText={setInput}
@@ -1050,7 +1912,13 @@ export default function App() {
           {faltam !== null && (
             <Text style={[{ textAlign: 'center', fontSize: 10, color: C.text3, marginTop: 7 },
               faltam <= 5 && { color: C.red }]}>
-              {faltam} mensagens restantes hoje
+              {msgExtras > 0
+                ? plano === 'free' || plano === 'trial'
+                  ? `${faltam - msgExtras} trial + ${msgExtras} extras`
+                  : `${faltam - msgExtras} hoje + ${msgExtras} extras`
+                : plano === 'free' || plano === 'trial'
+                  ? `${faltam} msgs restantes (trial)`
+                  : `${faltam} msgs restantes hoje`}
             </Text>
           )}
         </View>
@@ -1063,6 +1931,7 @@ export default function App() {
         config={config}
         onSalvar={salvarConfig}
         onSair={sair}
+        idioma={config.idioma}
         onUpgrade={handleUpgrade}
         email={email}
         plano={plano}
