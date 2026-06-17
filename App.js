@@ -811,23 +811,21 @@ export default function App() {
   // Listener wake word — ativa microfone quando detectada
   useEffect(() => {
     const { DeviceEventEmitter } = require('react-native');
-    const sub = DeviceEventEmitter.addListener('wakeWordDetectada', () => {
+    const sub = DeviceEventEmitter.addListener('wakeWordDetectada', async () => {
       console.log('[WakeWord] App aberto por wake word!');
-      setMicAtivo(true);
-    });
-
-    // Fallback: verifica SharedPreferences ao abrir o app
-    async function verificarWakeWordPendente() {
       try {
-        const pendente = await AsyncStorage.getItem('wakeword_detectada');
-        if (pendente === 'true') {
-          console.log('[WakeWord] Wake word pendente detectada via AsyncStorage!');
-          await AsyncStorage.removeItem('wakeword_detectada');
+        const autorizado = await NativeModules.WakeWordModule.requestSTT();
+        if (autorizado) {
+          console.log('[WakeWord] STT autorizado pelo Coordinator');
           setMicAtivo(true);
+        } else {
+          console.log('[WakeWord] STT negado pelo Coordinator');
         }
-      } catch(e) {}
-    }
-    verificarWakeWordPendente();
+      } catch(e) {
+        console.log('[WakeWord] Erro requestSTT — ativando mic direto:', e);
+        setMicAtivo(true);
+      }
+    });
 
     return () => sub.remove();
   }, []);
@@ -987,7 +985,17 @@ export default function App() {
       }
     }
     // WakeWord Service temporariamente desativado
-    // await NativeModules.WakeWordModule.iniciar('toktok');
+    // Inicia WakeWord Service com modelo baseado no nome do assistente
+    try {
+      const nomeAssistente = (config.assistantName || 'margo').toLowerCase();
+      let wakeModel = 'toktok';
+      if (nomeAssistente.includes('margo')) wakeModel = 'margo';
+      else if (nomeAssistente.includes('max')) wakeModel = 'max';
+      await NativeModules.WakeWordModule.iniciar(wakeModel);
+      console.log('[WakeWord] Servico iniciado com modelo:', wakeModel);
+    } catch(e) {
+      console.log('[WakeWord] Erro ao iniciar servico:', e);
+    }
   }
 
   async function pedirLocalizacao() {
@@ -1085,8 +1093,11 @@ export default function App() {
 
       // Encerra sessao
       if (d.encerrar_sessao) {
-        console.log('[WakeWord] Sessao encerrada');
-        setTimeout(() => setMicAtivo(false), 1000);
+        console.log('[WakeWord] Sessao encerrada — liberando STT');
+        setTimeout(async () => {
+          setMicAtivo(false);
+          try { await NativeModules.WakeWordModule.releaseSTT(); } catch(e) {}
+        }, 1000);
       }
 
       // Paywall — limite atingido
@@ -1368,6 +1379,7 @@ export default function App() {
 
   function religarMic() {
     ttsAtivoRef.current = false;
+    try { NativeModules.WakeWordModule.releaseTTS(); } catch(e) {}
     if (micAtivoRef.current && ExpoSpeechRecognitionModule) {
       setTimeout(() => {
         try { ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true }); } catch(e) {}
@@ -1378,6 +1390,7 @@ export default function App() {
   async function falar(texto) {
     if (!vozAtiva) return;
     ttsAtivoRef.current = true;
+    try { await NativeModules.WakeWordModule.requestTTS(); } catch(e) {}
     if (micAtivoRef.current && ExpoSpeechRecognitionModule) {
       try { ExpoSpeechRecognitionModule.stop(); } catch(e) {}
     }
