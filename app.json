@@ -45,7 +45,6 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "./modules/MicrophoneModule/plugin.js",
       "expo-speech-recognition",
       [
         "expo-location",
@@ -58,7 +57,9 @@
         {
           "contactsPermission": "A Margo acessa seus contatos para fazer ligações pelo seu nome."
         }
-      ]
+      ],
+      "expo-localization",
+      "react-native-fast-tflite"
     ],
     "extra": {
       "eas": {
