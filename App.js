@@ -812,19 +812,14 @@ export default function App() {
   useEffect(() => {
     const { DeviceEventEmitter } = require('react-native');
     const sub = DeviceEventEmitter.addListener('wakeWordDetectada', async () => {
-      console.log('[WakeWord] App aberto por wake word!');
+      console.log('[WakeWord] App aberto por wake word — iniciando microfone!');
       try {
-        const autorizado = await NativeModules.WakeWordModule.requestSTT();
-        if (autorizado) {
-          console.log('[WakeWord] STT autorizado pelo Coordinator');
-          setMicAtivo(true);
-        } else {
-          console.log('[WakeWord] STT negado pelo Coordinator');
-        }
-      } catch(e) {
-        console.log('[WakeWord] Erro requestSTT — ativando mic direto:', e);
-        setMicAtivo(true);
-      }
+        await NativeModules.WakeWordModule.requestSTT();
+      } catch(e) {}
+      // Inicia microfone automaticamente
+      setTimeout(() => {
+        iniciarMicrofone();
+      }, 500);
     });
 
     return () => sub.remove();
@@ -838,8 +833,10 @@ export default function App() {
         console.log('[WakeWord] App em foreground — pausando microfone do servico');
         await pausarWakeWord();
       } else if (nextState === 'background') {
-        console.log('[WakeWord] App em background');
-        // retomar desativado temporariamente
+        console.log('[WakeWord] App em background — retomando wake word em 500ms');
+        setTimeout(async () => {
+          await retomarWakeWord();
+        }, 500);
       }
     });
     return () => sub.remove();
@@ -1575,6 +1572,11 @@ export default function App() {
     } else if (ExpoSpeechRecognitionModule) {
       try { ExpoSpeechRecognitionModule.stop(); } catch(e) {}
     }
+    // Para o WakeWordService completamente quando usuario desliga microfone
+    try {
+      await NativeModules.WakeWordModule.parar();
+      console.log('[WakeWord] Servico parado pelo usuario');
+    } catch(e) {}
   }
 
   async function selecionarImagem() {
