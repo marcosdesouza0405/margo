@@ -808,38 +808,51 @@ export default function App() {
     Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
   }, []);
 
-  // Listener wake word — ativa microfone quando detectada
-  useEffect(() => {
-    const { DeviceEventEmitter } = require('react-native');
-    const sub = DeviceEventEmitter.addListener('wakeWordDetectada', async () => {
-      console.log('[WakeWord] App aberto por wake word — iniciando microfone!');
-      try {
-        await NativeModules.WakeWordModule.requestSTT();
-      } catch(e) {}
-      // Inicia microfone automaticamente
-      setTimeout(() => {
-        iniciarMicrofone();
-      }, 500);
-    });
-
-    return () => sub.remove();
-  }, []);
-
-  // Pausa/retoma WakeWord conforme app vai para background ou foreground
+  // WakeWord — listener unificado
   useEffect(() => {
     const { pausarWakeWord, retomarWakeWord } = require('./src/services/WakeWordService');
+    let timeoutId = null;
+
+    async function verificarWakeWordPendente() {
+      try {
+        const pendente = await NativeModules.WakeWordModule.checkWakeWordPendente();
+        if (pendente) {
+          console.log('[WakeWord] Wake word pendente! Iniciando microfone...');
+          setTimeout(() => iniciarMicrofone(), 800);
+        }
+      } catch(e) {}
+    }
+
+    verificarWakeWordPendente();
+
     const sub = AppState.addEventListener('change', async (nextState) => {
+      console.log('[AppState]', nextState);
+
       if (nextState === 'active') {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+          console.log('[WakeWord] Timeout de retomada cancelado');
+        }
         console.log('[WakeWord] App em foreground — pausando microfone do servico');
         await pausarWakeWord();
+        await verificarWakeWordPendente();
+
       } else if (nextState === 'background') {
-        console.log('[WakeWord] App em background — retomando wake word em 500ms');
-        setTimeout(async () => {
-          await retomarWakeWord();
-        }, 500);
+        console.log('[WakeWord] App em background — retomando wake word em 2s');
+        timeoutId = setTimeout(async () => {
+          timeoutId = null;
+          if (AppState.currentState === 'background') {
+            await retomarWakeWord();
+          }
+        }, 2000);
       }
     });
-    return () => sub.remove();
+
+    return () => {
+      sub.remove();
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, []);
 
   // Reagenda lembretes ao abrir o app e verifica pendentes a cada 5 min
