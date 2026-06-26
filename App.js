@@ -817,8 +817,10 @@ export default function App() {
       try {
         const pendente = await NativeModules.WakeWordModule.checkWakeWordPendente();
         if (pendente) {
-          console.log('[WakeWord] Wake word pendente! Iniciando microfone...');
-          setTimeout(() => iniciarMicrofone(), 800);
+          console.log('[WakeWord] Abrindo com saudacao...');
+          setTimeout(async () => {
+            if (micAtivo) iniciarMicrofone();
+          }, 800);
         }
       } catch(e) {}
     }
@@ -842,8 +844,12 @@ export default function App() {
         console.log('[WakeWord] App em background — retomando wake word em 2s');
         timeoutId = setTimeout(async () => {
           timeoutId = null;
-          console.log('[WakeWord] Retomando wake word agora...');
-          await retomarWakeWord();
+          if (AppState.currentState === 'background') {
+            console.log('[WakeWord] Retomando wake word agora...');
+            await retomarWakeWord();
+          } else {
+            console.log('[WakeWord] App voltou ao foreground — nao retoma');
+          }
         }, 2000);
       }
     });
