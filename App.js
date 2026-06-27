@@ -841,16 +841,8 @@ export default function App() {
         await verificarWakeWordPendente();
 
       } else if (nextState === 'background') {
-        console.log('[WakeWord] App em background — retomando wake word em 2s');
-        timeoutId = setTimeout(async () => {
-          timeoutId = null;
-          if (AppState.currentState === 'background') {
-            console.log('[WakeWord] Retomando wake word agora...');
-            await retomarWakeWord();
-          } else {
-            console.log('[WakeWord] App voltou ao foreground — nao retoma');
-          }
-        }, 2000);
+        console.log('[WakeWord] App em background — retomando wake word imediatamente');
+        await retomarWakeWord();
       }
     });
 
