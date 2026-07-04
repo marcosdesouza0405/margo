@@ -2752,12 +2752,38 @@ async def boas_vindas(request: Request):
             nome = perfil.get("nome", "")
             nome_assistente = config_u.get("nome_assistente", "Margo")
 
-        saudacao = f"Olá{', ' + nome if nome else ''}! Sou {nome_assistente}, sua assistente pessoal com IA."
-        mensagem = f"""{saudacao} 🌟
+        idioma = config_u.get("idioma", "pt-BR") if usuario else "pt-BR"
 
-Posso te ajudar com conversas, buscar informações atualizadas, controlar música no Spotify, navegar pelo Maps, controlar sua casa inteligente e muito mais!
+        if idioma == "en-US":
+            saudacao = f"Hi{', ' + nome if nome else ''}! I'm Margo, and I'll introduce you to {nome_assistente}, your personal AI assistant."
+            mensagem = f"""{saudacao} 🌟
 
-⚙️ Toque no ícone de configurações no canto superior direito para personalizar meu nome, voz e comportamento do jeito que você preferir.
+Here's what I can do for you:
+🗺️ Navigate — trace routes via Waze or Google Maps
+🎵 Music — play songs on Spotify or YouTube
+💬 Chat — answer questions and search the web
+📅 Reminders — set and manage your agenda
+📱 WhatsApp — open contacts and send messages
+✈️ Travel — search flights and hotels
+🔔 Wake word — say "Ok Migoo" to open the app hands-free (activate in settings)
+
+⚙️ Tap the settings icon in the top right to customize your assistant's name, voice and personality.
+
+How can I help you today?"""
+        else:
+            saudacao = f"Olá{', ' + nome if nome else ''}! Sou a Margo, e vou te apresentar ao {nome_assistente}, seu assistente pessoal com IA."
+            mensagem = f"""{saudacao} 🌟
+
+Veja o que posso fazer por você:
+🗺️ Navegação — traça rotas pelo Waze ou Google Maps
+🎵 Música — toca músicas no Spotify ou YouTube
+💬 Conversa — responde perguntas e pesquisa na web
+📅 Lembretes — cria e gerencia sua agenda
+📱 WhatsApp — abre contatos e envia mensagens
+✈️ Viagens — busca voos e hotéis
+🔔 Wake word — fale "Ok Migoo" para abrir o app sem tocar na tela (ative nas configurações)
+
+⚙️ Toque no ícone de configurações no canto superior direito para personalizar o nome, voz e personalidade do seu assistente.
 
 Como posso te ajudar hoje?"""
         return JSONResponse({"mensagem": mensagem})
