@@ -2755,7 +2755,10 @@ async def boas_vindas(request: Request):
         idioma = config_u.get("idioma", "pt-BR") if usuario else "pt-BR"
 
         if idioma == "en-US":
-            saudacao = f"Hi{', ' + nome if nome else ''}! I'm Margo, and I'll introduce you to {nome_assistente}, your personal AI assistant."
+            if nome_assistente == "Margo":
+                saudacao = f"Hi{', ' + nome if nome else ''}! I'm Margo, your personal AI assistant."
+            else:
+                saudacao = f"Hi{', ' + nome if nome else ''}! I'm Margo, and I'll introduce you to {nome_assistente}, your personal AI assistant."
             mensagem = f"""{saudacao} 🌟
 
 Here's what I can do for you:
@@ -2771,7 +2774,10 @@ Here's what I can do for you:
 
 How can I help you today?"""
         else:
-            saudacao = f"Olá{', ' + nome if nome else ''}! Sou a Margo, e vou te apresentar ao {nome_assistente}, seu assistente pessoal com IA."
+            if nome_assistente == "Margo":
+                saudacao = f"Olá{', ' + nome if nome else ''}! Sou a Margo, sua assistente pessoal com IA."
+            else:
+                saudacao = f"Olá{', ' + nome if nome else ''}! Sou a Margo, e vou te apresentar ao {nome_assistente}, seu assistente pessoal com IA."
             mensagem = f"""{saudacao} 🌟
 
 Veja o que posso fazer por você:
