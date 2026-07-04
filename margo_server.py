@@ -1699,6 +1699,8 @@ Exemplos:
 "oi tudo bem?" → null
 "o que você acha de..." → null
 
+Se o histórico mostra que o assistente sugeriu um lugar e perguntou se quer a rota, e o usuário responde afirmativamente ("sim", "vai", "pode ir", "quero", "leva lá", "bora"), retorne maps_navigate com o destino mencionado no histórico.
+
 Retorne APENAS o JSON ou null."""
 
     try:
@@ -1862,6 +1864,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
         log(f"Brave Maps Search: {query_busca}", "busca")
         resultados_maps = buscar_brave(query_busca)
         if resultados_maps:
+            # Extrai o melhor lugar para eventual navegação
             prompt_lugar = f"""O usuário está em {cidade or 'localização desconhecida'} e quer: "{query_maps}"
 Resultados da busca:
 {resultados_maps}
@@ -1875,9 +1878,23 @@ Priorize lugares reais e próximos. Sem texto extra."""
                 lugar = json.loads(resultado_lugar)
                 if lugar.get("query"):
                     ferramenta["query"] = lugar["query"]
-                    contexto_busca += f"\n\nLugar encontrado: {lugar.get('nome', query_maps)} em {cidade}"
+                    nome_lugar = lugar.get("nome", query_maps)
+                else:
+                    nome_lugar = query_maps
             except:
-                pass
+                nome_lugar = query_maps
+
+            # Injeta resultados no contexto para a Margo responder com dicas
+            contexto_busca += f"""
+
+BUSCA LOCAL — O usuário perguntou sobre: "{query_maps}" em {cidade or 'localização atual'}
+Resultados encontrados:
+{resultados_maps}
+
+INSTRUÇÕES:
+- Comente sobre 1 ou 2 lugares encontrados com detalhes úteis (nome, endereço, por que vale)
+- No final, pergunte se quer a rota: "Quer que eu te leve até lá?"
+- NÃO emita JSON de ferramenta agora — a navegação só acontece se o usuário confirmar"""
 
     # Gera resposta natural
     # Usa vision se tiver imagem
