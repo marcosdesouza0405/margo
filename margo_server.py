@@ -1584,7 +1584,7 @@ Rota iniciada pro shopping!
 
 Usuário: "tem restaurante japonês aqui perto?"
 Você: {{"ferramenta": "maps_search", "query": "restaurante japonês"}}
-Procurando restaurantes japoneses aqui perto!
+[Aguarda o resultado da busca para dar dicas — não responde texto ainda]
 
 Usuário: "toca um forró pra gente"
 Você: {{"ferramenta": "spotify_play", "query": "forró"}}
