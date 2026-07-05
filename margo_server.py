@@ -1899,9 +1899,9 @@ INSTRUÇÕES:
     # Gera resposta natural
     # Usa vision se tiver imagem
     if imagem_base64:
-        resposta = chamar_gemini_vision(system + contexto_busca, mensagem, imagem_base64, max_tokens=500)
+        resposta = chamar_gemini_vision(system + contexto_busca, mensagem, imagem_base64, max_tokens=800)
     else:
-        resposta = chamar_deepseek(system + contexto_busca, mensagem, historico, max_tokens=500)
+        resposta = chamar_deepseek(system + contexto_busca, mensagem, historico, max_tokens=800)
 
     # Remove JSON da resposta caso o DeepSeek emita ferramenta em vez de texto
     resposta_limpa = resposta.strip()
@@ -1914,7 +1914,7 @@ INSTRUÇÕES:
         # DeepSeek retornou ferramenta — faz nova chamada pedindo resposta em texto
         resposta_limpa = chamar_deepseek(
             system + contexto_busca + "\n\nIMPORTANTE: Responda em texto natural, não em JSON.",
-            mensagem, historico, max_tokens=300
+            mensagem, historico, max_tokens=600
         )
         resposta_limpa = re.sub(r'\{[^{}]*"ferramenta"[^{}]*\}', '', resposta_limpa).strip()
 
