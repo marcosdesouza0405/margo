@@ -1699,7 +1699,7 @@ Exemplos:
 "oi tudo bem?" → null
 "o que você acha de..." → null
 
-Se o histórico mostra que o assistente sugeriu um lugar e perguntou se quer a rota, e o usuário responde afirmativamente ("sim", "vai", "pode ir", "quero", "leva lá", "bora"), retorne maps_navigate com o destino mencionado no histórico.
+Se o histórico mostra que o assistente sugeriu um lugar e perguntou se quer a rota, e o usuário responde afirmativamente ("sim", "vai", "pode ir", "quero", "leva lá", "bora"), retorne maps_navigate com o destino. Se no histórico houver [DESTINO_EXATO], use esse endereço completo como destino — não o nome genérico.
 
 Retorne APENAS o JSON ou null."""
 
@@ -1869,20 +1869,27 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
 Resultados da busca:
 {resultados_maps}
 
-Retorne APENAS um JSON com o melhor resultado LOCAL:
-{{"nome": "nome do lugar", "query": "nome do lugar, {cidade}"}}
-Priorize lugares reais e próximos. Sem texto extra."""
+Retorne APENAS um JSON com o melhor resultado LOCAL mais próximo:
+{{"nome": "nome do lugar", "endereco": "endereço completo com cidade e país", "query": "nome do lugar, endereço completo"}}
+Priorize lugares reais e próximos. Use o endereço mais completo possível. Sem texto extra."""
             try:
-                resultado_lugar = chamar_deepseek_simples(prompt_lugar, max_tokens=80)
+                resultado_lugar = chamar_deepseek_simples(prompt_lugar, max_tokens=120)
                 resultado_lugar = re.sub(r'```(?:json)?\s*', '', resultado_lugar).strip()
                 lugar = json.loads(resultado_lugar)
                 if lugar.get("query"):
                     ferramenta["query"] = lugar["query"]
                     nome_lugar = lugar.get("nome", query_maps)
+                    endereco_lugar = lugar.get("endereco", "")
                 else:
                     nome_lugar = query_maps
+                    endereco_lugar = ""
             except:
                 nome_lugar = query_maps
+                endereco_lugar = ""
+
+            # Guarda endereço exato no contexto para o maps_navigate usar depois
+            if endereco_lugar:
+                contexto_busca += f"\n[DESTINO_EXATO para navegação: {nome_lugar} — {endereco_lugar}]" 
 
             # Injeta resultados no contexto para a Margo responder com dicas
             contexto_busca += f"""
