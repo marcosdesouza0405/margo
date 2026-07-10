@@ -1941,18 +1941,23 @@ INSTRUÇÕES:
                     hl = hl[:-2] + ':' + hl[-2:]
                 hora_local_dt = datetime.fromisoformat(hl)
                 if minutos_relativos and int(minutos_relativos) > 0:
-                    from datetime import timezone as tz
                     dt_exato = hora_local_dt + timedelta(minutes=int(minutos_relativos))
+                    # Converte para UTC subtraindo o offset local
+                    offset = hora_local_dt.utcoffset()
+                    if offset:
+                        dt_exato = dt_exato - offset
                     data_hora_agenda = dt_exato.strftime("%Y-%m-%dT%H:%M:%S")
-                    log(f"Agenda calculada: hora_local={hora_local_dt} + {minutos_relativos}min = {data_hora_agenda}", "agenda")
+                    log(f"Agenda calculada UTC: hora_local={hora_local_dt} + {minutos_relativos}min - offset={offset} = {data_hora_agenda}", "agenda")
                 elif data_hora_agenda:
-                    # Ajusta fuso da data absoluta
+                    # Converte horário local do usuário para UTC para comparação correta no servidor
                     dt_agenda = datetime.fromisoformat(data_hora_agenda.replace("Z", ""))
                     if dt_agenda.tzinfo is None:
                         offset = hora_local_dt.utcoffset()
                         if offset:
-                            dt_agenda = dt_agenda + offset
+                            # Subtrai offset para converter local → UTC
+                            dt_agenda = dt_agenda - offset
                     data_hora_agenda = dt_agenda.strftime("%Y-%m-%dT%H:%M:%S")
+                    log(f"Agenda UTC: {data_hora_agenda} (offset={hora_local_dt.utcoffset()})", "agenda")
             except Exception as e:
                 log(f"Erro ajuste fuso agenda: {e}", "agenda")
 
