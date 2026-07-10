@@ -1978,6 +1978,7 @@ INSTRUÇÕES:
         except:
             pass
 
+        log(f"Salvando lembrete: titulo={titulo_agenda} | data_hora={data_hora_agenda} | user={user_id}", 'agenda')
         banco.salvar_lembrete(user_id, titulo_agenda, descricao_agenda, data_hora_agenda)
 
     # ── SMART HOME (SmartThings) ───────────────────────────────────────────────
