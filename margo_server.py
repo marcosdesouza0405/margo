@@ -914,8 +914,16 @@ def spotify_play(user_id: str, query: str) -> bool:
         search_url = f"https://api.spotify.com/v1/search?q={urllib.parse.quote(query)}&type=track,playlist&limit=1"
         req = urllib.request.Request(search_url,
             headers={"Authorization": f"Bearer {token}"})
-        resp = urllib.request.urlopen(req, timeout=10)
-        data = json.loads(resp.read())
+        try:
+            resp = urllib.request.urlopen(req, timeout=10)
+            data = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            try:
+                corpo = e.read().decode()
+            except:
+                corpo = "(sem corpo)"
+            log(f"Spotify search HTTP {e.code}: {corpo} | token_inicio={token[:20]}...", "spotify")
+            return False
 
         # Pega URI da primeira faixa ou playlist
         uri = None
@@ -968,6 +976,13 @@ def spotify_play(user_id: str, query: str) -> bool:
         req2.get_method = lambda: 'PUT'
         urllib.request.urlopen(req2, timeout=10)
         return True
+    except urllib.error.HTTPError as e:
+        try:
+            corpo = e.read().decode()
+        except:
+            corpo = "(sem corpo)"
+        log(f"Spotify play HTTP {e.code}: {corpo}", "spotify")
+        return False
     except Exception as e:
         log(f"Spotify play erro: {e}", "spotify")
         return False
