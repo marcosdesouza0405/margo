@@ -2791,6 +2791,70 @@ scheduler_thread.start()
 print(">>> SCHEDULER AGENDA INICIADO <<<")
 log("Scheduler de agenda iniciado", "agenda")
 
+GOOGLE_TTS_API_KEY = os.environ.get("GOOGLE_TTS_API_KEY", "")
+
+def falar_google_tts(texto, idioma="pt-br", genero="F"):
+    """Google Cloud TTS — voz Standard-C (free tier 4M chars/mês)"""
+    if not GOOGLE_TTS_API_KEY:
+        return None
+    try:
+        vozes = {
+            ("pt-br", "F"): ("pt-BR", "pt-BR-Standard-C"),
+            ("pt-br", "M"): ("pt-BR", "pt-BR-Standard-B"),
+            ("en", "F"):    ("en-US", "en-US-Standard-F"),
+            ("en", "M"):    ("en-US", "en-US-Standard-D"),
+        }
+        lang_code, voice_name = vozes.get((idioma, genero), ("pt-BR", "pt-BR-Standard-C"))
+        url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={GOOGLE_TTS_API_KEY}"
+        payload = json.dumps({
+            "input": {"text": texto},
+            "voice": {"languageCode": lang_code, "name": voice_name},
+            "audioConfig": {"audioEncoding": "MP3", "speakingRate": 1.05}
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=payload,
+              headers={"Content-Type": "application/json"})
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read())
+        audio_b64 = data.get("audioContent", "")
+        if audio_b64:
+            return base64.b64decode(audio_b64)
+        return None
+    except Exception as e:
+        log(f"Google TTS erro: {e}", "gtts")
+        return None
+
+GOOGLE_TTS_API_KEY = os.environ.get("GOOGLE_TTS_API_KEY", "")
+
+def falar_google_tts(texto, idioma="pt-br", genero="F"):
+    """Google Cloud TTS — voz Standard-C (free tier 4M chars/mês)"""
+    if not GOOGLE_TTS_API_KEY:
+        return None
+    try:
+        vozes = {
+            ("pt-br", "F"): ("pt-BR", "pt-BR-Standard-C"),
+            ("pt-br", "M"): ("pt-BR", "pt-BR-Standard-B"),
+            ("en", "F"):    ("en-US", "en-US-Standard-F"),
+            ("en", "M"):    ("en-US", "en-US-Standard-D"),
+        }
+        lang_code, voice_name = vozes.get((idioma, genero), ("pt-BR", "pt-BR-Standard-C"))
+        url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={GOOGLE_TTS_API_KEY}"
+        payload = json.dumps({
+            "input": {"text": texto},
+            "voice": {"languageCode": lang_code, "name": voice_name},
+            "audioConfig": {"audioEncoding": "MP3", "speakingRate": 1.05}
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=payload,
+              headers={"Content-Type": "application/json"})
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read())
+        audio_b64 = data.get("audioContent", "")
+        if audio_b64:
+            return base64.b64decode(audio_b64)
+        return None
+    except Exception as e:
+        log(f"Google TTS erro: {e}", "gtts")
+        return None
+
 @app.post("/kokoro_tts")
 async def kokoro_tts_endpoint(request: Request):
     """Gera áudio TTS via Kokoro. Body: { texto, idioma, genero }"""
@@ -2801,6 +2865,16 @@ async def kokoro_tts_endpoint(request: Request):
         genero = data.get("genero", "F")
         if not texto:
             return JSONResponse({"erro": "texto obrigatório"}, status_code=400)
+
+        # Google TTS primeiro para pt-BR (voz melhor); Kokoro para inglês e fallback
+        if idioma == "pt-br" and genero == "F" and GOOGLE_TTS_API_KEY:
+            audio_google = falar_google_tts(texto, idioma, genero)
+            if audio_google:
+                import base64
+                audio_b64 = base64.b64encode(audio_google).decode()
+                return JSONResponse({"audio_base64": audio_b64, "formato": "mp3"})
+            log("Google TTS falhou — usando Kokoro como fallback", "gtts")
+
         if not _kokoro_ready:
             return JSONResponse({"erro": "Kokoro não está pronto ainda"}, status_code=503)
         audio_bytes = kokoro_tts(texto, idioma, genero)
