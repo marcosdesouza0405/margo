@@ -1624,6 +1624,42 @@ def limpar_resposta(texto):
     texto = re.sub(r'\s+', ' ', texto)                      # espaços duplos
     return texto.strip()
 
+def buscar_open_meteo(latitude, longitude) -> str:
+    """Consulta clima atual e previsão via Open-Meteo (gratuito, global, sem chave)"""
+    try:
+        url = (f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}"
+               f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m"
+               f"&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code"
+               f"&timezone=auto&forecast_days=3")
+        req = urllib.request.Request(url, headers={"User-Agent": "MargoApp/1.0"})
+        resp = urllib.request.urlopen(req, timeout=8)
+        data = json.loads(resp.read())
+
+        codigos = {0:"céu limpo",1:"predominantemente limpo",2:"parcialmente nublado",3:"nublado",
+                   45:"nevoeiro",48:"nevoeiro com geada",51:"garoa leve",53:"garoa",55:"garoa forte",
+                   61:"chuva leve",63:"chuva",65:"chuva forte",66:"chuva congelante leve",67:"chuva congelante",
+                   71:"neve leve",73:"neve",75:"neve forte",77:"granizo fino",80:"pancadas leves",
+                   81:"pancadas de chuva",82:"pancadas fortes",85:"pancadas de neve leves",86:"pancadas de neve",
+                   95:"tempestade",96:"tempestade com granizo leve",99:"tempestade com granizo"}
+
+        atual = data.get("current", {})
+        diaria = data.get("daily", {})
+        cond = codigos.get(atual.get("weather_code", -1), "condição desconhecida")
+
+        resultado = (f"AGORA: {atual.get('temperature_2m')}°C (sensação {atual.get('apparent_temperature')}°C), "
+                     f"{cond}, umidade {atual.get('relative_humidity_2m')}%, vento {atual.get('wind_speed_10m')} km/h")
+
+        dias = diaria.get("time", [])
+        for i, dia in enumerate(dias[:3]):
+            cond_dia = codigos.get(diaria.get("weather_code", [None]*3)[i], "")
+            resultado += (f"\n{dia}: min {diaria.get('temperature_2m_min', [''])[i]}°C / "
+                          f"max {diaria.get('temperature_2m_max', [''])[i]}°C, "
+                          f"{cond_dia}, chance de chuva {diaria.get('precipitation_probability_max', [''])[i]}%")
+        return resultado
+    except Exception as e:
+        log(f"Erro Open-Meteo: {e}", "clima")
+        return ""
+
 def detectar_intencao(mensagem: str, historico: list = None, perfil: dict = None) -> dict:
     """
     Chamada rápida ao DeepSeek para detectar intenção e extrair parâmetros.
@@ -1659,6 +1695,8 @@ Retorne APENAS um JSON válido se a mensagem pede:
 - Tocar no SoundCloud: {{"ferramenta":"soundcloud_play","query":"artista ou gênero"}}
 - Buscar vídeo: {{"ferramenta":"youtube_search","query":"tema do vídeo"}}
 - Ligar/WhatsApp: {{"ferramenta":"phone_call","contato":"nome COMPLETO ou número"}}
+- Clima/tempo/previsão: {{"ferramenta":"weather"}}
+→ Use para QUALQUER pergunta sobre clima, tempo, chuva, temperatura, previsão, calor, frio
 - Pesquisa na internet: {{"ferramenta":"web_search","query":"termo de busca"}}
 - Agenda/lembrete: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601","minutos_relativos":0}}
 → minutos_relativos: OBRIGATÓRIO! "daqui 5 min"=5, "daqui 2 horas"=120, "daqui 1h30"=90. Horário fixo=0.
@@ -1669,7 +1707,6 @@ Retorne APENAS um JSON válido se a mensagem pede:
 - Passagem aérea/voo: {{"ferramenta":"flight_search","origem":"cidade origem ou vazio","destino":"cidade destino","origem_iata":"código IATA 3 letras","destino_iata":"código IATA 3 letras","data_ida":"YYYY-MM-DD ou vazio","data_volta":"YYYY-MM-DD ou vazio"}}
 
 REGRA CRÍTICA — Use web_search para QUALQUER pergunta sobre fatos do mundo real:
-- Tempo/clima atual ou futuro
 - Notícias, eventos recentes
 - Preços, cotações, valores
 - Resultados de jogos, competições
@@ -1689,7 +1726,8 @@ REGRAS para música: use preferências do usuário se não especificou.
 Exemplos:
 "toca uma música" → {{"ferramenta":"spotify_play","query":"sertanejo"}}
 "liga o ar" → {{"ferramenta":"smart_home","acao":"ligar","dispositivo":"ar"}}
-"vai chover hoje?" → {{"ferramenta":"web_search","query":"previsão do tempo hoje"}}
+"vai chover hoje?" → {{"ferramenta":"weather"}}
+"que calor é esse?" → {{"ferramenta":"weather"}}
 "qual a cotação do dólar?" → {{"ferramenta":"web_search","query":"cotação dólar hoje"}}
 "quem é o presidente do brasil?" → {{"ferramenta":"web_search","query":"presidente do Brasil"}}
 "qual o resultado do jogo?" → {{"ferramenta":"web_search","query":"resultado jogo hoje"}}
@@ -1843,6 +1881,22 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
             contexto_busca = f"\n\nNão encontrei resultados específicos. Responda com o que sabe, mas seja honesto sobre limitações."
 
     # ── MAPS SEARCH: busca lugar específico antes de abrir ────────────────────
+    # ── CLIMA: Open-Meteo com coordenadas do dispositivo ──────────────────────
+    if ferramenta and ferramenta.get("ferramenta") == "weather" and latitude and longitude:
+        log(f"Open-Meteo: lat={latitude} lng={longitude}", "clima")
+        dados_clima = buscar_open_meteo(latitude, longitude)
+        if dados_clima:
+            contexto_busca += f"""
+
+[DADOS DE CLIMA REAIS — USE ESTES VALORES EXATOS]:
+{dados_clima}
+[FIM DOS DADOS]
+IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima, mencionando o que for relevante para a pergunta do usuário. Não invente valores."""
+        else:
+            contexto_busca += "\n\nNão consegui obter dados de clima no momento. Seja honesto sobre isso."
+        # Weather não abre nada no app — só responde
+        ferramenta = None
+
     if ferramenta and ferramenta.get("ferramenta") == "maps_search" and BRAVE_API_KEY and latitude and longitude:
         query_maps = ferramenta.get("query", "")
         # Busca cidade via geocoding reverso gratuito
