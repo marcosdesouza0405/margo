@@ -929,12 +929,36 @@ def spotify_play(user_id: str, query: str) -> bool:
         if not uri:
             return False
 
-        # Toca no dispositivo ativo
+        # Busca dispositivos disponíveis — prioriza smartphone
+        device_id = None
+        try:
+            req_dev = urllib.request.Request(
+                "https://api.spotify.com/v1/me/player/devices",
+                headers={"Authorization": f"Bearer {token}"})
+            resp_dev = urllib.request.urlopen(req_dev, timeout=10)
+            devices = json.loads(resp_dev.read()).get("devices", [])
+            # Prioridade: dispositivo ativo > smartphone > qualquer um
+            ativos = [d for d in devices if d.get("is_active")]
+            phones = [d for d in devices if d.get("type") == "Smartphone"]
+            if ativos:
+                device_id = ativos[0]["id"]
+            elif phones:
+                device_id = phones[0]["id"]
+            elif devices:
+                device_id = devices[0]["id"]
+            log(f"Spotify devices: {[(d.get('name'), d.get('type'), d.get('is_active')) for d in devices]} — usando {device_id}", "spotify")
+        except Exception as e:
+            log(f"Spotify devices erro: {e}", "spotify")
+
+        # Toca no dispositivo encontrado (ou ativo se nenhum device_id)
+        play_url = "https://api.spotify.com/v1/me/player/play"
+        if device_id:
+            play_url += f"?device_id={device_id}"
         play_body = json.dumps(
             {"uris": [uri]} if uri.startswith("spotify:track") else {"context_uri": uri}
         ).encode()
         req2 = urllib.request.Request(
-            "https://api.spotify.com/v1/me/player/play",
+            play_url,
             data=play_body,
             headers={
                 "Authorization": f"Bearer {token}",
