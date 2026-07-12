@@ -946,7 +946,7 @@ def spotify_play(user_id: str, query: str) -> bool:
         device_id = None
         try:
             import time as _time
-            for tentativa in range(3):
+            for tentativa in range(5):
                 req_dev = urllib.request.Request(
                     "https://api.spotify.com/v1/me/player/devices",
                     headers={"Authorization": f"Bearer {token}"})
@@ -956,7 +956,7 @@ def spotify_play(user_id: str, query: str) -> bool:
                 if phones:
                     device_id = phones[0]["id"]
                     break
-                if tentativa < 2:
+                if tentativa < 4:
                     _time.sleep(2)
             if not device_id:
                 ativos = [d for d in devices if d.get("is_active")]
