@@ -945,13 +945,13 @@ def spotify_play(user_id: str, query: str) -> bool:
                 headers={"Authorization": f"Bearer {token}"})
             resp_dev = urllib.request.urlopen(req_dev, timeout=10)
             devices = json.loads(resp_dev.read()).get("devices", [])
-            # Prioridade: dispositivo ativo > smartphone > qualquer um
-            ativos = [d for d in devices if d.get("is_active")]
+            # Prioridade: SEMPRE smartphone (onde o Migoo está) > ativo > qualquer um
             phones = [d for d in devices if d.get("type") == "Smartphone"]
-            if ativos:
-                device_id = ativos[0]["id"]
-            elif phones:
+            ativos = [d for d in devices if d.get("is_active")]
+            if phones:
                 device_id = phones[0]["id"]
+            elif ativos:
+                device_id = ativos[0]["id"]
             elif devices:
                 device_id = devices[0]["id"]
             log(f"Spotify devices: {[(d.get('name'), d.get('type'), d.get('is_active')) for d in devices]} — usando {device_id}", "spotify")
