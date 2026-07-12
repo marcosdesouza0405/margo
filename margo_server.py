@@ -927,10 +927,15 @@ def spotify_play(user_id: str, query: str) -> bool:
 
         # Pega URI da primeira faixa ou playlist
         uri = None
+        album_uri = None
+        track_position = 0
         tracks = data.get("tracks", {}).get("items", [])
         playlists = data.get("playlists", {}).get("items", [])
         if tracks:
             uri = tracks[0]["uri"]
+            # Contexto do álbum para continuar tocando após a música
+            album_uri = tracks[0].get("album", {}).get("uri")
+            track_position = tracks[0].get("track_number", 1) - 1
         elif playlists:
             uri = playlists[0]["uri"]
 
@@ -967,9 +972,14 @@ def spotify_play(user_id: str, query: str) -> bool:
         play_url = "https://api.spotify.com/v1/me/player/play"
         if device_id:
             play_url += f"?device_id={device_id}"
-        play_body = json.dumps(
-            {"uris": [uri]} if uri.startswith("spotify:track") else {"context_uri": uri}
-        ).encode()
+        # Track: toca dentro do contexto do álbum (continua tocando depois)
+        if uri.startswith("spotify:track") and album_uri:
+            play_payload = {"context_uri": album_uri, "offset": {"position": track_position}}
+        elif uri.startswith("spotify:track"):
+            play_payload = {"uris": [uri]}
+        else:
+            play_payload = {"context_uri": uri}
+        play_body = json.dumps(play_payload).encode()
         req2 = urllib.request.Request(
             play_url,
             data=play_body,
