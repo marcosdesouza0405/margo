@@ -937,23 +937,28 @@ def spotify_play(user_id: str, query: str) -> bool:
         if not uri:
             return False
 
-        # Busca dispositivos disponíveis — prioriza smartphone
+        # Busca dispositivos — prioriza smartphone, com retry (celular demora a registrar)
         device_id = None
         try:
-            req_dev = urllib.request.Request(
-                "https://api.spotify.com/v1/me/player/devices",
-                headers={"Authorization": f"Bearer {token}"})
-            resp_dev = urllib.request.urlopen(req_dev, timeout=10)
-            devices = json.loads(resp_dev.read()).get("devices", [])
-            # Prioridade: SEMPRE smartphone (onde o Migoo está) > ativo > qualquer um
-            phones = [d for d in devices if d.get("type") == "Smartphone"]
-            ativos = [d for d in devices if d.get("is_active")]
-            if phones:
-                device_id = phones[0]["id"]
-            elif ativos:
-                device_id = ativos[0]["id"]
-            elif devices:
-                device_id = devices[0]["id"]
+            import time as _time
+            for tentativa in range(3):
+                req_dev = urllib.request.Request(
+                    "https://api.spotify.com/v1/me/player/devices",
+                    headers={"Authorization": f"Bearer {token}"})
+                resp_dev = urllib.request.urlopen(req_dev, timeout=10)
+                devices = json.loads(resp_dev.read()).get("devices", [])
+                phones = [d for d in devices if d.get("type") == "Smartphone"]
+                if phones:
+                    device_id = phones[0]["id"]
+                    break
+                if tentativa < 2:
+                    _time.sleep(2)
+            if not device_id:
+                ativos = [d for d in devices if d.get("is_active")]
+                if ativos:
+                    device_id = ativos[0]["id"]
+                elif devices:
+                    device_id = devices[0]["id"]
             log(f"Spotify devices: {[(d.get('name'), d.get('type'), d.get('is_active')) for d in devices]} — usando {device_id}", "spotify")
         except Exception as e:
             log(f"Spotify devices erro: {e}", "spotify")
