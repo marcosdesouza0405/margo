@@ -413,6 +413,16 @@ class BancoMargo:
                     conn.commit()
                     log(f"Coluna {col} adicionada", "db")
                 except:
+                    conn.rollback()
+            for col, tipo in [
+                ("acao_smart", "TEXT"),
+                ("acao_executada", "INTEGER DEFAULT 0")
+            ]:
+                try:
+                    cur.execute(f"ALTER TABLE agenda ADD COLUMN {col} {tipo}")
+                    conn.commit()
+                    log(f"Coluna agenda.{col} adicionada", "db")
+                except:
                     pass
         finally:
             conn.close()
@@ -784,6 +794,35 @@ class BancoMargo:
         ph = "%s" if self._pg else "?"
         c.execute(f'INSERT INTO agenda (user_id, titulo, descricao, data_hora, criado_em) VALUES ({ph},{ph},{ph},{ph},{ph})',
                   (user_id, titulo, descricao, data_hora, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+
+    def salvar_lembrete_smart(self, user_id, titulo, acao_json, data_hora):
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        c.execute(f'INSERT INTO agenda (user_id, titulo, descricao, data_hora, criado_em, acao_smart, acao_executada) VALUES ({ph},{ph},{ph},{ph},{ph},{ph},0)',
+                  (user_id, titulo, "", data_hora, datetime.now().isoformat(), acao_json))
+        conn.commit()
+        conn.close()
+
+    def acoes_smart_vencidas(self) -> list:
+        """Retorna ações smart agendadas cujo horário chegou e ainda não executadas"""
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        agora = datetime.now().isoformat()
+        c.execute(f'SELECT * FROM agenda WHERE acao_smart IS NOT NULL AND acao_executada=0 AND data_hora <= {ph}', (agora,))
+        rows = c.fetchall()
+        result = [self._row_to_dict(r, c) for r in rows]
+        conn.close()
+        return result
+
+    def marcar_acao_executada(self, item_id):
+        conn = self._get_conn()
+        c = conn.cursor()
+        ph = "%s" if self._pg else "?"
+        c.execute(f'UPDATE agenda SET acao_executada=1 WHERE id={ph}', (item_id,))
         conn.commit()
         conn.close()
 
@@ -1756,7 +1795,10 @@ Retorne APENAS um JSON válido se a mensagem pede:
 → minutos_relativos: OBRIGATÓRIO! "daqui 5 min"=5, "daqui 2 horas"=120, "daqui 1h30"=90. Horário fixo=0.
 → Use para: "me lembra de", "agenda", "lembrete", "daqui X minutos", "às X horas"
 → NUNCA use web_search para lembretes/agenda
-- Casa inteligente: {{"ferramenta":"smart_home","acao":"ligar|desligar|ajustar","dispositivo":"nome do dispositivo"}}
+- Casa inteligente AGORA: {{"ferramenta":"smart_home","acao":"ligar|desligar|ajustar","dispositivo":"nome do dispositivo"}}
+- Casa inteligente AGENDADA (com horário futuro): {{"ferramenta":"smart_home_agendado","acao":"ligar|desligar|ajustar","dispositivo":"nome","valor":"","data_hora":"ISO8601","minutos_relativos":0}}
+→ Use quando houver horário: "liga o ar às 18h", "desliga a luz daqui 2 horas", "liga o ar quando eu chegar às 19h"
+→ minutos_relativos igual à agenda: "daqui 2 horas"=120; horário fixo=0
 - Hotel/hospedagem: {{"ferramenta":"hotel_search","destino":"cidade ou local","checkin":"YYYY-MM-DD ou vazio","checkout":"YYYY-MM-DD ou vazio"}}
 - Passagem aérea/voo: {{"ferramenta":"flight_search","origem":"cidade origem ou vazio","destino":"cidade destino","origem_iata":"código IATA 3 letras","destino_iata":"código IATA 3 letras","data_ida":"YYYY-MM-DD ou vazio","data_volta":"YYYY-MM-DD ou vazio"}}
 
@@ -2088,6 +2130,38 @@ INSTRUÇÕES:
 
         log(f"Salvando lembrete: titulo={titulo_agenda} | data_hora={data_hora_agenda} | user={user_id}", 'agenda')
         banco.salvar_lembrete(user_id, titulo_agenda, descricao_agenda, data_hora_agenda)
+
+    # ── SMART HOME AGENDADO ────────────────────────────────────────────────────
+    if ferramenta and ferramenta.get("ferramenta") == "smart_home_agendado":
+        data_hora_sh = ferramenta.get("data_hora", "")
+        minutos_rel_sh = ferramenta.get("minutos_relativos", 0)
+        if hora_local:
+            try:
+                hl = hora_local.replace("Z", "+00:00")
+                if len(hl) > 5 and hl[-5] in '+-' and ':' not in hl[-5:]:
+                    hl = hl[:-2] + ':' + hl[-2:]
+                hora_local_dt = datetime.fromisoformat(hl)
+                offset = hora_local_dt.utcoffset()
+                if minutos_rel_sh and int(minutos_rel_sh) > 0:
+                    dt_exato = hora_local_dt + timedelta(minutes=int(minutos_rel_sh))
+                    if offset:
+                        dt_exato = dt_exato - offset
+                    data_hora_sh = dt_exato.strftime("%Y-%m-%dT%H:%M:%S")
+                elif data_hora_sh:
+                    dt_sh = datetime.fromisoformat(data_hora_sh.replace("Z", ""))
+                    if dt_sh.tzinfo is None and offset:
+                        dt_sh = dt_sh - offset
+                    data_hora_sh = dt_sh.strftime("%Y-%m-%dT%H:%M:%S")
+            except Exception as e:
+                log(f"Erro fuso smart agendado: {e}", "smart")
+        acao_json = json.dumps({
+            "acao": ferramenta.get("acao", "ligar"),
+            "dispositivo": ferramenta.get("dispositivo", ""),
+            "valor": ferramenta.get("valor")
+        })
+        titulo_sh = f"{ferramenta.get('acao','ligar')} {ferramenta.get('dispositivo','')}"
+        banco.salvar_lembrete_smart(user_id, titulo_sh, acao_json, data_hora_sh)
+        log(f"Smart agendado: {titulo_sh} @ {data_hora_sh} UTC", "smart")
 
     # ── SMART HOME (SmartThings) ───────────────────────────────────────────────
     if ferramenta and ferramenta.get("ferramenta") == "smart_home":
@@ -2834,10 +2908,28 @@ async def agenda_pendentes(user_id: str):
         return JSONResponse({"pendentes": []})
 
 def verificar_agenda():
-    """Scheduler mantido para compatibilidade — lógica migrada para /agenda/pendentes."""
+    """Scheduler: executa ações smart home agendadas a cada 60s."""
     import time
     while True:
-        time.sleep(300)
+        try:
+            vencidas = banco.acoes_smart_vencidas()
+            for item in vencidas:
+                try:
+                    acao = json.loads(item.get("acao_smart", "{}"))
+                    resultado = st_executar_acao(
+                        item["user_id"],
+                        acao.get("acao", "ligar"),
+                        acao.get("dispositivo", ""),
+                        acao.get("valor")
+                    )
+                    banco.marcar_acao_executada(item["id"])
+                    log(f"Smart agendado executado: {item['titulo']} → {resultado}", "smart")
+                except Exception as e:
+                    banco.marcar_acao_executada(item["id"])  # evita loop infinito de retry
+                    log(f"Erro executando smart agendado {item.get('id')}: {e}", "smart")
+        except Exception as e:
+            log(f"Scheduler erro: {e}", "smart")
+        time.sleep(60)
 
 # Inicia scheduler em background
 scheduler_thread = threading.Thread(target=verificar_agenda, daemon=True)
