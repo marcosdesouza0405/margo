@@ -393,6 +393,8 @@ class BancoMargo:
         "free":     999999,  # free trial: sem limite diário, mas tem total de 50
         "pro":      20,
         "pro_plus": 50,
+        "premium":  100,     # plano novo: multilingue + tradutor + memoria estendida
+        "tester":   20,      # testadores: 20/dia, tudo liberado, 30 dias
         "admin":    999999,
     }
     TRIAL_LIMITE = 50  # total de interações no free trial
@@ -757,12 +759,12 @@ class BancoMargo:
         ph = "%s" if self._pg else "?"
         c.execute(f'SELECT COUNT(*) FROM resumos_sessao WHERE user_id={ph}', (user_id,))
         count = c.fetchone()[0]
-        if count >= 5:
+        if count >= 10:
             if self._pg:
                 c.execute(f'DELETE FROM resumos_sessao WHERE id = (SELECT id FROM resumos_sessao WHERE user_id={ph} ORDER BY criado_em ASC LIMIT 1)', (user_id,))
             else:
                 c.execute('DELETE FROM resumos_sessao WHERE id = (SELECT id FROM resumos_sessao WHERE user_id=? ORDER BY criado_em ASC LIMIT 1)', (user_id,))
-        resumo_curto = resumo[:100]
+        resumo_curto = resumo[:300]
         c.execute(f'INSERT INTO resumos_sessao (user_id, resumo, criado_em) VALUES ({ph},{ph},{ph})',
                   (user_id, resumo_curto, datetime.now().isoformat()))
         conn.commit()
@@ -772,7 +774,7 @@ class BancoMargo:
         conn = self._get_conn()
         c = conn.cursor()
         ph = "%s" if self._pg else "?"
-        c.execute(f'SELECT resumo FROM resumos_sessao WHERE user_id={ph} ORDER BY criado_em DESC LIMIT 5', (user_id,))
+        c.execute(f'SELECT resumo FROM resumos_sessao WHERE user_id={ph} ORDER BY criado_em DESC LIMIT 10', (user_id,))
         result = [r[0] for r in c.fetchall()]
         conn.close()
         return result
@@ -895,10 +897,15 @@ class SessaoUsuario:
         historico = self.get_historico(user_id)
         if not historico:
             return
+        # Memória estendida só para premium, tester e admin — não gasta DeepSeek nos demais
+        _usr = banco.buscar_usuario_por_id(user_id)
+        if (_usr.get("plano", "free") if _usr else "free") not in ("premium", "tester", "admin"):
+            self.limpar(user_id)
+            return
         log_txt = " | ".join([f"U:{i['user']} A:{i['assistant']}" for i in historico])
         resumo = chamar_deepseek_simples(
-            f"Resuma em 1 frase (max 100 chars) essa conversa: {log_txt[:600]}",
-            max_tokens=80
+            f"Resuma em 2-3 frases (max 300 chars) o essencial dessa conversa — o que o usuário pediu, decisões e preferências reveladas: {log_txt[:1200]}",
+            max_tokens=150
         )
         if resumo:
             banco.salvar_resumo(user_id, resumo)
@@ -1918,7 +1925,11 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
 
     # ── MODO NORMAL ────────────────────────────────────────────────────────────
     historico = sessoes.get_historico(user_id)
-    resumos   = banco.buscar_resumos(user_id)
+    # Memória estendida (resumos de sessões anteriores) — só premium, tester e admin
+    PLANOS_MEMORIA = ("premium", "tester", "admin")
+    _usr = banco.buscar_usuario_por_id(user_id)
+    _plano_user = (_usr.get("plano", "free") if _usr else "free")
+    resumos = banco.buscar_resumos(user_id) if _plano_user in PLANOS_MEMORIA else []
     lembretes = banco.lembretes_proximos(user_id)
 
     contexto_extra = ""
