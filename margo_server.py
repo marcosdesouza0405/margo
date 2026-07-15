@@ -3067,7 +3067,8 @@ async def stt_endpoint(request: Request):
             data=corpo,
             headers={
                 "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": f"multipart/form-data; boundary={boundary}"
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "User-Agent": "Margo/1.0 (Orbiby; +https://orbiby.com)"
             }
         )
         resp = urllib.request.urlopen(req, timeout=30)
