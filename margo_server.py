@@ -1880,7 +1880,7 @@ def extrair_onboarding_completo(texto):
             pass
     return None
 
-def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_local="", imagem_base64=""):
+def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_local="", imagem_base64="", idioma_falado=""):
     config = banco.buscar_config(user_id)
     perfil = banco.buscar_perfil(user_id)
 
@@ -1949,6 +1949,8 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     lembretes = banco.lembretes_proximos(user_id)
 
     contexto_extra = ""
+    if idioma_falado and idioma_falado.lower() not in ("portuguese", "pt", "pt-br"):
+        contexto_extra += f"\n⚠️ REGRA PRIORITÁRIA ABSOLUTA: O usuário FALOU em {idioma_falado}. Sua resposta COMPLETA deve ser em {idioma_falado}. NÃO responda em português. Mantenha sua personalidade, mas em {idioma_falado}."
     if hora_local:
         contexto_extra += f"\nHora e data atual do usuário: {hora_local} — CRÍTICO: Use EXATAMENTE este horário como base para calcular agendamentos. Se o usuário pedir 'daqui X minutos', some X minutos ao horário acima e use como data_hora no ISO8601. NÃO use horário UTC nem fuso diferente."
     if latitude and longitude:
@@ -3075,6 +3077,13 @@ async def stt_endpoint(request: Request):
         resultado = json.loads(resp.read())
         texto = resultado.get("text", "").strip()
         idioma = resultado.get("language", "")
+        # Filtra alucinações clássicas do Whisper em áudio de silêncio
+        alucinacoes = ["next video", "thanks for watching", "thank you for watching",
+                       "legendas pela comunidade", "obrigado por assistir", "inscreva-se",
+                       "ご視聴ありがとう"]
+        if not texto or len(texto) < 3 or any(a in texto.lower() for a in alucinacoes):
+            log(f"STT descartado (alucinacao/vazio): {texto[:60]}", "stt")
+            return JSONResponse({"texto": "", "idioma": idioma})
         log(f"STT Groq: [{idioma}] {texto[:80]}", "stt")
         return JSONResponse({"texto": texto, "idioma": idioma})
     except urllib.error.HTTPError as e:
@@ -3430,6 +3439,7 @@ async def mensagem(request: Request):
         latitude  = data.get("latitude")
         longitude = data.get("longitude")
         hora_local = data.get("hora_local", "")
+        idioma_falado = data.get("idioma_falado", "")
         imagem_base64 = data.get("imagem_base64", "")
         if not mensagem_ and not imagem_base64:
             return JSONResponse({"erro": "mensagem vazia"}, status_code=400)
@@ -3450,7 +3460,7 @@ async def mensagem(request: Request):
                 "ferramenta": None
             })
 
-        resultado = processar_mensagem(user_id, mensagem_, latitude, longitude, hora_local=hora_local, imagem_base64=imagem_base64)
+        resultado = processar_mensagem(user_id, mensagem_, latitude, longitude, hora_local=hora_local, imagem_base64=imagem_base64, idioma_falado=idioma_falado)
         banco.registrar_uso(user_id, usando_extras=uso.get("usando_extras", False))
         return JSONResponse(resultado)
     except Exception as e:
