@@ -3028,6 +3028,65 @@ def falar_google_tts(texto, idioma="pt-br", genero="F"):
         log(f"Google TTS erro: {e}", "gtts")
         return None
 
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+
+@app.post("/stt")
+async def stt_endpoint(request: Request):
+    """Transcreve audio via Groq Whisper (multilingue, deteccao automatica de idioma).
+    Body: { user_id, audio_base64, formato ('m4a'|'wav'|'mp3') }
+    Retorna: { texto, idioma } ou { erro }"""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id", "")
+        audio_b64 = data.get("audio_base64", "")
+        formato = data.get("formato", "m4a")
+        if not audio_b64:
+            return JSONResponse({"erro": "audio_base64 obrigatorio"}, status_code=400)
+        if not GROQ_API_KEY:
+            return JSONResponse({"erro": "STT indisponivel"}, status_code=503)
+
+        # Gating: multilingue so para premium, tester e admin
+        usuario = banco.buscar_usuario_por_id(user_id)
+        plano = (usuario.get("plano", "free") if usuario else "free")
+        if plano not in ("premium", "tester", "admin"):
+            return JSONResponse({"erro": "plano_sem_stt", "upgrade": True}, status_code=403)
+
+        audio_bytes = base64.b64decode(audio_b64)
+
+        # Multipart form para a API do Groq (compativel com OpenAI Whisper API)
+        boundary = "----MargoBoundary7MA4YWxkTrZu0gW"
+        corpo = b""
+        corpo += f"--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nwhisper-large-v3-turbo\r\n".encode()
+        corpo += f"--{boundary}\r\nContent-Disposition: form-data; name=\"response_format\"\r\n\r\nverbose_json\r\n".encode()
+        corpo += f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.{formato}\"\r\nContent-Type: audio/{formato}\r\n\r\n".encode()
+        corpo += audio_bytes
+        corpo += f"\r\n--{boundary}--\r\n".encode()
+
+        req = urllib.request.Request(
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            data=corpo,
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": f"multipart/form-data; boundary={boundary}"
+            }
+        )
+        resp = urllib.request.urlopen(req, timeout=30)
+        resultado = json.loads(resp.read())
+        texto = resultado.get("text", "").strip()
+        idioma = resultado.get("language", "")
+        log(f"STT Groq: [{idioma}] {texto[:80]}", "stt")
+        return JSONResponse({"texto": texto, "idioma": idioma})
+    except urllib.error.HTTPError as e:
+        try:
+            corpo_erro = e.read().decode()[:200]
+        except:
+            corpo_erro = ""
+        log(f"STT Groq HTTP {e.code}: {corpo_erro}", "stt")
+        return JSONResponse({"erro": f"stt_falhou_{e.code}"}, status_code=500)
+    except Exception as e:
+        log(f"STT erro: {e}", "stt")
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
 @app.post("/kokoro_tts")
 async def kokoro_tts_endpoint(request: Request):
     """Gera áudio TTS via Kokoro. Body: { texto, idioma, genero }"""
