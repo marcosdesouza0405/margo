@@ -3028,7 +3028,7 @@ def falar_google_tts(texto, idioma="pt-br", genero="F"):
         log(f"Google TTS erro: {e}", "gtts")
         return None
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
 
 @app.post("/stt")
 async def stt_endpoint(request: Request):
