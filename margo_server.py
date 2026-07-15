@@ -1998,7 +1998,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
         log(f"Brave Search: {query}", "busca")
         resultados = buscar_brave(query)
         if resultados:
-            contexto_busca = f"\n\n[DADOS REAIS DA INTERNET - USE ESTES VALORES EXATOS]:\n{resultados}\n[FIM DOS DADOS]\nIMPORTANTE: Use os valores numéricos exatos acima na sua resposta. Não invente valores. Fale com sua personalidade mas cite os números corretos.\nLINKS: Se o usuário pediu um link ou site, inclua a URL COMPLETA começando com https:// no FINAL da mensagem, sozinha em linha separada. NUNCA soletre ou cite a URL no meio do texto falado — o texto deve fazer sentido sem a URL."
+            contexto_busca = f"\n\n[DADOS REAIS DA INTERNET - USE ESTES VALORES EXATOS]:\n{resultados}\n[FIM DOS DADOS]\nIMPORTANTE: Use os valores numéricos exatos acima na sua resposta. Não invente valores. Fale com sua personalidade mas cite os números corretos.\nLINKS: Se o usuário pediu um link ou site, inclua a URL COMPLETA começando com https:// no FINAL da mensagem, sozinha em linha separada. NUNCA soletre ou cite a URL no meio do texto falado — o texto deve fazer sentido sem a URL.\nExemplo ERRADO: O site oficial é mazda.com, dá uma olhada lá!\nExemplo CERTO: Achei o site oficial da Mazda pra você, tá aqui embaixo!\nhttps://www.mazda.com"
         else:
             log(f"Brave Search sem resultado para: {query}", "busca")
             contexto_busca = f"\n\nNão encontrei resultados específicos. Responda com o que sabe, mas seja honesto sobre limitações."
