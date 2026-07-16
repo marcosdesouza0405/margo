@@ -3107,6 +3107,7 @@ async def stt_endpoint(request: Request):
         usuario = banco.buscar_usuario_por_id(user_id)
         plano = (usuario.get("plano", "free") if usuario else "free")
         if plano not in ("premium", "tester", "admin"):
+            log(f"STT 403: user_id='{user_id}' plano='{plano}'", "stt")
             return JSONResponse({"erro": "plano_sem_stt", "upgrade": True}, status_code=403)
 
         audio_bytes = base64.b64decode(audio_b64)
