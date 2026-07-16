@@ -1965,8 +1965,16 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     if contexto_extra:
         system += f"\n\n{contexto_extra}"
 
-    # Detecta intenção com histórico e perfil do usuário
-    ferramenta = detectar_intencao(mensagem, historico, perfil=perfil)
+    # Bypass: mensagens triviais/curtas de conversa não precisam de detecção de intenção
+    msg_trivial = mensagem.lower().strip().rstrip('!?.')
+    triviais = ("oi", "ola", "olá", "hey", "hi", "hello", "bom dia", "boa tarde", "boa noite",
+                "tudo bem", "como vai", "obrigado", "obrigada", "valeu",
+                "haha", "kkk", "kkkk", "rs", "legal", "show", "beleza", "blz", "entendi", "certo")
+    if msg_trivial in triviais:
+        ferramenta = None
+    else:
+        # Detecta intenção com histórico e perfil do usuário
+        ferramenta = detectar_intencao(mensagem, historico, perfil=perfil)
 
     # ── BUSCA AUTOMÁTICA para perguntas que precisam de dados atuais ──────────
     palavras_busca_auto = ["tempo", "clima", "chuva", "previsao", "previsão", "temperatura",
@@ -2227,17 +2235,17 @@ INSTRUÇÕES:
     if ferramenta and ferramenta.get("ferramenta") == "agenda_add" and data_hora_agenda:
         ferramenta = dict(ferramenta)
         ferramenta["data_hora"] = data_hora_agenda
-    # Detecta despedida via DeepSeek para cobrir todas as formas culturais
+    # Detecta despedida via regex local (rapido, sem chamada de IA)
     try:
-        prompt_despedida = (
-            f"O usuario disse: '{mensagem}'\n"
-            "Esta mensagem indica uma despedida ou encerramento de conversa? "
-            "Considere expressoes brasileiras como: valeu, era isso, obrigado, abraco, "
-            "ate, flw, falou, pode fechar, boa noite, etc.\n"
-            "Responda APENAS com: SIM ou NAO"
+        msg_low = mensagem.lower().strip()
+        padroes_despedida = (
+            "tchau", "xau", "flw", "falou", "valeu", "era isso", "so isso", "só isso",
+            "pode fechar", "boa noite", "good night", "bye", "goodbye", "see you",
+            "ate mais", "até mais", "ate amanha", "até amanhã", "abraço", "abraco",
+            "vou dormir", "fui", "encerrar", "obrigado por hoje", "おやすみ", "またね", "adios", "adiós"
         )
-        resposta_despedida = chamar_deepseek_simples(prompt_despedida, max_tokens=5)
-        encerrar = "SIM" in resposta_despedida.upper()
+        # Despedida = mensagem CURTA contendo um padrao (evita falso positivo em frases longas)
+        encerrar = len(msg_low) <= 40 and any(p in msg_low for p in padroes_despedida)
     except:
         encerrar = False
 
