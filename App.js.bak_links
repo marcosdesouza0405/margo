@@ -10,7 +10,6 @@ import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import * as Contacts from 'expo-contacts';
 import { Audio } from 'expo-av';
-import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Notifications from 'expo-notifications';
 import * as Localization from 'expo-localization';
 import * as TaskManager from 'expo-task-manager';
@@ -78,7 +77,6 @@ const CFG_PADRAO = {
   apiKeyFish: '', voiceIdFish: '',
   apiKeyEleven: '', voiceIdEleven: '',
   navApp: 'waze',
-  multilingueOn: false,
   personalidade: '', perfilNome: '', perfilNascimento: '',
   perfilProfissao: '', perfilMusica: '', perfilComida: '',
   perfilHobbies: '', perfilExtra: '',
@@ -283,7 +281,6 @@ async function pararNotificacaoPersistente() {
 
 function limpar(txt) {
   return txt
-    .replace(/(https?:\/\/|www\.)[^\s]+/g, '')
     .replace(/[\u{1F000}-\u{1FFFF}]/gu, '')
     .replace(/[\u2600-\u27BF]/g, '')
     .replace(/\*\*(.+?)\*\*/g, '$1')
@@ -617,21 +614,6 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
             </View>
           </View>
 
-          {plano === 'admin' && (
-            <View style={s.secao}>
-              <Text style={s.secLabel}>🌍 MULTILÍNGUE (beta)</Text>
-              <Text style={s.secSub}>Fale em qualquer idioma — a Margo entende e responde na sua língua</Text>
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-                {[[false,'Desligado'],[true,'Ligado']].map(([v, label]) => (
-                  <TouchableOpacity key={String(v)} style={[s.chip, (cfg.multilingueOn || false) === v && s.chipOn]}
-                    onPress={() => set('multilingueOn', v)}>
-                    <Text style={[s.chipTxt, (cfg.multilingueOn || false) === v && s.chipTxtOn]}>{label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          )}
-
           {/* VOZ PREMIUM */}
           <View style={s.secao}>
             <Text style={s.secLabel}>{s_['voz']}</Text>
@@ -804,30 +786,6 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
 }
 
 // ── BOLHA DE MENSAGEM ─────────────────────────────────────────────────────────
-// Renderiza texto com URLs clicáveis
-function TextoComLinks({ texto, estilo }) {
-  const regex = /((?:https?:\/\/|www\.)[^\s]+)/g;
-  const partes = String(texto).split(regex);
-  return (
-    <Text selectable={true} style={estilo}>
-      {partes.map((parte, i) =>
-        /^(https?:\/\/|www\.)/.test(parte) ? (
-          <Text key={i} style={{ color: C.cyan, textDecorationLine: 'underline' }}
-            onPress={() => {
-              let url = parte.replace(/[.,;)]+$/, '');
-              if (url.startsWith('www.')) url = 'https://' + url;
-              Linking.openURL(url).catch(() => {});
-            }}>
-            {parte}
-          </Text>
-        ) : (
-          <Text key={i}>{parte}</Text>
-        )
-      )}
-    </Text>
-  );
-}
-
 function Bolha({ msg, avatarUri }) {
   if (msg.de === 'sistema') return <Text style={s.msgSys}>{msg.texto}</Text>;
   const isUser = msg.de === 'user';
@@ -840,8 +798,9 @@ function Bolha({ msg, avatarUri }) {
         }
       </View>
       <View style={[s.bubble, isUser ? s.bubbleU : s.bubbleM]}>
-        <TextoComLinks texto={msg.texto}
-          estilo={[{ fontSize: 14, lineHeight: 22, color: C.text }, isUser && { color: '#000', fontWeight: '500' }]} />
+        <Text selectable={true} style={[{ fontSize: 14, lineHeight: 22, color: C.text }, isUser && { color: '#000', fontWeight: '500' }]}>
+          {msg.texto}
+        </Text>
         <Text style={{ fontSize: 10, color: isUser ? 'rgba(0,0,0,0.5)' : C.text3, marginTop: 4 }}>{msg.hora}</Text>
       </View>
     </View>
@@ -885,11 +844,6 @@ export default function App() {
   const ttsAtivoRef                = useRef(false);
   const wakeWordRef               = useRef(true); // ref para usar dentro de callbacks
   const wakeWordOnRef              = useRef(false); // ref do toggle wake word
-  const navAppRef                  = useRef('waze'); // ref do app de navegação
-  const multilingueRef             = useRef(false); // ref do modo multilíngue
-  const gravacaoRef                = useRef(null); // gravação em andamento
-  const micEstadoSalvoRef          = useRef(false); // mic estava ligado antes do background
-  const ultimoIdiomaRef            = useRef(''); // idioma da última interação multilíngue
 
   // ── INIT ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -921,28 +875,13 @@ export default function App() {
       console.log('[AppState]', nextState);
 
       if (nextState === 'active') {
-        // Só pausa a wake word se ela estiver LIGADA (PAUSE em serviço morto o cria indevidamente)
-        if (wakeWordOnRef.current) {
-          console.log('[WakeWord] App em foreground — pausando wake word');
-          try { await NativeModules.WakeWordModule.pausar(); } catch(e) {}
-        }
+        console.log('[WakeWord] App em foreground — pausando wake word');
+        try { await NativeModules.WakeWordModule.pausar(); } catch(e) {}
         await verificarWakeWordPendente();
-        // Restaura o microfone se estava ligado antes de ir pro background
-        if (micEstadoSalvoRef.current && !micAtivoRef.current) {
-          console.log('[Mic] Restaurando microfone que estava ativo');
-          setTimeout(() => { iniciarMicrofone(); }, 800);
-        }
 
       } else if (nextState === 'background') {
         console.log('[WakeWord] App em background — parando STT');
-        // Guarda o estado do mic pra restaurar na volta
-        micEstadoSalvoRef.current = micAtivoRef.current;
         try { ExpoSpeechRecognitionModule?.stop(); } catch(e) {}
-        // Para gravação multilíngue em andamento
-        if (gravacaoRef.current) {
-          try { gravacaoRef.current.recording.stopAndUnloadAsync(); } catch(e) {}
-          gravacaoRef.current = null;
-        }
         micAtivoRef.current = false;
         setMicAtivo(false);
         if (wakeWordOnRef.current) {
@@ -1016,14 +955,12 @@ export default function App() {
   useEffect(() => {
     micAtivoRef.current = micAtivo;
     wakeWordRef.current = config.wakeWordOn;
-    navAppRef.current = config.navApp || 'waze';
-    multilingueRef.current = config.multilingueOn || false;
     wakeWordOnRef.current = config.wakeWordOn;
     if (!micAtivo) return;
     const interval = setInterval(() => {
       if (micAtivoRef.current && !ttsAtivoRef.current && ExpoSpeechRecognitionModule) {
         try {
-          if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+          ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
         } catch(e) {}
       }
     }, 15000);
@@ -1174,7 +1111,7 @@ export default function App() {
   }
 
   // ── ENVIAR ────────────────────────────────────────────────────────────────
-  async function enviar(msg, idiomaFalado = '') {
+  async function enviar(msg) {
     msg = (msg || input).trim();
     if (!msg || pensando || !userId || ttsAtivoRef.current) return;
     setInput('');
@@ -1183,7 +1120,6 @@ export default function App() {
     try {
       const body = { user_id: userId, mensagem: msg };
       if (location) { body.latitude = location.lat; body.longitude = location.lng; }
-      if (idiomaFalado) { body.idioma_falado = idiomaFalado; }
       // Passa hora local do dispositivo
       const _now = new Date();
       const _off = -_now.getTimezoneOffset();
@@ -1300,17 +1236,14 @@ export default function App() {
       const dest = encodeURIComponent(f.destino);
       const origin = location ? `&origin=${location.lat},${location.lng}` : '';
       const wazeUrl = `waze://?q=${dest}&navigate=yes`;
-      const googleAppUrl = `google.navigation:q=${dest}`;
+      // intent:// com package força abrir SÓ no Google Maps (sem popup de escolha)
+      const googleAppUrl = `intent://q=${dest}#Intent;scheme=google.navigation;package=com.google.android.apps.maps;end`;
       const googleWebUrl = `https://www.google.com/maps/dir/?api=1&destination=${dest}${origin}`;
       // Respeita o app de navegação escolhido nas configurações
-      if (navAppRef.current === 'gmaps') {
-        // IntentLauncher com packageName força SÓ o Google Maps (sem popup)
+      if (config.navApp === 'gmaps') {
+        // Tenta abrir o Google Maps direto — canOpenURL pode falhar mesmo com o app instalado
         try {
-          const IntentLauncher = require('expo-intent-launcher');
-          await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-            data: googleAppUrl,
-            packageName: 'com.google.android.apps.maps'
-          });
+          await Linking.openURL(googleAppUrl);
         } catch(e) {
           // Google não abriu — tenta Waze, senão web
           const wazeSupported = await Linking.canOpenURL(wazeUrl).catch(() => false);
@@ -1519,14 +1452,10 @@ export default function App() {
   function religarMic() {
     ttsAtivoRef.current = false;
     try { NativeModules.WakeWordModule.releaseTTS(); } catch(e) {}
-    if (micAtivoRef.current) {
-      if (multilingueRef.current) {
-        setTimeout(() => { gravarMultilingue(); }, 1000);
-      } else if (ExpoSpeechRecognitionModule) {
-        setTimeout(() => {
-          try { ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true }); } catch(e) {}
-        }, 3000);
-      }
+    if (micAtivoRef.current && ExpoSpeechRecognitionModule) {
+      setTimeout(() => {
+        try { ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true }); } catch(e) {}
+      }, 3000);
     }
   }
 
@@ -1534,11 +1463,6 @@ export default function App() {
     if (!vozAtiva) return;
     ttsAtivoRef.current = true;
     try { await NativeModules.WakeWordModule.requestTTS(); } catch(e) {}
-    // Para gravação multilíngue em andamento (evita gravar a própria voz da Margo)
-    if (gravacaoRef.current) {
-      try { await gravacaoRef.current.recording.stopAndUnloadAsync(); } catch(e) {}
-      gravacaoRef.current = null;
-    }
     if (micAtivoRef.current && ExpoSpeechRecognitionModule) {
       try { ExpoSpeechRecognitionModule.stop(); } catch(e) {}
     }
@@ -1624,18 +1548,12 @@ export default function App() {
     }
 
     // Tenta Kokoro no servidor (PT-BR e EN)
-    // Japonês só se for MAIORIA do texto (endereço japonês em frase PT não conta)
-    const charsJp = (texto.match(/[\u3040-\u30FF\u4E00-\u9FFF]/g) || []).length;
-    const temJapones = charsJp > texto.replace(/\s/g, '').length * 0.4;
+    const temJapones = /[\u3040-\u30FF\u4E00-\u9FFF]/.test(texto);
     const temPortugues = /[ãõáéíóúâêîôûàèìòùç]/i.test(texto) ||
       /\b(você|não|sim|olá|obrigado|para|com|uma|isso|aqui|está|minha|seu|sua)\b/i.test(texto);
     if (!temJapones) {
       try {
-        // Prioridade: idioma detectado pelo Groq > acentos no texto > config
-        const idi = ultimoIdiomaRef.current;
-        const idiomaKokoro = (idi === 'english' || idi === 'en') ? 'en'
-          : (idi === 'portuguese' || idi === 'pt') ? 'pt-br'
-          : temPortugues ? 'pt-br' : (config.idioma || 'pt-br').toLowerCase();
+        const idiomaKokoro = temPortugues ? 'pt-br' : (config.idioma || 'pt-br').toLowerCase();
         const r = await fetch(`${config.backendUrl}/kokoro_tts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1684,7 +1602,7 @@ export default function App() {
       setTimeout(() => {
         if (micAtivoRef.current && !ttsAtivoRef.current && ExpoSpeechRecognitionModule) {
           try {
-            if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+            ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
           } catch(e) { console.log('Reinicio mic erro:', e); }
         }
       }, 3000);
@@ -1701,68 +1619,6 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
-  // ── STT MULTILÍNGUE via Groq — grava, detecta silêncio, envia pro backend ──
-  async function gravarMultilingue() {
-    console.log('[Multilingue] gravarMultilingue chamado — mic:', micAtivoRef.current, 'tts:', ttsAtivoRef.current, 'gravando:', !!gravacaoRef.current);
-    if (!micAtivoRef.current || ttsAtivoRef.current || gravacaoRef.current) return;
-    try {
-      console.log('[Multilingue] Iniciando Audio.Recording...');
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY,
-        (status) => {
-          if (!status.isRecording) return;
-          const nivel = status.metering ?? -160;
-          const g = gravacaoRef.current;
-          if (!g) return;
-          if (nivel > -25) { g.contFala = (g.contFala || 0) + 1; g.silencios = 0; if (g.contFala >= 2) g.teveFala = true; }
-          else if (g.teveFala) {
-            g.silencios = (g.silencios || 0) + 1;
-            if (g.silencios >= 5) pararGravacaoEEnviar(); // ~1,5s de silêncio
-          }
-          if (status.durationMillis > 15000) pararGravacaoEEnviar(); // máximo 15s
-        },
-        300 // metering a cada 300ms
-      );
-      gravacaoRef.current = { recording, teveFala: false, silencios: 0 };
-    } catch(e) {
-      console.log('[Multilingue] Erro ao gravar:', e);
-      gravacaoRef.current = null;
-    }
-  }
-
-  async function pararGravacaoEEnviar() {
-    const g = gravacaoRef.current;
-    if (!g) return;
-    gravacaoRef.current = null;
-    try {
-      await g.recording.stopAndUnloadAsync();
-      const uri = g.recording.getURI();
-      if (!g.teveFala || !uri) {
-        // Sem fala — reinicia o ciclo
-        if (micAtivoRef.current && !ttsAtivoRef.current) setTimeout(gravarMultilingue, 300);
-        return;
-      }
-      const FileSystem = require('expo-file-system/legacy');
-      const audioB64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-      const r = await fetch(`${config.backendUrl}/stt`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, audio_base64: audioB64, formato: 'm4a' })
-      });
-      const d = await r.json();
-      if (d.texto) {
-        console.log('[Multilingue]', d.idioma, ':', d.texto);
-        ultimoIdiomaRef.current = (d.idioma || '').toLowerCase();
-        enviar(d.texto, d.idioma || '');
-      } else {
-        if (micAtivoRef.current && !ttsAtivoRef.current) setTimeout(gravarMultilingue, 300);
-      }
-    } catch(e) {
-      console.log('[Multilingue] Erro ao enviar:', e);
-      if (micAtivoRef.current && !ttsAtivoRef.current) setTimeout(gravarMultilingue, 500);
-    }
-  }
-
   async function iniciarMicrofone() {
     if (!ExpoSpeechRecognitionModule) return;
     try {
@@ -1770,12 +1626,7 @@ export default function App() {
       if (!perm.granted) return;
       setMicAtivo(true);
       micAtivoRef.current = true;
-      try { await activateKeepAwakeAsync('mic'); } catch(e) {}
-      if (multilingueRef.current) {
-        gravarMultilingue();
-      } else {
-        ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
-      }
+      ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
       iniciarNotificacaoPersistente(config.assistantName);
     } catch(e) { console.log('Mic erro:', e); }
   }
@@ -1783,7 +1634,6 @@ export default function App() {
   async function pararMicrofone() {
     micAtivoRef.current = false;
     setMicAtivo(false);
-    try { deactivateKeepAwake('mic'); } catch(e) {}
     pararNotificacaoPersistente();
     if (ExpoMicrophoneModule) {
       try { await ExpoMicrophoneModule.stopListening(); } catch(e) {}
