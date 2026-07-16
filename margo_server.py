@@ -1991,6 +1991,8 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     contexto_extra = ""
     if idioma_falado and idioma_falado.lower() not in ("portuguese", "pt", "pt-br"):
         contexto_extra += f"\n⚠️ REGRA PRIORITÁRIA ABSOLUTA: O usuário FALOU em {idioma_falado}. Sua resposta COMPLETA deve ser em {idioma_falado}. NÃO responda em português. Mantenha sua personalidade, mas em {idioma_falado}."
+        # Reforço direto na mensagem — modelos obedecem mais instruções coladas ao turno do usuário
+        mensagem = f"{mensagem}\n\n[SYSTEM: The user spoke in {idioma_falado}. You MUST reply entirely in {idioma_falado}.]"
     if hora_local:
         contexto_extra += f"\nHora e data atual do usuário: {hora_local} — CRÍTICO: Use EXATAMENTE este horário como base para calcular agendamentos. Se o usuário pedir 'daqui X minutos', some X minutos ao horário acima e use como data_hora no ISO8601. NÃO use horário UTC nem fuso diferente."
     if latitude and longitude:
@@ -3493,6 +3495,8 @@ async def mensagem(request: Request):
         longitude = data.get("longitude")
         hora_local = data.get("hora_local", "")
         idioma_falado = data.get("idioma_falado", "")
+        if idioma_falado:
+            log(f"idioma_falado recebido: {idioma_falado}", "stt")
         imagem_base64 = data.get("imagem_base64", "")
         if not mensagem_ and not imagem_base64:
             return JSONResponse({"erro": "mensagem vazia"}, status_code=400)
