@@ -1672,6 +1672,8 @@ export default function App() {
 
   // ── MICROFONE ─────────────────────────────────────────────────────────────
   useSpeechRecognitionEvent('result', (e) => {
+    // Modo multilíngue: só o Groq transcreve — descarta resultado do STT nativo
+    if (multilingueRef.current) return;
     const transcript = e.results?.[0]?.transcript;
     if (!transcript || !e.isFinal) return;
     enviar(transcript);
@@ -1703,6 +1705,7 @@ export default function App() {
     if (!micEmitter) return;
     const sub = micEmitter.addListener('onSpeechDetected', (e) => {
       if (!e.text || !e.isFinal) return;
+      if (multilingueRef.current) return; // multilíngue: só o Groq transcreve
       if (e.hasWakeWord || !wakeWordRef.current) enviar(e.text);
     });
     return () => sub.remove();
@@ -1710,8 +1713,9 @@ export default function App() {
 
   // ── STT MULTILÍNGUE via Groq — grava, detecta silêncio, envia pro backend ──
   async function gravarMultilingue() {
-    console.log('[Multilingue] gravarMultilingue chamado — mic:', micAtivoRef.current, 'tts:', ttsAtivoRef.current, 'gravando:', !!gravacaoRef.current);
+    console.log('[Multilingue] gravarMultilingue chamado — mic:', micAtivoRef.current, 'tts:', ttsAtivoRef.current, 'gravando:', !!gravacaoRef.current, 'userId:', !!userId);
     if (!micAtivoRef.current || ttsAtivoRef.current || gravacaoRef.current) return;
+    if (!userId) { setTimeout(gravarMultilingue, 1000); return; } // aguarda userId carregar
     try {
       console.log('[Multilingue] Iniciando Audio.Recording...');
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
