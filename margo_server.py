@@ -1965,6 +1965,8 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     if contexto_extra:
         system += f"\n\n{contexto_extra}"
 
+    import time as _t
+    _t0 = _t.time()
     # Bypass: mensagens triviais/curtas de conversa não precisam de detecção de intenção
     msg_trivial = mensagem.lower().strip().rstrip('!?.')
     triviais = ("oi", "ola", "olá", "hey", "hi", "hello", "bom dia", "boa tarde", "boa noite",
@@ -1975,6 +1977,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     else:
         # Detecta intenção com histórico e perfil do usuário
         ferramenta = detectar_intencao(mensagem, historico, perfil=perfil)
+    log(f"PERF intencao: {_t.time()-_t0:.1f}s", "perf")
 
     # ── BUSCA AUTOMÁTICA para perguntas que precisam de dados atuais ──────────
     palavras_busca_auto = ["tempo", "clima", "chuva", "previsao", "previsão", "temperatura",
@@ -2096,6 +2099,7 @@ INSTRUÇÕES:
         resposta = chamar_gemini_vision(system + contexto_busca, mensagem, imagem_base64, max_tokens=800)
     else:
         resposta = chamar_deepseek(system + contexto_busca, mensagem, historico, max_tokens=800)
+    log(f"PERF resposta: {_t.time()-_t0:.1f}s", "perf")
 
     # Remove JSON da resposta caso o DeepSeek emita ferramenta em vez de texto
     resposta_limpa = resposta.strip()
@@ -2249,6 +2253,7 @@ INSTRUÇÕES:
     except:
         encerrar = False
 
+    log(f"PERF total: {_t.time()-_t0:.1f}s", "perf")
     return {
         "resposta":        limpar_resposta(resposta_limpa),
         "onboarding":      False,
