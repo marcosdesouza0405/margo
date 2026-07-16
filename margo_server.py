@@ -1917,8 +1917,11 @@ def extrair_onboarding_completo(texto):
     return None
 
 def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_local="", imagem_base64="", idioma_falado=""):
+    import time as _ti
+    _tini = _ti.time()
     config = banco.buscar_config(user_id)
     perfil = banco.buscar_perfil(user_id)
+    log(f"PERF pm config+perfil: {_ti.time()-_tini:.1f}s", "perf")
 
     # ── ONBOARDING ─────────────────────────────────────────────────────────────
     if not config.get("onboarding_completo"):
@@ -1983,6 +1986,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     _plano_user = (_usr.get("plano", "free") if _usr else "free")
     resumos = banco.buscar_resumos(user_id) if _plano_user in PLANOS_MEMORIA else []
     lembretes = banco.lembretes_proximos(user_id)
+    log(f"PERF pm dados-usuario: {_ti.time()-_tini:.1f}s", "perf")
 
     contexto_extra = ""
     if idioma_falado and idioma_falado.lower() not in ("portuguese", "pt", "pt-br"):
