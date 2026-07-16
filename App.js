@@ -1533,6 +1533,13 @@ export default function App() {
   async function falar(texto) {
     if (!vozAtiva) return;
     ttsAtivoRef.current = true;
+    // Watchdog: se em 20s nenhuma rota de voz chamar religarMic, destrava sozinho
+    setTimeout(() => {
+      if (ttsAtivoRef.current) {
+        console.log('[Watchdog] ttsAtivo travado — destravando');
+        religarMic();
+      }
+    }, 20000);
     try { await NativeModules.WakeWordModule.requestTTS(); } catch(e) {}
     // Para gravação multilíngue em andamento (evita gravar a própria voz da Margo)
     if (gravacaoRef.current) {
@@ -1715,7 +1722,7 @@ export default function App() {
           const nivel = status.metering ?? -160;
           const g = gravacaoRef.current;
           if (!g) return;
-          if (nivel > -25) { g.contFala = (g.contFala || 0) + 1; g.silencios = 0; if (g.contFala >= 2) g.teveFala = true; }
+          if (nivel > -35) { g.teveFala = true; g.silencios = 0; }
           else if (g.teveFala) {
             g.silencios = (g.silencios || 0) + 1;
             if (g.silencios >= 5) pararGravacaoEEnviar(); // ~1,5s de silêncio
