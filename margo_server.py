@@ -2132,7 +2132,8 @@ Resultados encontrados:
 
 INSTRUÇÕES:
 - Comente sobre 1 ou 2 lugares encontrados com detalhes úteis (nome, endereço, por que vale)
-- No final, pergunte se quer a rota: "Quer que eu te leve até lá?"
+- No final, pergunte se o usuário quer a rota até lá
+- CRÍTICO: responda TODA a mensagem (inclusive a pergunta da rota) no MESMO IDIOMA que o usuário está falando — se ele falou inglês, tudo em inglês
 - NÃO emita JSON de ferramenta agora — a navegação só acontece se o usuário confirmar"""
 
     # Gera resposta natural
