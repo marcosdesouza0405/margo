@@ -225,6 +225,27 @@ def log(msg, arquivo="geral"):
 
 # ── BANCO DE DADOS ─────────────────────────────────────────────────────────────
 
+class _PooledConn:
+    """Wrapper de conexão: .close() devolve ao pool em vez de fechar de verdade."""
+    def __init__(self, conn, pool):
+        self._conn = conn
+        self._pool = pool
+        self._devolvida = False
+    def close(self):
+        if not self._devolvida:
+            self._devolvida = True
+            try:
+                self._conn.rollback()  # limpa transação pendente antes de devolver
+            except Exception:
+                pass
+            try:
+                self._pool.putconn(self._conn)
+            except Exception:
+                try: self._conn.close()
+                except Exception: pass
+    def __getattr__(self, nome):
+        return getattr(self._conn, nome)
+
 class BancoMargo:
     def __init__(self):
         self._pg = usar_postgres()
@@ -244,7 +265,22 @@ class BancoMargo:
 
     def _get_conn(self):
         if self._pg:
-            return self._psycopg2.connect(self._conn_str)
+            # Pool de conexões — evita handshake TLS com o Supabase a cada operação
+            if not hasattr(self, '_pool') or self._pool is None:
+                from psycopg2 import pool as _pgpool
+                self._pool = _pgpool.ThreadedConnectionPool(1, 10, self._conn_str)
+                log("Pool de conexões Postgres criado (1-10)", "banco")
+            conn = self._pool.getconn()
+            # Testa se a conexão está viva; se não, descarta e pega outra
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT 1")
+                cur.fetchone()
+            except Exception:
+                try: self._pool.putconn(conn, close=True)
+                except Exception: pass
+                conn = self._pool.getconn()
+            return _PooledConn(conn, self._pool)
         return sqlite3.connect(DB_FILE)
 
     def _cur(self, conn):
