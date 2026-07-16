@@ -3495,8 +3495,11 @@ async def mensagem(request: Request):
         if not mensagem_ and imagem_base64:
             mensagem_ = "O que voce ve nessa imagem? Descreva detalhadamente."
 
+        import time as _te
+        _e0 = _te.time()
         # Verifica limite diário
         uso = banco.verificar_limite(user_id)
+        log(f"PERF endpoint limite: {_te.time()-_e0:.1f}s", "perf")
         if not uso["pode"]:
             if uso.get("trial"):
                 msg_limite = "Você usou todas as 50 interações do seu trial gratuito! Assine um plano para continuar."
@@ -3510,7 +3513,9 @@ async def mensagem(request: Request):
             })
 
         resultado = processar_mensagem(user_id, mensagem_, latitude, longitude, hora_local=hora_local, imagem_base64=imagem_base64, idioma_falado=idioma_falado)
+        log(f"PERF endpoint pos-processar: {_te.time()-_e0:.1f}s", "perf")
         banco.registrar_uso(user_id, usando_extras=uso.get("usando_extras", False))
+        log(f"PERF endpoint final: {_te.time()-_e0:.1f}s", "perf")
         return JSONResponse(resultado)
     except Exception as e:
         log(f"Erro /mensagem: {e}")
