@@ -877,8 +877,17 @@ export default function App() {
 
   // Multilíngue (Groq STT) é automático para admin — depois: premium e tester
   useEffect(() => {
-    multilingueRef.current = ['admin'].includes(plano);
-    console.log('[Multilingue]', multilingueRef.current ? 'ATIVO (Groq)' : 'inativo (STT nativo)', '— plano:', plano);
+    const ativo = ['admin'].includes(plano);
+    multilingueRef.current = ativo;
+    console.log('[Multilingue]', ativo ? 'ATIVO (Groq)' : 'inativo (STT nativo)', '— plano:', plano);
+    if (ativo && micAtivoRef.current) {
+      // Para o SODA se estiver rodando (pode ter iniciado antes do plano carregar)
+      console.log('[Multilingue] Parando SODA — Groq assume o microfone');
+      try { ExpoSpeechRecognitionModule?.stop(); } catch(e) {}
+      setTimeout(() => {
+        if (micAtivoRef.current && !ttsAtivoRef.current) cicloMultilingue();
+      }, 500);
+    }
   }, [plano]);
   const navAppRef                  = useRef('waze'); // ref do app de navegação
 
