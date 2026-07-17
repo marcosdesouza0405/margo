@@ -870,6 +870,7 @@ export default function App() {
   const ttsAtivoRef                = useRef(false);
   const wakeWordRef               = useRef(true); // ref para usar dentro de callbacks
   const wakeWordOnRef              = useRef(false); // ref do toggle wake word
+  const micEstadoSalvoRef          = useRef(false); // mic estava ligado antes do background
   const navAppRef                  = useRef('waze'); // ref do app de navegação
 
   // ── INIT ──────────────────────────────────────────────────────────────────
@@ -905,9 +906,15 @@ export default function App() {
         console.log('[WakeWord] App em foreground — pausando wake word');
         try { await NativeModules.WakeWordModule.pausar(); } catch(e) {}
         await verificarWakeWordPendente();
+        // Restaura o mic se estava ligado antes de sair (ex: voltou do Spotify)
+        if (micEstadoSalvoRef.current && !micAtivoRef.current) {
+          micEstadoSalvoRef.current = false;
+          setTimeout(() => { iniciarMicrofone(); }, 800);
+        }
 
       } else if (nextState === 'background') {
         console.log('[WakeWord] App em background — parando STT');
+        micEstadoSalvoRef.current = micAtivoRef.current; // guarda pra restaurar na volta
         try { ExpoSpeechRecognitionModule?.stop(); } catch(e) {}
         micAtivoRef.current = false;
         setMicAtivo(false);
@@ -1484,22 +1491,13 @@ export default function App() {
     ttsAtivoRef.current = false;
     try { NativeModules.WakeWordModule.releaseTTS(); } catch(e) {}
     if (micAtivoRef.current && ExpoSpeechRecognitionModule) {
-      // Recomeço LIMPO — igual à abertura do app (ideia do Marcos):
-      // para explicitamente a sessão antiga, respira 600ms, e inicia do zero
+      // Religamento = MESMO caminho da abertura (ideia do Marcos, versao final):
+      // marca como desligado e refaz o setup completo via iniciarMicrofone()
       try { ExpoSpeechRecognitionModule.stop(); } catch(e) {}
+      micAtivoRef.current = false;
       setTimeout(() => {
-        if (!micAtivoRef.current || ttsAtivoRef.current) return;
-        try {
-          ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
-        } catch(e) {
-          // Se o start falhar, tenta mais uma vez em 1s (recuperação automática)
-          setTimeout(() => {
-            if (micAtivoRef.current && !ttsAtivoRef.current) {
-              try { ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true }); } catch(e2) {}
-            }
-          }, 1000);
-        }
-      }, 600);
+        iniciarMicrofone();
+      }, 700);
     }
   }
 
