@@ -871,6 +871,14 @@ export default function App() {
   const wakeWordRef               = useRef(true); // ref para usar dentro de callbacks
   const wakeWordOnRef              = useRef(false); // ref do toggle wake word
   const micEstadoSalvoRef          = useRef(false); // mic estava ligado antes do background
+  const multilingueRef             = useRef(false); // modo multilingue (Groq STT) — segue o plano
+  const gravacaoRef                = useRef(null);  // gravacao multilingue em andamento
+
+  // Multilíngue (Groq STT) é automático para admin — depois: premium e tester
+  useEffect(() => {
+    multilingueRef.current = ['admin'].includes(plano);
+    console.log('[Multilingue]', multilingueRef.current ? 'ATIVO (Groq)' : 'inativo (STT nativo)', '— plano:', plano);
+  }, [plano]);
   const navAppRef                  = useRef('waze'); // ref do app de navegação
 
   // ── INIT ──────────────────────────────────────────────────────────────────
@@ -1146,7 +1154,7 @@ export default function App() {
   }
 
   // ── ENVIAR ────────────────────────────────────────────────────────────────
-  async function enviar(msg) {
+  async function enviar(msg, idiomaFalado = '') {
     msg = (msg || input).trim();
     if (!msg || pensando || !userId || ttsAtivoRef.current) return;
     setInput('');
@@ -1155,6 +1163,7 @@ export default function App() {
     try {
       const body = { user_id: userId, mensagem: msg };
       if (location) { body.latitude = location.lat; body.longitude = location.lng; }
+      if (idiomaFalado) { body.idioma_falado = idiomaFalado; }
       // Passa hora local do dispositivo
       const _now = new Date();
       const _off = -_now.getTimezoneOffset();
@@ -1504,6 +1513,10 @@ export default function App() {
   async function falar(texto) {
     if (!vozAtiva) return;
     ttsAtivoRef.current = true;
+    if (gravacaoRef.current) {
+      try { await gravacaoRef.current.recording.stopAndUnloadAsync(); } catch(e) {}
+      gravacaoRef.current = null;
+    }
     try { await NativeModules.WakeWordModule.requestTTS(); } catch(e) {}
     if (micAtivoRef.current && ExpoSpeechRecognitionModule) {
       try { ExpoSpeechRecognitionModule.stop(); } catch(e) {}
@@ -1625,6 +1638,7 @@ export default function App() {
 
   // ── MICROFONE ─────────────────────────────────────────────────────────────
   useSpeechRecognitionEvent('result', (e) => {
+    if (multilingueRef.current) return; // ouvido e o Groq — nativo mudo
     const transcript = e.results?.[0]?.transcript;
     if (!transcript || !e.isFinal) return;
     enviar(transcript);
@@ -1641,9 +1655,9 @@ export default function App() {
   useSpeechRecognitionEvent('end', () => {
     // Reinício RÁPIDO no ocioso (300ms) — fecha o vão que cortava o início das frases.
     // O delay longo (4,5s) fica só no religarMic pós-TTS, onde é necessário.
-    if (micAtivoRef.current && !ttsAtivoRef.current) {
+    if (micAtivoRef.current && !ttsAtivoRef.current && !multilingueRef.current) {
       setTimeout(() => {
-        if (micAtivoRef.current && !ttsAtivoRef.current && ExpoSpeechRecognitionModule) {
+        if (micAtivoRef.current && !ttsAtivoRef.current && !multilingueRef.current && ExpoSpeechRecognitionModule) {
           try {
             ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
           } catch(e) { console.log('Reinicio mic erro:', e); }
@@ -1662,6 +1676,85 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
+  // ══ MULTILINGUE v2 (Groq STT) — cada ciclo nasce do zero ══════════════════
+  async function cicloMultilingue() {
+    // Limpa QUALQUER resto de gravacao anterior (recomeco limpo — metrica do Marcos)
+    if (gravacaoRef.current) {
+      try { await gravacaoRef.current.recording.stopAndUnloadAsync(); } catch(e) {}
+      gravacaoRef.current = null;
+    }
+    if (!micAtivoRef.current || ttsAtivoRef.current) return;
+    if (!userId) { setTimeout(cicloMultilingue, 1000); return; }
+    try {
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+        (status) => {
+          if (!status.isRecording) return;
+          const g = gravacaoRef.current;
+          if (!g) return;
+          const nivel = status.metering ?? -160;
+          if (nivel > -35) { g.teveFala = true; g.silencios = 0; }
+          else if (g.teveFala) {
+            g.silencios = (g.silencios || 0) + 1;
+            if (g.silencios >= 5) finalizarCicloMultilingue();
+          }
+          if (status.durationMillis > 15000) finalizarCicloMultilingue();
+        },
+        300
+      );
+      gravacaoRef.current = { recording, teveFala: false, silencios: 0, ts: Date.now() };
+    } catch(e) {
+      console.log('[Multilingue] Erro ao criar gravacao:', e);
+      gravacaoRef.current = null;
+      setTimeout(cicloMultilingue, 2000); // retry — nunca desiste em silencio
+    }
+  }
+
+  async function finalizarCicloMultilingue() {
+    const g = gravacaoRef.current;
+    if (!g) return;
+    gravacaoRef.current = null;
+    let texto = '', idioma = '';
+    try {
+      await g.recording.stopAndUnloadAsync();
+      const uri = g.recording.getURI();
+      if (g.teveFala && uri) {
+        const FileSystem = require('expo-file-system/legacy');
+        const audioB64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+        const r = await fetch(`${config.backendUrl}/stt`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, audio_base64: audioB64, formato: 'm4a' })
+        });
+        const d = await r.json();
+        texto = d.texto || '';
+        idioma = d.idioma || '';
+      }
+    } catch(e) { console.log('[Multilingue] Erro no envio:', e); }
+    if (texto) {
+      console.log('[Multilingue]', idioma, ':', texto);
+      enviar(texto, idioma);
+    } else if (micAtivoRef.current && !ttsAtivoRef.current) {
+      setTimeout(cicloMultilingue, 300); // sem fala — proximo ciclo
+    }
+  }
+
+  // Watchdog: se o ciclo morrer por qualquer motivo, renasce em ate 10s
+  useEffect(() => {
+    const wd = setInterval(() => {
+      if (multilingueRef.current && micAtivoRef.current && !ttsAtivoRef.current && !gravacaoRef.current) {
+        console.log('[Multilingue] Watchdog: ciclo morto — renascendo');
+        cicloMultilingue();
+      }
+      // Gravacao travada ha mais de 25s? Descarta e recomeca
+      if (gravacaoRef.current && Date.now() - gravacaoRef.current.ts > 25000) {
+        console.log('[Multilingue] Watchdog: gravacao travada — recomecando');
+        finalizarCicloMultilingue();
+      }
+    }, 10000);
+    return () => clearInterval(wd);
+  }, []);
+
   async function iniciarMicrofone() {
     if (!ExpoSpeechRecognitionModule) return;
     try {
@@ -1669,7 +1762,11 @@ export default function App() {
       if (!perm.granted) return;
       setMicAtivo(true);
       micAtivoRef.current = true;
-      ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+      if (multilingueRef.current) {
+        cicloMultilingue(); // ouvido Groq (admin/premium/tester)
+      } else {
+        ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+      }
       iniciarNotificacaoPersistente(config.assistantName);
     } catch(e) { console.log('Mic erro:', e); }
   }
