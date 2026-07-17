@@ -1611,7 +1611,7 @@ export default function App() {
       try {
         // Prioridade: idioma detectado pelo Groq > acentos > config
         const idi = ultimoIdiomaRef.current;
-        const idiomaKokoro = (idi === 'english' || idi === 'en') ? 'en'
+        const idiomaKokoro = (idi === 'english' || idi === 'en') ? 'en-us'
           : (idi === 'portuguese' || idi === 'pt') ? 'pt-br'
           : temPortugues ? 'pt-br' : (config.idioma || 'pt-br').toLowerCase();
         const r = await fetch(`${config.backendUrl}/kokoro_tts`, {
