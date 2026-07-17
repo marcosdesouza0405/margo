@@ -873,6 +873,7 @@ export default function App() {
   const micEstadoSalvoRef          = useRef(false); // mic estava ligado antes do background
   const multilingueRef             = useRef(false); // modo multilingue (Groq STT) — segue o plano
   const gravacaoRef                = useRef(null);  // gravacao multilingue em andamento
+  const ultimoIdiomaRef            = useRef('');    // idioma da ultima fala (Groq)
 
   // Multilíngue (Groq STT) é automático para admin — depois: premium e tester
   useEffect(() => {
@@ -1608,7 +1609,11 @@ export default function App() {
       /\b(você|não|sim|olá|obrigado|para|com|uma|isso|aqui|está|minha|seu|sua)\b/i.test(texto);
     if (!temJapones) {
       try {
-        const idiomaKokoro = temPortugues ? 'pt-br' : (config.idioma || 'pt-br').toLowerCase();
+        // Prioridade: idioma detectado pelo Groq > acentos > config
+        const idi = ultimoIdiomaRef.current;
+        const idiomaKokoro = (idi === 'english' || idi === 'en') ? 'en'
+          : (idi === 'portuguese' || idi === 'pt') ? 'pt-br'
+          : temPortugues ? 'pt-br' : (config.idioma || 'pt-br').toLowerCase();
         const r = await fetch(`${config.backendUrl}/kokoro_tts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1733,6 +1738,7 @@ export default function App() {
     } catch(e) { console.log('[Multilingue] Erro no envio:', e); }
     if (texto) {
       console.log('[Multilingue]', idioma, ':', texto);
+      ultimoIdiomaRef.current = (idioma || '').toLowerCase();
       enviar(texto, idioma);
     } else if (micAtivoRef.current && !ttsAtivoRef.current) {
       setTimeout(cicloMultilingue, 300); // sem fala — proximo ciclo
