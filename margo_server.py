@@ -183,12 +183,13 @@ def kokoro_tts(texto: str, idioma: str = "pt-br", genero: str = "F") -> bytes:
         kokoro = get_kokoro()
         if not kokoro:
             return None
-        lang_map = {"pt-br": "pt-br", "pt-BR": "pt-br", "en-us": "en-us", "en-US": "en-us"}
-        lang = lang_map.get(idioma, "pt-br")
+        # Normaliza ANTES de tudo: en/english/en-US -> en-us; pt/portuguese/pt-BR -> pt-br
+        _idi = (idioma or "").lower()
+        lang = {"en": "en-us", "english": "en-us", "en-us": "en-us",
+                "pt": "pt-br", "portuguese": "pt-br", "pt-br": "pt-br"}.get(_idi, "pt-br")
         gen = genero.upper() if genero else "F"
-        # Normaliza sinonimos de idioma (en/english -> en-us; pt/portuguese -> pt-br)
-        _lang_norm = {"en": "en-us", "english": "en-us", "pt": "pt-br", "portuguese": "pt-br"}.get(lang, lang)
-        voz = VOZES_KOKORO.get(_lang_norm, VOZES_KOKORO["pt-br"]).get(gen, "pf_dora")
+        voz = VOZES_KOKORO.get(lang, VOZES_KOKORO["pt-br"]).get(gen, "pf_dora")
+        log(f"Kokoro: idioma_recebido={idioma} lang={lang} voz={voz}", "kokoro")
         samples, sample_rate = kokoro.create(texto, voice=voz, speed=1.0, lang=lang)
         buf = io.BytesIO()
         sf.write(buf, samples, sample_rate, format="WAV")
