@@ -1988,10 +1988,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     lembretes = banco.lembretes_proximos(user_id)
 
     contexto_extra = ""
-    if idioma_falado and idioma_falado.lower() not in ("portuguese", "pt", "pt-br"):
-        contexto_extra += f"\n⚠️ REGRA PRIORITÁRIA ABSOLUTA: O usuário FALOU em {idioma_falado}. Sua resposta COMPLETA deve ser em {idioma_falado}. NÃO responda em português. Mantenha sua personalidade, mas em {idioma_falado}."
-        # Reforço direto na mensagem — modelos obedecem mais instruções coladas ao turno do usuário
-        mensagem = f"{mensagem}\n\n[SYSTEM: The user spoke in {idioma_falado}. You MUST reply entirely in {idioma_falado}.]"
+    # Idioma será adicionado no FINAL do system prompt (última instrução = mais peso)
     if hora_local:
         contexto_extra += f"\nHora e data atual do usuário: {hora_local} — CRÍTICO: Use EXATAMENTE este horário como base para calcular agendamentos. Se o usuário pedir 'daqui X minutos', some X minutos ao horário acima e use como data_hora no ISO8601. NÃO use horário UTC nem fuso diferente."
     if latitude and longitude:
@@ -2005,6 +2002,10 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     system = build_system_prompt(perfil, config)
     if contexto_extra:
         system += f"\n\n{contexto_extra}"
+    # Instrução de idioma vai por ÚLTIMO no system prompt (máxima prioridade pro modelo)
+    if idioma_falado and idioma_falado.lower() not in ("portuguese", "pt", "pt-br"):
+        system += f"\n\n=== MANDATORY LANGUAGE RULE ===\nThe user spoke in {idioma_falado}. You MUST respond ENTIRELY in {idioma_falado}. Do NOT translate their message. Do NOT respond in Portuguese. Reply naturally in {idioma_falado} as if it were your native language."
+        mensagem = f"{mensagem}\n\n[Respond in {idioma_falado}]"
 
     import time as _t
     _t0 = _t.time()
