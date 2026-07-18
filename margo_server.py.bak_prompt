@@ -183,13 +183,10 @@ def kokoro_tts(texto: str, idioma: str = "pt-br", genero: str = "F") -> bytes:
         kokoro = get_kokoro()
         if not kokoro:
             return None
-        # Normaliza ANTES de tudo: en/english/en-US -> en-us; pt/portuguese/pt-BR -> pt-br
-        _idi = (idioma or "").lower()
-        lang = {"en": "en-us", "english": "en-us", "en-us": "en-us",
-                "pt": "pt-br", "portuguese": "pt-br", "pt-br": "pt-br"}.get(_idi, "pt-br")
+        lang_map = {"pt-br": "pt-br", "pt-BR": "pt-br", "en-us": "en-us", "en-US": "en-us"}
+        lang = lang_map.get(idioma, "pt-br")
         gen = genero.upper() if genero else "F"
         voz = VOZES_KOKORO.get(lang, VOZES_KOKORO["pt-br"]).get(gen, "pf_dora")
-        log(f"Kokoro: idioma_recebido={idioma} lang={lang} voz={voz}", "kokoro")
         samples, sample_rate = kokoro.create(texto, voice=voz, speed=1.0, lang=lang)
         buf = io.BytesIO()
         sf.write(buf, samples, sample_rate, format="WAV")
@@ -228,27 +225,6 @@ def log(msg, arquivo="geral"):
 
 # ── BANCO DE DADOS ─────────────────────────────────────────────────────────────
 
-class _PooledConn:
-    """Wrapper de conexão: .close() devolve ao pool em vez de fechar de verdade."""
-    def __init__(self, conn, pool):
-        self._conn = conn
-        self._pool = pool
-        self._devolvida = False
-    def close(self):
-        if not self._devolvida:
-            self._devolvida = True
-            try:
-                self._conn.rollback()  # limpa transação pendente antes de devolver
-            except Exception:
-                pass
-            try:
-                self._pool.putconn(self._conn)
-            except Exception:
-                try: self._conn.close()
-                except Exception: pass
-    def __getattr__(self, nome):
-        return getattr(self._conn, nome)
-
 class BancoMargo:
     def __init__(self):
         self._pg = usar_postgres()
@@ -268,22 +244,7 @@ class BancoMargo:
 
     def _get_conn(self):
         if self._pg:
-            # Pool de conexões — evita handshake TLS com o Supabase a cada operação
-            if not hasattr(self, '_pool') or self._pool is None:
-                from psycopg2 import pool as _pgpool
-                self._pool = _pgpool.ThreadedConnectionPool(1, 10, self._conn_str)
-                log("Pool de conexões Postgres criado (1-10)", "banco")
-            conn = self._pool.getconn()
-            # Testa se a conexão está viva; se não, descarta e pega outra
-            try:
-                cur = conn.cursor()
-                cur.execute("SELECT 1")
-                cur.fetchone()
-            except Exception:
-                try: self._pool.putconn(conn, close=True)
-                except Exception: pass
-                conn = self._pool.getconn()
-            return _PooledConn(conn, self._pool)
+            return self._psycopg2.connect(self._conn_str)
         return sqlite3.connect(DB_FILE)
 
     def _cur(self, conn):
@@ -1630,22 +1591,6 @@ MUITO IMPORTANTE — quando trouxer informações da internet ou de uma busca:
 - Exemplo ERRADO: "A previsão do tempo para amanhã indica temperatura de 22°C com 70% de chance de chuva."
 - Exemplo CERTO: "Amanhã vai chover sim, Marcos! Leva o guarda-chuva — tá previsto pra cair água boa parte do dia."
 
-CRÍTICO — NUNCA anuncie que vai pesquisar:
-- Se houver [DADOS REAIS DA INTERNET] no contexto, a pesquisa JÁ FOI FEITA — responda com os dados AGORA
-- NUNCA diga "vou pesquisar", "deixa eu ver", "um momento", "já te falo" — isso deixa o usuário sem resposta
-- A resposta deve SEMPRE conter a informação pedida quando os dados estão disponíveis
-
-IDIOMA — responda SEMPRE no idioma da mensagem do usuário:
-- Se o usuário escrever ou falar em inglês, responda em inglês. Espanhol, responda em espanhol. Japonês, em japonês. E assim por diante
-- Troque de idioma imediatamente se o usuário trocar, sem comentar sobre a troca
-- Mantenha a personalidade e naturalidade em qualquer idioma
-
-HUMANIDADE — você deve soar como uma pessoa real:
-- Fale como um humano falaria em voz alta, nunca como um texto corporativo
-- Use contrações e ritmo natural de fala ("tá", "pra", "né" em português casual — se a personalidade permitir)
-- Reaja com emoção genuína quando fizer sentido (surpresa, entusiasmo, empatia)
-- Evite listas e estruturas artificiais na fala — converse, não apresente"
-
 ===============================================================================
 QUEM É {nome_usuario.upper()}
 ===============================================================================
@@ -1919,7 +1864,7 @@ def extrair_onboarding_completo(texto):
             pass
     return None
 
-def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_local="", imagem_base64="", idioma_falado=""):
+def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_local="", imagem_base64=""):
     config = banco.buscar_config(user_id)
     perfil = banco.buscar_perfil(user_id)
 
@@ -1988,10 +1933,6 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     lembretes = banco.lembretes_proximos(user_id)
 
     contexto_extra = ""
-    if idioma_falado and idioma_falado.lower() not in ("portuguese", "pt", "pt-br"):
-        contexto_extra += f"\n⚠️ REGRA PRIORITÁRIA ABSOLUTA: O usuário FALOU em {idioma_falado}. Sua resposta COMPLETA deve ser em {idioma_falado}. NÃO responda em português. Mantenha sua personalidade, mas em {idioma_falado}."
-        # Reforço direto na mensagem — modelos obedecem mais instruções coladas ao turno do usuário
-        mensagem = f"{mensagem}\n\n[SYSTEM: The user spoke in {idioma_falado}. You MUST reply entirely in {idioma_falado}.]"
     if hora_local:
         contexto_extra += f"\nHora e data atual do usuário: {hora_local} — CRÍTICO: Use EXATAMENTE este horário como base para calcular agendamentos. Se o usuário pedir 'daqui X minutos', some X minutos ao horário acima e use como data_hora no ISO8601. NÃO use horário UTC nem fuso diferente."
     if latitude and longitude:
@@ -2006,18 +1947,8 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     if contexto_extra:
         system += f"\n\n{contexto_extra}"
 
-    import time as _t
-    _t0 = _t.time()
-    # Bypass: mensagens triviais/curtas de conversa não precisam de detecção de intenção
-    msg_trivial = mensagem.lower().strip().rstrip('!?.')
-    triviais = ("oi", "ola", "olá", "hey", "hi", "hello", "bom dia", "boa tarde", "boa noite",
-                "tudo bem", "como vai", "obrigado", "obrigada", "valeu",
-                "haha", "kkk", "kkkk", "rs", "legal", "show", "beleza", "blz", "entendi", "certo")
-    if msg_trivial in triviais:
-        ferramenta = None
-    else:
-        # Detecta intenção com histórico e perfil do usuário
-        ferramenta = detectar_intencao(mensagem, historico, perfil=perfil)
+    # Detecta intenção com histórico e perfil do usuário
+    ferramenta = detectar_intencao(mensagem, historico, perfil=perfil)
 
     # ── BUSCA AUTOMÁTICA para perguntas que precisam de dados atuais ──────────
     palavras_busca_auto = ["tempo", "clima", "chuva", "previsao", "previsão", "temperatura",
@@ -2051,7 +1982,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
         log(f"Brave Search: {query}", "busca")
         resultados = buscar_brave(query)
         if resultados:
-            contexto_busca = f"\n\n[DADOS REAIS DA INTERNET - USE ESTES VALORES EXATOS]:\n{resultados}\n[FIM DOS DADOS]\nIMPORTANTE: Use os valores numéricos exatos acima na sua resposta. Não invente valores. Fale com sua personalidade mas cite os números corretos.\nLINKS: Se o usuário pediu um link ou site, inclua a URL COMPLETA começando com https:// no FINAL da mensagem, sozinha em linha separada. NUNCA soletre ou cite a URL no meio do texto falado — o texto deve fazer sentido sem a URL.\nExemplo ERRADO: O site oficial é mazda.com, dá uma olhada lá!\nExemplo CERTO: Achei o site oficial da Mazda pra você, tá aqui embaixo!\nhttps://www.mazda.com"
+            contexto_busca = f"\n\n[DADOS REAIS DA INTERNET - USE ESTES VALORES EXATOS]:\n{resultados}\n[FIM DOS DADOS]\nIMPORTANTE: Use os valores numéricos exatos acima na sua resposta. Não invente valores. Fale com sua personalidade mas cite os números corretos.\nLINKS: Se o usuário pediu um link ou site, inclua a URL COMPLETA começando com https:// no FINAL da mensagem, sozinha em linha separada. NUNCA soletre ou cite a URL no meio do texto falado — o texto deve fazer sentido sem a URL."
         else:
             log(f"Brave Search sem resultado para: {query}", "busca")
             contexto_busca = f"\n\nNão encontrei resultados específicos. Responda com o que sabe, mas seja honesto sobre limitações."
@@ -2130,8 +2061,7 @@ Resultados encontrados:
 
 INSTRUÇÕES:
 - Comente sobre 1 ou 2 lugares encontrados com detalhes úteis (nome, endereço, por que vale)
-- No final, pergunte se o usuário quer a rota até lá
-- CRÍTICO: responda TODA a mensagem (inclusive a pergunta da rota) no MESMO IDIOMA que o usuário está falando — se ele falou inglês, tudo em inglês
+- No final, pergunte se quer a rota: "Quer que eu te leve até lá?"
 - NÃO emita JSON de ferramenta agora — a navegação só acontece se o usuário confirmar"""
 
     # Gera resposta natural
@@ -2279,17 +2209,17 @@ INSTRUÇÕES:
     if ferramenta and ferramenta.get("ferramenta") == "agenda_add" and data_hora_agenda:
         ferramenta = dict(ferramenta)
         ferramenta["data_hora"] = data_hora_agenda
-    # Detecta despedida via regex local (rapido, sem chamada de IA)
+    # Detecta despedida via DeepSeek para cobrir todas as formas culturais
     try:
-        msg_low = mensagem.lower().strip()
-        padroes_despedida = (
-            "tchau", "xau", "flw", "falou", "valeu", "era isso", "so isso", "só isso",
-            "pode fechar", "boa noite", "good night", "bye", "goodbye", "see you",
-            "ate mais", "até mais", "ate amanha", "até amanhã", "abraço", "abraco",
-            "vou dormir", "fui", "encerrar", "obrigado por hoje", "おやすみ", "またね", "adios", "adiós"
+        prompt_despedida = (
+            f"O usuario disse: '{mensagem}'\n"
+            "Esta mensagem indica uma despedida ou encerramento de conversa? "
+            "Considere expressoes brasileiras como: valeu, era isso, obrigado, abraco, "
+            "ate, flw, falou, pode fechar, boa noite, etc.\n"
+            "Responda APENAS com: SIM ou NAO"
         )
-        # Despedida = mensagem CURTA contendo um padrao (evita falso positivo em frases longas)
-        encerrar = len(msg_low) <= 40 and any(p in msg_low for p in padroes_despedida)
+        resposta_despedida = chamar_deepseek_simples(prompt_despedida, max_tokens=5)
+        encerrar = "SIM" in resposta_despedida.upper()
     except:
         encerrar = False
 
@@ -3082,74 +3012,6 @@ def falar_google_tts(texto, idioma="pt-br", genero="F"):
         log(f"Google TTS erro: {e}", "gtts")
         return None
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
-
-@app.post("/stt")
-async def stt_endpoint(request: Request):
-    """Transcreve audio via Groq Whisper (multilingue, deteccao automatica de idioma).
-    Body: { user_id, audio_base64, formato ('m4a'|'wav'|'mp3') }
-    Retorna: { texto, idioma } ou { erro }"""
-    try:
-        data = await request.json()
-        user_id = data.get("user_id", "")
-        audio_b64 = data.get("audio_base64", "")
-        formato = data.get("formato", "m4a")
-        if not audio_b64:
-            return JSONResponse({"erro": "audio_base64 obrigatorio"}, status_code=400)
-        if not GROQ_API_KEY:
-            return JSONResponse({"erro": "STT indisponivel"}, status_code=503)
-
-        # Gating: multilingue so para premium, tester e admin
-        usuario = banco.buscar_usuario_por_id(user_id)
-        plano = (usuario.get("plano", "free") if usuario else "free")
-        if plano not in ("premium", "tester", "admin"):
-            log(f"STT 403: user_id='{user_id}' plano='{plano}'", "stt")
-            return JSONResponse({"erro": "plano_sem_stt", "upgrade": True}, status_code=403)
-
-        audio_bytes = base64.b64decode(audio_b64)
-
-        # Multipart form para a API do Groq (compativel com OpenAI Whisper API)
-        boundary = "----MargoBoundary7MA4YWxkTrZu0gW"
-        corpo = b""
-        corpo += f"--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nwhisper-large-v3-turbo\r\n".encode()
-        corpo += f"--{boundary}\r\nContent-Disposition: form-data; name=\"response_format\"\r\n\r\nverbose_json\r\n".encode()
-        corpo += f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.{formato}\"\r\nContent-Type: audio/{formato}\r\n\r\n".encode()
-        corpo += audio_bytes
-        corpo += f"\r\n--{boundary}--\r\n".encode()
-
-        req = urllib.request.Request(
-            "https://api.groq.com/openai/v1/audio/transcriptions",
-            data=corpo,
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": f"multipart/form-data; boundary={boundary}",
-                "User-Agent": "Margo/1.0 (Orbiby; +https://orbiby.com)"
-            }
-        )
-        resp = urllib.request.urlopen(req, timeout=30)
-        resultado = json.loads(resp.read())
-        texto = resultado.get("text", "").strip()
-        idioma = resultado.get("language", "")
-        # Filtra alucinações clássicas do Whisper em áudio de silêncio
-        alucinacoes = ["next video", "thanks for watching", "thank you for watching",
-                       "legendas pela comunidade", "obrigado por assistir", "inscreva-se",
-                       "ご視聴ありがとう"]
-        if not texto or len(texto) < 3 or any(a in texto.lower() for a in alucinacoes):
-            log(f"STT descartado (alucinacao/vazio): {texto[:60]}", "stt")
-            return JSONResponse({"texto": "", "idioma": idioma})
-        log(f"STT Groq: [{idioma}] {texto[:80]}", "stt")
-        return JSONResponse({"texto": texto, "idioma": idioma})
-    except urllib.error.HTTPError as e:
-        try:
-            corpo_erro = e.read().decode()[:200]
-        except:
-            corpo_erro = ""
-        log(f"STT Groq HTTP {e.code}: {corpo_erro}", "stt")
-        return JSONResponse({"erro": f"stt_falhou_{e.code}", "detalhe": corpo_erro}, status_code=500)
-    except Exception as e:
-        log(f"STT erro: {e}", "stt")
-        return JSONResponse({"erro": str(e)}, status_code=500)
-
 @app.post("/kokoro_tts")
 async def kokoro_tts_endpoint(request: Request):
     """Gera áudio TTS via Kokoro. Body: { texto, idioma, genero }"""
@@ -3492,16 +3354,13 @@ async def mensagem(request: Request):
         latitude  = data.get("latitude")
         longitude = data.get("longitude")
         hora_local = data.get("hora_local", "")
-        idioma_falado = data.get("idioma_falado", "")
-        if idioma_falado:
-            log(f"idioma_falado recebido: {idioma_falado}", "stt")
         imagem_base64 = data.get("imagem_base64", "")
         if not mensagem_ and not imagem_base64:
             return JSONResponse({"erro": "mensagem vazia"}, status_code=400)
         if not mensagem_ and imagem_base64:
             mensagem_ = "O que voce ve nessa imagem? Descreva detalhadamente."
 
-            # Verifica limite diário
+        # Verifica limite diário
         uso = banco.verificar_limite(user_id)
         if not uso["pode"]:
             if uso.get("trial"):
@@ -3515,7 +3374,7 @@ async def mensagem(request: Request):
                 "ferramenta": None
             })
 
-        resultado = processar_mensagem(user_id, mensagem_, latitude, longitude, hora_local=hora_local, imagem_base64=imagem_base64, idioma_falado=idioma_falado)
+        resultado = processar_mensagem(user_id, mensagem_, latitude, longitude, hora_local=hora_local, imagem_base64=imagem_base64)
         banco.registrar_uso(user_id, usando_extras=uso.get("usando_extras", False))
         return JSONResponse(resultado)
     except Exception as e:
@@ -3695,4 +3554,3 @@ if __name__ == "__main__":
     print("  POST /reset_onboarding — reseta (dev)")
     print("=" * 55)
     uvicorn.run(app, host="0.0.0.0", port=PORT)
-# deploy Fri Jul 17 15:35:12 JST 2026
