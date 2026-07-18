@@ -183,13 +183,10 @@ def kokoro_tts(texto: str, idioma: str = "pt-br", genero: str = "F") -> bytes:
         kokoro = get_kokoro()
         if not kokoro:
             return None
-        # Normaliza ANTES de tudo: en/english/en-US -> en-us; pt/portuguese/pt-BR -> pt-br
-        _idi = (idioma or "").lower()
-        lang = {"en": "en-us", "english": "en-us", "en-us": "en-us",
-                "pt": "pt-br", "portuguese": "pt-br", "pt-br": "pt-br"}.get(_idi, "pt-br")
+        lang_map = {"pt-br": "pt-br", "pt-BR": "pt-br", "en-us": "en-us", "en-US": "en-us"}
+        lang = lang_map.get(idioma, "pt-br")
         gen = genero.upper() if genero else "F"
         voz = VOZES_KOKORO.get(lang, VOZES_KOKORO["pt-br"]).get(gen, "pf_dora")
-        log(f"Kokoro: idioma_recebido={idioma} lang={lang} voz={voz}", "kokoro")
         samples, sample_rate = kokoro.create(texto, voice=voz, speed=1.0, lang=lang)
         buf = io.BytesIO()
         sf.write(buf, samples, sample_rate, format="WAV")
@@ -228,27 +225,6 @@ def log(msg, arquivo="geral"):
 
 # ── BANCO DE DADOS ─────────────────────────────────────────────────────────────
 
-class _PooledConn:
-    """Wrapper de conexão: .close() devolve ao pool em vez de fechar de verdade."""
-    def __init__(self, conn, pool):
-        self._conn = conn
-        self._pool = pool
-        self._devolvida = False
-    def close(self):
-        if not self._devolvida:
-            self._devolvida = True
-            try:
-                self._conn.rollback()  # limpa transação pendente antes de devolver
-            except Exception:
-                pass
-            try:
-                self._pool.putconn(self._conn)
-            except Exception:
-                try: self._conn.close()
-                except Exception: pass
-    def __getattr__(self, nome):
-        return getattr(self._conn, nome)
-
 class BancoMargo:
     def __init__(self):
         self._pg = usar_postgres()
@@ -268,22 +244,7 @@ class BancoMargo:
 
     def _get_conn(self):
         if self._pg:
-            # Pool de conexões — evita handshake TLS com o Supabase a cada operação
-            if not hasattr(self, '_pool') or self._pool is None:
-                from psycopg2 import pool as _pgpool
-                self._pool = _pgpool.ThreadedConnectionPool(1, 10, self._conn_str)
-                log("Pool de conexões Postgres criado (1-10)", "banco")
-            conn = self._pool.getconn()
-            # Testa se a conexão está viva; se não, descarta e pega outra
-            try:
-                cur = conn.cursor()
-                cur.execute("SELECT 1")
-                cur.fetchone()
-            except Exception:
-                try: self._pool.putconn(conn, close=True)
-                except Exception: pass
-                conn = self._pool.getconn()
-            return _PooledConn(conn, self._pool)
+            return self._psycopg2.connect(self._conn_str)
         return sqlite3.connect(DB_FILE)
 
     def _cur(self, conn):
@@ -1990,8 +1951,6 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     contexto_extra = ""
     if idioma_falado and idioma_falado.lower() not in ("portuguese", "pt", "pt-br"):
         contexto_extra += f"\n⚠️ REGRA PRIORITÁRIA ABSOLUTA: O usuário FALOU em {idioma_falado}. Sua resposta COMPLETA deve ser em {idioma_falado}. NÃO responda em português. Mantenha sua personalidade, mas em {idioma_falado}."
-        # Reforço direto na mensagem — modelos obedecem mais instruções coladas ao turno do usuário
-        mensagem = f"{mensagem}\n\n[SYSTEM: The user spoke in {idioma_falado}. You MUST reply entirely in {idioma_falado}.]"
     if hora_local:
         contexto_extra += f"\nHora e data atual do usuário: {hora_local} — CRÍTICO: Use EXATAMENTE este horário como base para calcular agendamentos. Se o usuário pedir 'daqui X minutos', some X minutos ao horário acima e use como data_hora no ISO8601. NÃO use horário UTC nem fuso diferente."
     if latitude and longitude:
@@ -2018,6 +1977,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     else:
         # Detecta intenção com histórico e perfil do usuário
         ferramenta = detectar_intencao(mensagem, historico, perfil=perfil)
+    log(f"PERF intencao: {_t.time()-_t0:.1f}s", "perf")
 
     # ── BUSCA AUTOMÁTICA para perguntas que precisam de dados atuais ──────────
     palavras_busca_auto = ["tempo", "clima", "chuva", "previsao", "previsão", "temperatura",
@@ -2130,8 +2090,7 @@ Resultados encontrados:
 
 INSTRUÇÕES:
 - Comente sobre 1 ou 2 lugares encontrados com detalhes úteis (nome, endereço, por que vale)
-- No final, pergunte se o usuário quer a rota até lá
-- CRÍTICO: responda TODA a mensagem (inclusive a pergunta da rota) no MESMO IDIOMA que o usuário está falando — se ele falou inglês, tudo em inglês
+- No final, pergunte se quer a rota: "Quer que eu te leve até lá?"
 - NÃO emita JSON de ferramenta agora — a navegação só acontece se o usuário confirmar"""
 
     # Gera resposta natural
@@ -2140,6 +2099,7 @@ INSTRUÇÕES:
         resposta = chamar_gemini_vision(system + contexto_busca, mensagem, imagem_base64, max_tokens=800)
     else:
         resposta = chamar_deepseek(system + contexto_busca, mensagem, historico, max_tokens=800)
+    log(f"PERF resposta: {_t.time()-_t0:.1f}s", "perf")
 
     # Remove JSON da resposta caso o DeepSeek emita ferramenta em vez de texto
     resposta_limpa = resposta.strip()
@@ -2293,6 +2253,7 @@ INSTRUÇÕES:
     except:
         encerrar = False
 
+    log(f"PERF total: {_t.time()-_t0:.1f}s", "perf")
     return {
         "resposta":        limpar_resposta(resposta_limpa),
         "onboarding":      False,
@@ -3103,7 +3064,6 @@ async def stt_endpoint(request: Request):
         usuario = banco.buscar_usuario_por_id(user_id)
         plano = (usuario.get("plano", "free") if usuario else "free")
         if plano not in ("premium", "tester", "admin"):
-            log(f"STT 403: user_id='{user_id}' plano='{plano}'", "stt")
             return JSONResponse({"erro": "plano_sem_stt", "upgrade": True}, status_code=403)
 
         audio_bytes = base64.b64decode(audio_b64)
@@ -3145,7 +3105,7 @@ async def stt_endpoint(request: Request):
         except:
             corpo_erro = ""
         log(f"STT Groq HTTP {e.code}: {corpo_erro}", "stt")
-        return JSONResponse({"erro": f"stt_falhou_{e.code}", "detalhe": corpo_erro}, status_code=500)
+        return JSONResponse({"erro": f"stt_falhou_{e.code}"}, status_code=500)
     except Exception as e:
         log(f"STT erro: {e}", "stt")
         return JSONResponse({"erro": str(e)}, status_code=500)
@@ -3493,15 +3453,13 @@ async def mensagem(request: Request):
         longitude = data.get("longitude")
         hora_local = data.get("hora_local", "")
         idioma_falado = data.get("idioma_falado", "")
-        if idioma_falado:
-            log(f"idioma_falado recebido: {idioma_falado}", "stt")
         imagem_base64 = data.get("imagem_base64", "")
         if not mensagem_ and not imagem_base64:
             return JSONResponse({"erro": "mensagem vazia"}, status_code=400)
         if not mensagem_ and imagem_base64:
             mensagem_ = "O que voce ve nessa imagem? Descreva detalhadamente."
 
-            # Verifica limite diário
+        # Verifica limite diário
         uso = banco.verificar_limite(user_id)
         if not uso["pode"]:
             if uso.get("trial"):
@@ -3695,4 +3653,3 @@ if __name__ == "__main__":
     print("  POST /reset_onboarding — reseta (dev)")
     print("=" * 55)
     uvicorn.run(app, host="0.0.0.0", port=PORT)
-# deploy Fri Jul 17 15:35:12 JST 2026
