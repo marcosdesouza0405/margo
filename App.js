@@ -924,10 +924,17 @@ export default function App() {
         console.log('[WakeWord] App em foreground — pausando wake word');
         try { await NativeModules.WakeWordModule.pausar(); } catch(e) {}
         await verificarWakeWordPendente();
+        // Limpa ultimo idioma ao voltar (evita historico PT pesando na proxima fala)
+        ultimoIdiomaRef.current = '';
         // Restaura o mic se estava ligado antes de sair (ex: voltou do Spotify)
         if (micEstadoSalvoRef.current && !micAtivoRef.current) {
           micEstadoSalvoRef.current = false;
-          setTimeout(() => { iniciarMicrofone(); }, 800);
+          // Para qualquer ciclo iniciado pelo useEffect do plano antes da restauracao
+          if (gravacaoRef.current) {
+            try { gravacaoRef.current.recording.stopAndUnloadAsync(); } catch(e) {}
+            gravacaoRef.current = null;
+          }
+          setTimeout(() => { iniciarMicrofone(); }, 1000);
         }
 
       } else if (nextState === 'background') {
