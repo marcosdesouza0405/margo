@@ -1023,7 +1023,7 @@ export default function App() {
     const interval = setInterval(() => {
       if (micAtivoRef.current && !ttsAtivoRef.current && ExpoSpeechRecognitionModule) {
         try {
-          ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+          if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
         } catch(e) {}
       }
     }, 15000);
@@ -1695,7 +1695,7 @@ export default function App() {
       setTimeout(() => {
         if (micAtivoRef.current && !ttsAtivoRef.current && !multilingueRef.current && ExpoSpeechRecognitionModule) {
           try {
-            ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+            if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
           } catch(e) { console.log('Reinicio mic erro:', e); }
         }
       }, 300);
@@ -1722,6 +1722,9 @@ export default function App() {
     if (!micAtivoRef.current || ttsAtivoRef.current) return;
     if (!userId) { setTimeout(cicloMultilingue, 1000); return; }
     try {
+      // Para o SODA explicitamente antes de gravar (garante microfone exclusivo pro expo-av)
+      try { ExpoSpeechRecognitionModule?.stop(); } catch(e) {}
+      await new Promise(r => setTimeout(r, 200));
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
       const { recording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY,
@@ -1802,7 +1805,7 @@ export default function App() {
       if (multilingueRef.current) {
         cicloMultilingue(); // ouvido Groq (admin/premium/tester)
       } else {
-        ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+        if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
       }
       iniciarNotificacaoPersistente(config.assistantName);
     } catch(e) { console.log('Mic erro:', e); }
