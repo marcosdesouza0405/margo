@@ -3146,7 +3146,7 @@ async def stt_endpoint(request: Request):
         except:
             corpo_erro = ""
         log(f"STT Groq HTTP {e.code}: {corpo_erro}", "stt")
-        return JSONResponse({"erro": f"stt_falhou_{e.code}"}, status_code=500)
+        return JSONResponse({"erro": f"stt_falhou_{e.code}", "detalhe": corpo_erro}, status_code=500)
     except Exception as e:
         log(f"STT erro: {e}", "stt")
         return JSONResponse({"erro": str(e)}, status_code=500)
