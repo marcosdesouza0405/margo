@@ -1920,11 +1920,8 @@ def extrair_onboarding_completo(texto):
     return None
 
 def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_local="", imagem_base64="", idioma_falado=""):
-    import time as _ti
-    _tini = _ti.time()
     config = banco.buscar_config(user_id)
     perfil = banco.buscar_perfil(user_id)
-    log(f"PERF pm config+perfil: {_ti.time()-_tini:.1f}s", "perf")
 
     # ── ONBOARDING ─────────────────────────────────────────────────────────────
     if not config.get("onboarding_completo"):
@@ -1989,7 +1986,6 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     _plano_user = (_usr.get("plano", "free") if _usr else "free")
     resumos = banco.buscar_resumos(user_id) if _plano_user in PLANOS_MEMORIA else []
     lembretes = banco.lembretes_proximos(user_id)
-    log(f"PERF pm dados-usuario: {_ti.time()-_tini:.1f}s", "perf")
 
     contexto_extra = ""
     if idioma_falado and idioma_falado.lower() not in ("portuguese", "pt", "pt-br"):
@@ -2022,7 +2018,6 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     else:
         # Detecta intenção com histórico e perfil do usuário
         ferramenta = detectar_intencao(mensagem, historico, perfil=perfil)
-    log(f"PERF intencao: {_t.time()-_t0:.1f}s", "perf")
 
     # ── BUSCA AUTOMÁTICA para perguntas que precisam de dados atuais ──────────
     palavras_busca_auto = ["tempo", "clima", "chuva", "previsao", "previsão", "temperatura",
@@ -2145,7 +2140,6 @@ INSTRUÇÕES:
         resposta = chamar_gemini_vision(system + contexto_busca, mensagem, imagem_base64, max_tokens=800)
     else:
         resposta = chamar_deepseek(system + contexto_busca, mensagem, historico, max_tokens=800)
-    log(f"PERF resposta: {_t.time()-_t0:.1f}s", "perf")
 
     # Remove JSON da resposta caso o DeepSeek emita ferramenta em vez de texto
     resposta_limpa = resposta.strip()
@@ -2299,7 +2293,6 @@ INSTRUÇÕES:
     except:
         encerrar = False
 
-    log(f"PERF total: {_t.time()-_t0:.1f}s", "perf")
     return {
         "resposta":        limpar_resposta(resposta_limpa),
         "onboarding":      False,
@@ -3120,6 +3113,7 @@ async def stt_endpoint(request: Request):
         corpo = b""
         corpo += f"--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nwhisper-large-v3-turbo\r\n".encode()
         corpo += f"--{boundary}\r\nContent-Disposition: form-data; name=\"response_format\"\r\n\r\nverbose_json\r\n".encode()
+        corpo += f"--{boundary}\r\nContent-Disposition: form-data; name=\"task\"\r\n\r\ntranscribe\r\n".encode()
         corpo += f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.{formato}\"\r\nContent-Type: audio/{formato}\r\n\r\n".encode()
         corpo += audio_bytes
         corpo += f"\r\n--{boundary}--\r\n".encode()
@@ -3508,11 +3502,8 @@ async def mensagem(request: Request):
         if not mensagem_ and imagem_base64:
             mensagem_ = "O que voce ve nessa imagem? Descreva detalhadamente."
 
-        import time as _te
-        _e0 = _te.time()
-        # Verifica limite diário
+            # Verifica limite diário
         uso = banco.verificar_limite(user_id)
-        log(f"PERF endpoint limite: {_te.time()-_e0:.1f}s", "perf")
         if not uso["pode"]:
             if uso.get("trial"):
                 msg_limite = "Você usou todas as 50 interações do seu trial gratuito! Assine um plano para continuar."
@@ -3526,9 +3517,7 @@ async def mensagem(request: Request):
             })
 
         resultado = processar_mensagem(user_id, mensagem_, latitude, longitude, hora_local=hora_local, imagem_base64=imagem_base64, idioma_falado=idioma_falado)
-        log(f"PERF endpoint pos-processar: {_te.time()-_e0:.1f}s", "perf")
         banco.registrar_uso(user_id, usando_extras=uso.get("usando_extras", False))
-        log(f"PERF endpoint final: {_te.time()-_e0:.1f}s", "perf")
         return JSONResponse(resultado)
     except Exception as e:
         log(f"Erro /mensagem: {e}")
