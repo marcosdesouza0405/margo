@@ -1175,6 +1175,18 @@ export default function App() {
 
   // ── ENVIAR ────────────────────────────────────────────────────────────────
   async function enviar(msg, idiomaFalado = '') {
+    if (msg.trim() === '#miclog') {
+      const logs = [
+        `mic=${micAtivoRef.current}`,
+        `tts=${ttsAtivoRef.current}`,
+        `gravando=${!!gravacaoRef.current}`,
+        `multilingue=${multilingueRef.current}`,
+        `userId=${!!userId}`,
+        `ultimoIdioma=${ultimoIdiomaRef.current || 'nenhum'}`
+      ].join(' | ');
+      addMsg('sistema', 'STATUS MIC:\n' + logs);
+      return;
+    }
     msg = (msg || input).trim();
     if (!msg || pensando || !userId || ttsAtivoRef.current) return;
     setInput('');
