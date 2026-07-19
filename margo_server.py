@@ -3151,6 +3151,22 @@ async def stt_endpoint(request: Request):
         log(f"STT erro: {e}", "stt")
         return JSONResponse({"erro": str(e)}, status_code=500)
 
+@app.get("/teste_edge_tts")
+async def teste_edge_tts():
+    """Testa se edge-tts conecta no Railway"""
+    try:
+        import edge_tts, asyncio, base64
+        comm = edge_tts.Communicate("Teste de voz", "pt-BR-FranciscaNeural")
+        audio_data = b""
+        async for chunk in comm.stream():
+            if chunk["type"] == "audio":
+                audio_data += chunk["data"]
+        if len(audio_data) > 0:
+            return {"ok": True, "bytes": len(audio_data), "preview_b64": base64.b64encode(audio_data[:200]).decode()}
+        return {"ok": False, "erro": "sem audio"}
+    except Exception as e:
+        return {"ok": False, "erro": str(e)}
+
 @app.post("/kokoro_tts")
 async def kokoro_tts_endpoint(request: Request):
     """Gera áudio TTS via Kokoro. Body: { texto, idioma, genero }"""
