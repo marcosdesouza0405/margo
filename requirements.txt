@@ -8,3 +8,4 @@ kokoro-onnx
 soundfile
 pykakasi
 resend
+edge-tts
