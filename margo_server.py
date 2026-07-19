@@ -3178,14 +3178,24 @@ async def kokoro_tts_endpoint(request: Request):
         if not texto:
             return JSONResponse({"erro": "texto obrigatório"}, status_code=400)
 
-        # Google TTS primeiro para pt-BR (voz melhor); Kokoro para inglês e fallback
-        if idioma == "pt-br" and genero == "F" and GOOGLE_TTS_API_KEY:
-            audio_google = falar_google_tts(texto, idioma, genero)
-            if audio_google:
-                import base64
-                audio_b64 = base64.b64encode(audio_google).decode()
-                return JSONResponse({"audio_base64": audio_b64, "formato": "mp3"})
-            log("Google TTS falhou — usando Kokoro como fallback", "gtts")
+        # Edge TTS para pt-BR (Francisca F, Antonio M) — gratuito e neural
+        if idioma == "pt-br":
+            try:
+                import edge_tts, asyncio, io
+                voz = "pt-BR-FranciscaNeural" if genero == "F" else "pt-BR-AntonioNeural"
+                comm = edge_tts.Communicate(texto, voz)
+                audio_data = b""
+                async for chunk in comm.stream():
+                    if chunk["type"] == "audio":
+                        audio_data += chunk["data"]
+                if audio_data:
+                    import base64
+                    audio_b64 = base64.b64encode(audio_data).decode()
+                    log(f"Edge TTS OK: {voz} ({len(audio_data)} bytes)", "tts")
+                    return JSONResponse({"audio_base64": audio_b64, "formato": "mp3"})
+                log("Edge TTS sem audio — usando Kokoro como fallback", "tts")
+            except Exception as e:
+                log(f"Edge TTS falhou: {e} — usando Kokoro como fallback", "tts")
 
         if not _kokoro_ready:
             return JSONResponse({"erro": "Kokoro não está pronto ainda"}, status_code=503)
