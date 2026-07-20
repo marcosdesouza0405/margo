@@ -3133,11 +3133,8 @@ async def stt_endpoint(request: Request):
         idioma = resultado.get("language", "")
         # Filtra alucinações clássicas do Whisper em áudio de silêncio
         alucinacoes = ["next video", "thanks for watching", "thank you for watching",
-                       "thank you", "thank you.", "thanks.", "you're welcome",
                        "legendas pela comunidade", "obrigado por assistir", "inscreva-se",
-                       "e aí", "e ai", "tchau", "bye", "okay",
-                       "ご視聴ありがとう", "ありがとうございます",
-                       "subtitles", "subscribe", "like and subscribe"]
+                       "ご視聴ありがとう"]
         if not texto or len(texto) < 3 or any(a in texto.lower() for a in alucinacoes):
             log(f"STT descartado (alucinacao/vazio): {texto[:60]}", "stt")
             return JSONResponse({"texto": "", "idioma": idioma})
