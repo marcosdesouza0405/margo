@@ -3138,7 +3138,8 @@ async def stt_endpoint(request: Request):
                        "e aí", "e ai", "tchau", "bye", "okay",
                        "ご視聴ありがとう", "ありがとうございます",
                        "subtitles", "subscribe", "like and subscribe"]
-        if not texto or len(texto) < 3 or any(a in texto.lower() for a in alucinacoes):
+        texto_limpo = texto.lower().strip().rstrip('.!? ')
+        if not texto or len(texto) < 3 or (len(texto) < 40 and any(texto_limpo == a or texto_limpo.startswith(a + ' ') for a in alucinacoes)):
             log(f"STT descartado (alucinacao/vazio): {texto[:60]}", "stt")
             return JSONResponse({"texto": "", "idioma": idioma})
         log(f"STT Groq: [{idioma}] {texto[:80]}", "stt")
