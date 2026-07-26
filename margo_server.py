@@ -1888,14 +1888,25 @@ def _pre_detectar(msg: str) -> dict:
                 "barbeiro", "academia", "dentista", "médico", "medico", "mecânico",
                 "mecanico", "acha ", "encontra ", "busca ", "procura ", "where is",
                 "レストラン", "コンビニ"]
-    if any(k in msg for k in local_kw) or (any(k in msg for k in place_kw) and any(k in msg for k in ["acha", "encontra", "busca", "procura", "tem ", "onde"])):
+    search_verbs = ["acha ", "ache ", "achar ", "encontra ", "encontre ", "busca ", "busque ",
+                    "procura ", "procure ", "find ", "search "]
+    if any(k in msg for k in local_kw) or (any(k in msg for k in place_kw) and any(k in msg for k in search_verbs + ["tem ", "onde", "qual ", "quais "])):
         query = msg
-        for k in ["acha ", "encontra ", "busca ", "procura ", "find "]:
+        # Remove prefixos conversacionais (fala natural)
+        import re as _re
+        query = _re.sub(r'^(então|entao|ei|hey|ok|margo|margô|oi|por favor|please)[,\s]*', '', query, flags=_re.IGNORECASE).strip()
+        # Remove verbo de busca
+        for k in search_verbs:
             if k in query:
                 query = query.split(k, 1)[-1].strip()
                 break
-        for k in ["perto de mim", "perto daqui", "aqui perto", "por perto"]:
+        # Remove "um/uma/uns/umas" no início
+        query = _re.sub(r'^(um|uma|uns|umas)\s+', '', query).strip()
+        # Remove referências de proximidade
+        for k in ["perto de mim", "perto daqui", "aqui perto", "por perto", "near me", "nearby", "próximo", "proximo"]:
             query = query.replace(k, "").strip()
+        # Remove "pra mim", "pra gente"
+        query = _re.sub(r'\s*(pra mim|pra gente|pra nós|for me)\s*', ' ', query).strip()
         return {"ferramenta": "maps_search", "query": query.rstrip('.!? ') or msg}
 
     # ── CLIMA ──
