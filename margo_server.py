@@ -1916,13 +1916,31 @@ def _pre_detectar(msg: str) -> dict:
 
     # ── AGENDA / LEMBRETE ──
     agenda_kw = ["me lembra", "lembra de ", "lembrete", "agenda ", "agendar",
-                 "remind me", "reminder", "daqui ", "às ", "as ", "at ",
+                 "remind me", "reminder", "depois de ", "after ",
                  "リマインド", "思い出させて"]
     time_ctx = ["hora", "horas", "minuto", "minutos", "min", "amanhã", "amanha",
                 "depois", "daqui", "às ", "as ", "tomorrow", "later",
                 "時", "分", "明日"]
     if any(k in msg for k in agenda_kw) and any(t in msg for t in time_ctx):
-        return {"ferramenta": "agenda_add", "titulo": msg, "descricao": "", "data_hora": "", "minutos_relativos": 0}
+        # Tenta extrair tempo relativo
+        import re as _re
+        mins = 0
+        # "daqui X minutos/min" ou "depois de X minutos/min"
+        m = _re.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*(?:minuto|min|m)', msg)
+        if m: mins = int(m.group(1))
+        # "daqui X horas" ou "depois de X horas"
+        m = _re.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*(?:hora|hour|h)', msg)
+        if m: mins = int(m.group(1)) * 60
+        # "daqui Xh30" ou "1h30"
+        m = _re.search(r'(\d+)\s*h\s*(\d+)', msg)
+        if m and not mins: mins = int(m.group(1)) * 60 + int(m.group(2))
+        # Limpa titulo
+        titulo = msg
+        for k in ["me lembra de ", "me lembra ", "lembra de ", "depois de "]:
+            if k in titulo:
+                titulo = titulo.split(k, 1)[-1].strip()
+                break
+        return {"ferramenta": "agenda_add", "titulo": titulo, "descricao": "", "data_hora": "", "minutos_relativos": mins}
 
     # ── PASSAGEM AÉREA ──
     flight_kw = ["passagem", "passagens", "voo ", "voar ", "flight",
