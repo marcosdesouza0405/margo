@@ -2017,8 +2017,30 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     if msg_trivial in triviais:
         ferramenta = None
     else:
-        # Detecta intenção com histórico e perfil do usuário
-        ferramenta = detectar_intencao(mensagem, historico, perfil=perfil)
+        # Pré-detecção smart_home por keywords (DeepSeek v4 falha nessa)
+        msg_low = mensagem.lower()
+        smart_keywords = ["liga ", "ligar ", "desliga ", "desligar ", "acende ", "acender ", "apaga ", "apagar ",
+                          "turn on ", "turn off ", "switch on ", "switch off ",
+                          "つけて", "消して", "けして"]
+        smart_devices = ["luz", "light", "ar ", "ar condicionado", "ventilador", "tv", "lampada", "lâmpada",
+                         "luminária", "luminaria", "lavanderia", "banheiro", "quarto", "sala",
+                         "電気", "エアコン", "fan", "air"]
+        is_smart = any(k in msg_low for k in smart_keywords) and any(d in msg_low for d in smart_devices)
+        if is_smart:
+            # Determina ação e dispositivo
+            acao = "desligar" if any(k in msg_low for k in ["desliga", "desligar", "apaga", "apagar", "turn off", "switch off", "消して", "けして"]) else "ligar"
+            # Extrai dispositivo: pega tudo depois do keyword
+            dispositivo = msg_low
+            for k in smart_keywords:
+                if k in dispositivo:
+                    dispositivo = dispositivo.split(k, 1)[-1].strip()
+                    break
+            dispositivo = dispositivo.rstrip('.!? ')
+            ferramenta = {"ferramenta": "smart_home", "acao": acao, "dispositivo": dispositivo}
+            log(f"Smart home pré-detectado: acao={acao} disp={dispositivo}", "smart")
+        else:
+            # Detecta intenção com histórico e perfil do usuário
+            ferramenta = detectar_intencao(mensagem, historico, perfil=perfil)
 
     # ── BUSCA AUTOMÁTICA para perguntas que precisam de dados atuais ──────────
     palavras_busca_auto = ["tempo", "clima", "chuva", "previsao", "previsão", "temperatura",
