@@ -2241,7 +2241,7 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
             pass
 
         query_busca = f"{query_maps} em {cidade}" if cidade else f"{query_maps} perto de mim"
-        log(f"Brave Maps Search: {query_busca}", "busca")
+        log(f"Brave Maps Search: query='{query_busca}' lat={latitude} lng={longitude} cidade={cidade}", "busca")
         resultados_maps = buscar_brave(query_busca)
         if resultados_maps:
             # Extrai o melhor lugar para eventual navegação
