@@ -2239,6 +2239,21 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         
         # LIMPA A QUERY FORTE: remove tudo que não é parte da busca
         import re as _re3
+        # SE FOR FRASE LONGA (> 30 chars) com conversa, extrai só as primeiras palavras-chave
+        if len(query_maps) > 30:
+            # Tenta extrair o tipo de lugar (restaurante, mercado, farmácia, etc.)
+            tipos = ['restaurante', 'restaurant', 'lanchonete', 'padaria', 'mercado', 'supermercado', 
+                     'farmácia', 'farmacia', 'hospital', 'posto', 'shopping', 'hotel', 'bar', 'café', 'cafe',
+                     'loja', 'banco', 'academia', 'dentista', 'médico', 'medico', 'mecânico', 'mecanico']
+            for t in tipos:
+                if t in query_maps.lower():
+                    # Pega o tipo + palavra seguinte (ex: "indiano", "japonês")
+                    palavras = query_maps.lower().split()
+                    idx = palavras.index(t)
+                    complemento = palavras[idx+1] if idx+1 < len(palavras) and len(palavras[idx+1]) < 20 else ""
+                    query_maps = f"{t} {complemento}".strip()
+                    break
+        
         # Remove palavras no início: por, para, um, uma, o, a, de, etc.
         query_maps = _re3.sub(r'^(por|para|pra|pro|um|uma|uns|umas|o|a|os|as|de|da|do|das|dos|pra|pro|pelo|pela|pelo|pela|no|na|nos|nas)\s+', '', query_maps, flags=_re3.IGNORECASE)
         # Remove palavras no meio: perto de mim, aqui perto, etc.
