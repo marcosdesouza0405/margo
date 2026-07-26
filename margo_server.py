@@ -1815,6 +1815,107 @@ def buscar_open_meteo(latitude, longitude) -> str:
         log(f"Erro Open-Meteo: {e}", "clima")
         return ""
 
+def _pre_detectar(msg: str) -> dict:
+    """Pré-detecção de intenção por keywords. Retorna dict ou None."""
+    
+    # ── SMART HOME ──
+    smart_on = ["liga ", "ligar ", "acende ", "acender ", "turn on ", "switch on ", "つけて"]
+    smart_off = ["desliga ", "desligar ", "apaga ", "apagar ", "turn off ", "switch off ", "消して"]
+    smart_devs = ["luz", "light", "ar ", "ar condicionado", "ventilador", "tv", "lampada",
+                  "lâmpada", "luminária", "luminaria", "lavanderia", "banheiro", "quarto",
+                  "sala", "電気", "エアコン", "fan", "air"]
+    all_smart = smart_on + smart_off
+    if any(k in msg for k in all_smart) and any(d in msg for d in smart_devs):
+        acao = "desligar" if any(k in msg for k in smart_off) else "ligar"
+        disp = msg
+        for k in all_smart:
+            if k in disp:
+                disp = disp.split(k, 1)[-1].strip()
+                break
+        return {"ferramenta": "smart_home", "acao": acao, "dispositivo": disp.rstrip('.!? ')}
+
+    # ── SPOTIFY ──
+    spotify_kw = ["toca ", "tocar ", "coloca ", "bota ", "play ", "põe ", "poe ",
+                   "toque ", "reproduz", "escuta ", "ouvir "]
+    music_ctx = ["música", "musica", "playlist", "sertanejo", "forró", "forro", "rock",
+                 "pop", "jazz", "funk", "pagode", "mpb", "rap", "hip hop", "reggae",
+                 "eletrônica", "eletronica", "clássica", "classica", "gospel", "axé",
+                 "bossa nova", "spotify", "no spotify"]
+    if any(k in msg for k in spotify_kw):
+        query = msg
+        for k in spotify_kw:
+            if k in query:
+                query = query.split(k, 1)[-1].strip()
+                break
+        query = query.rstrip('.!? ')
+        if query:
+            return {"ferramenta": "spotify_play", "query": query}
+    if any(m in msg for m in music_ctx) and any(k in msg for k in spotify_kw):
+        return {"ferramenta": "spotify_play", "query": msg}
+
+    # ── YOUTUBE ──
+    yt_kw = ["youtube", "no youtube", "abre um vídeo", "abre um video",
+             "coloca no youtube", "busca no youtube", "video de ", "vídeo de "]
+    if any(k in msg for k in yt_kw):
+        query = msg
+        for k in ["no youtube", "youtube", "abre um vídeo de", "abre um video de",
+                  "coloca no youtube", "busca no youtube"]:
+            query = query.replace(k, "")
+        return {"ferramenta": "youtube_search", "query": query.strip().rstrip('.!? ') or msg}
+
+    # ── NAVEGAÇÃO ──
+    nav_kw = ["me leva ", "leva pro ", "leva pra ", "leva para ", "navega ", "rota para ",
+              "rota pro ", "rota pra ", "como chego ", "como ir ", "ir para ", "ir pro ",
+              "vai pro ", "vai pra ", "vai para ", "take me to ", "navigate to ",
+              "連れてって", "案内して"]
+    if any(k in msg for k in nav_kw):
+        dest = msg
+        for k in nav_kw:
+            if k in dest:
+                dest = dest.split(k, 1)[-1].strip()
+                break
+        return {"ferramenta": "maps_navigate", "destino": dest.rstrip('.!? ')}
+
+    # ── BUSCA LOCAL ──
+    local_kw = ["perto de mim", "perto daqui", "aqui perto", "por perto", "próximo",
+                "proximo", "nearby", "near me", "近くの"]
+    place_kw = ["restaurante", "restaurant", "lanchonete", "padaria", "mercado",
+                "supermercado", "farmácia", "farmacia", "hospital", "posto", "shopping",
+                "hotel", "bar", "café", "cafe", "loja", "banco", "cabeleireiro",
+                "barbeiro", "academia", "dentista", "médico", "medico", "mecânico",
+                "mecanico", "acha ", "encontra ", "busca ", "procura ", "where is",
+                "レストラン", "コンビニ"]
+    if any(k in msg for k in local_kw) or (any(k in msg for k in place_kw) and any(k in msg for k in ["acha", "encontra", "busca", "procura", "tem ", "onde"])):
+        query = msg
+        for k in ["acha ", "encontra ", "busca ", "procura ", "find "]:
+            if k in query:
+                query = query.split(k, 1)[-1].strip()
+                break
+        for k in ["perto de mim", "perto daqui", "aqui perto", "por perto"]:
+            query = query.replace(k, "").strip()
+        return {"ferramenta": "maps_search", "query": query.rstrip('.!? ') or msg}
+
+    # ── CLIMA ──
+    clima_kw = ["clima", "tempo", "previsão", "previsao", "temperatura", "chuva",
+                "chover", "vai chover", "tá frio", "ta frio", "tá calor", "ta calor",
+                "weather", "forecast", "天気"]
+    if any(k in msg for k in clima_kw):
+        return {"ferramenta": "weather"}
+
+    # ── TELEFONE / WHATSAPP ──
+    phone_kw = ["liga pra ", "liga pro ", "liga para ", "ligar pra ", "ligar para ",
+                "manda mensagem", "manda msg", "chama ", "whatsapp", "call ",
+                "電話して"]
+    if any(k in msg for k in phone_kw):
+        contato = msg
+        for k in phone_kw:
+            if k in contato:
+                contato = contato.split(k, 1)[-1].strip()
+                break
+        return {"ferramenta": "phone_call", "contato": contato.rstrip('.!? ')}
+
+    return None
+
 def detectar_intencao(mensagem: str, historico: list = None, perfil: dict = None) -> dict:
     """
     Chamada rápida ao DeepSeek para detectar intenção e extrair parâmetros.
@@ -2017,29 +2118,12 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     if msg_trivial in triviais:
         ferramenta = None
     else:
-        # Pré-detecção smart_home por keywords (DeepSeek v4 falha nessa)
-        msg_low = mensagem.lower()
-        smart_keywords = ["liga ", "ligar ", "desliga ", "desligar ", "acende ", "acender ", "apaga ", "apagar ",
-                          "turn on ", "turn off ", "switch on ", "switch off ",
-                          "つけて", "消して", "けして"]
-        smart_devices = ["luz", "light", "ar ", "ar condicionado", "ventilador", "tv", "lampada", "lâmpada",
-                         "luminária", "luminaria", "lavanderia", "banheiro", "quarto", "sala",
-                         "電気", "エアコン", "fan", "air"]
-        is_smart = any(k in msg_low for k in smart_keywords) and any(d in msg_low for d in smart_devices)
-        if is_smart:
-            # Determina ação e dispositivo
-            acao = "desligar" if any(k in msg_low for k in ["desliga", "desligar", "apaga", "apagar", "turn off", "switch off", "消して", "けして"]) else "ligar"
-            # Extrai dispositivo: pega tudo depois do keyword
-            dispositivo = msg_low
-            for k in smart_keywords:
-                if k in dispositivo:
-                    dispositivo = dispositivo.split(k, 1)[-1].strip()
-                    break
-            dispositivo = dispositivo.rstrip('.!? ')
-            ferramenta = {"ferramenta": "smart_home", "acao": acao, "dispositivo": dispositivo}
-            log(f"Smart home pré-detectado: acao={acao} disp={dispositivo}", "smart")
+        # Pré-detecção por keywords (DeepSeek v4-flash falha em chamar ferramentas)
+        msg_low = mensagem.lower().strip()
+        ferramenta = _pre_detectar(msg_low)
+        if ferramenta:
+            log(f"Pré-detectado: {ferramenta.get('ferramenta')} via keywords", "intent")
         else:
-            # Detecta intenção com histórico e perfil do usuário
             ferramenta = detectar_intencao(mensagem, historico, perfil=perfil)
 
     # ── BUSCA AUTOMÁTICA para perguntas que precisam de dados atuais ──────────
