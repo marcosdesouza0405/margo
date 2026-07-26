@@ -1821,11 +1821,14 @@ def _pre_detectar(msg: str) -> dict:
     # ── SMART HOME ──
     smart_on = ["liga ", "ligar ", "acende ", "acender ", "turn on ", "switch on ", "つけて"]
     smart_off = ["desliga ", "desligar ", "apaga ", "apagar ", "turn off ", "switch off ", "消して"]
-    smart_devs = ["luz", "light", "ar ", "ar condicionado", "ventilador", "tv", "lampada",
+    smart_devs = ["luz", "light", "ar condicionado", "ventilador", "tv", "lampada",
                   "lâmpada", "luminária", "luminaria", "lavanderia", "banheiro", "quarto",
                   "sala", "電気", "エアコン", "fan", "air"]
     all_smart = smart_on + smart_off
-    if any(k in msg for k in all_smart) and any(d in msg for d in smart_devs):
+    # "o ar" ou "ar " no início — evita match dentro de "desligar"
+    import re as _re
+    tem_ar = bool(_re.search(r'(o ar|ar condicionado|ar do)', msg))
+    if any(k in msg for k in all_smart) and (any(d in msg for d in smart_devs) or tem_ar):
         acao = "desligar" if any(k in msg for k in smart_off) else "ligar"
         disp = msg
         for k in all_smart:
