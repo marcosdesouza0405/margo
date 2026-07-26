@@ -2198,7 +2198,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
             if latitude and longitude:
                 # Tem GPS — busca cidade real
                 try:
-                    geo_url = f"https://nominatim.openstreetmap.org/reverse?lat={latitude}&lon={longitude}&format=json&accept-language=pt"
+                    geo_url = f"https://nominatim.openstreetmap.org/reverse?lat={latitude}&lon={longitude}&format=json&accept-language=en"
                     geo_req = urllib.request.Request(geo_url, headers={"User-Agent": "MargoApp/1.0"})
                     geo_resp = urllib.request.urlopen(geo_req, timeout=5)
                     geo_data = json.loads(geo_resp.read())
@@ -2251,7 +2251,11 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         except:
             pass
 
-        query_busca = f"{query_maps} em {cidade}" if cidade else f"{query_maps} perto de mim"
+        # Limpa query de palavras conversacionais
+        import re as _re2
+        q_limpo = _re2.sub(r'(mais uma vez|de novo|novamente|outra vez|again|please|por favor|então|entao|margo|margô)', '', query_maps, flags=_re2.IGNORECASE).strip()
+        q_limpo = q_limpo.strip(' ,.')  or query_maps
+        query_busca = f"{q_limpo} near {cidade}" if cidade else f"{q_limpo} near me"
         log(f"Brave Maps Search: query='{query_busca}' lat={latitude} lng={longitude} cidade={cidade}", "busca")
         resultados_maps = buscar_brave(query_busca)
         if resultados_maps:
