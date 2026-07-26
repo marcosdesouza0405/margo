@@ -1914,6 +1914,28 @@ def _pre_detectar(msg: str) -> dict:
                 break
         return {"ferramenta": "phone_call", "contato": contato.rstrip('.!? ')}
 
+    # ── AGENDA / LEMBRETE ──
+    agenda_kw = ["me lembra", "lembra de ", "lembrete", "agenda ", "agendar",
+                 "remind me", "reminder", "daqui ", "às ", "as ", "at ",
+                 "リマインド", "思い出させて"]
+    time_ctx = ["hora", "horas", "minuto", "minutos", "min", "amanhã", "amanha",
+                "depois", "daqui", "às ", "as ", "tomorrow", "later",
+                "時", "分", "明日"]
+    if any(k in msg for k in agenda_kw) and any(t in msg for t in time_ctx):
+        return {"ferramenta": "agenda_add", "titulo": msg, "descricao": "", "data_hora": "", "minutos_relativos": 0}
+
+    # ── PASSAGEM AÉREA ──
+    flight_kw = ["passagem", "passagens", "voo ", "voar ", "flight",
+                 "aérea", "aerea", "avião", "aviao"]
+    if any(k in msg for k in flight_kw):
+        return {"ferramenta": "flight_search", "origem": "", "destino": msg, "origem_iata": "", "destino_iata": "", "data_ida": "", "data_volta": ""}
+
+    # ── HOTEL ──
+    hotel_kw = ["hotel ", "hotéis", "hoteis", "hospedagem", "pousada", "hostel",
+                "onde ficar", "reservar quarto"]
+    if any(k in msg for k in hotel_kw):
+        return {"ferramenta": "hotel_search", "destino": msg, "checkin": "", "checkout": ""}
+
     return None
 
 def detectar_intencao(mensagem: str, historico: list = None, perfil: dict = None) -> dict:
