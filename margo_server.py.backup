@@ -2236,12 +2236,6 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
 
     if ferramenta and ferramenta.get("ferramenta") == "maps_search" and BRAVE_API_KEY and latitude and longitude:
         query_maps = ferramenta.get("query", "")
-        
-        # LIMPA A QUERY: remove "por", "para", "um", "perto de mim", etc.
-        import re as _re3
-        query_maps = _re3.sub(r'^(por|para|pra|pro|um|uma|uns|umas|o|a|os|as|de|da|do|das|dos)\s+', '', query_maps, flags=_re3.IGNORECASE)
-        query_maps = query_maps.replace("perto de mim", "").replace("aqui perto", "").replace("por perto", "").replace("near me", "").replace("nearby", "").strip()
-        
         # Busca cidade via geocoding reverso gratuito
         cidade = ""
         try:
@@ -2260,11 +2254,8 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         # Limpa query de palavras conversacionais
         import re as _re2
         q_limpo = _re2.sub(r'(mais uma vez|de novo|novamente|outra vez|again|please|por favor|então|entao|margo|margô)', '', query_maps, flags=_re2.IGNORECASE).strip()
-        q_limpo = q_limpo.strip(' ,.') or query_maps
-        
-        # REMOVE O "near" DA QUERY
-        query_busca = f"{q_limpo} {cidade}" if cidade else q_limpo
-        
+        q_limpo = q_limpo.strip(' ,.')  or query_maps
+        query_busca = f"{q_limpo} near {cidade}" if cidade else f"{q_limpo} near me"
         log(f"Brave Maps Search: query='{query_busca}' lat={latitude} lng={longitude} cidade={cidade}", "busca")
         resultados_maps = buscar_brave(query_busca)
         if resultados_maps:
