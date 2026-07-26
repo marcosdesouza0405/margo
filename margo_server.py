@@ -2237,10 +2237,15 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
     if ferramenta and ferramenta.get("ferramenta") == "maps_search" and BRAVE_API_KEY and latitude and longitude:
         query_maps = ferramenta.get("query", "")
         
-        # LIMPA A QUERY: remove "por", "para", "um", "perto de mim", etc.
+        # LIMPA A QUERY FORTE: remove tudo que não é parte da busca
         import re as _re3
-        query_maps = _re3.sub(r'^(por|para|pra|pro|um|uma|uns|umas|o|a|os|as|de|da|do|das|dos)\s+', '', query_maps, flags=_re3.IGNORECASE)
-        query_maps = query_maps.replace("perto de mim", "").replace("aqui perto", "").replace("por perto", "").replace("near me", "").replace("nearby", "").strip()
+        # Remove palavras no início: por, para, um, uma, o, a, de, etc.
+        query_maps = _re3.sub(r'^(por|para|pra|pro|um|uma|uns|umas|o|a|os|as|de|da|do|das|dos|pra|pro|pelo|pela|pelo|pela|no|na|nos|nas)\s+', '', query_maps, flags=_re3.IGNORECASE)
+        # Remove palavras no meio: perto de mim, aqui perto, etc.
+        query_maps = _re3.sub(r'\s*(perto de mim|aqui perto|por perto|near me|nearby|perto daqui|aqui do lado)\s*', ' ', query_maps, flags=_re3.IGNORECASE)
+        # Remove artigos soltos no meio: um, uma, o, a, os, as
+        query_maps = _re3.sub(r'\s+(um|uma|uns|umas|o|a|os|as)\s+', ' ', query_maps, flags=_re3.IGNORECASE)
+        query_maps = query_maps.strip()
         
         # Busca cidade via geocoding reverso gratuito
         cidade = ""
