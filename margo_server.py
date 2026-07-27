@@ -1888,26 +1888,47 @@ def _pre_detectar(msg: str) -> dict:
                 "barbeiro", "academia", "dentista", "médico", "medico", "mecânico",
                 "mecanico", "acha ", "encontra ", "busca ", "procura ", "where is",
                 "レストラン", "コンビニ"]
-    search_verbs = ["acha ", "ache ", "achar ", "encontra ", "encontre ", "busca ", "busque ",
-                    "procura ", "procure ", "find ", "search "]
-    if any(k in msg for k in local_kw) or (any(k in msg for k in place_kw) and any(k in msg for k in search_verbs + ["tem ", "onde", "qual ", "quais "])):
-        query = msg
-        # Remove prefixos conversacionais (fala natural)
+    # Tipos de lugar conhecidos — SÓ ativa busca se tiver um destes
+    _place_types = {
+        "restaurante":"restaurant","restaurant":"restaurant","churrascaria":"steakhouse",
+        "pizzaria":"pizzeria","hamburgueria":"burger place","lanchonete":"snack bar",
+        "padaria":"bakery","sorveteria":"ice cream","açougue":"butcher",
+        "posto de combustível":"gas station","posto de gasolina":"gas station","posto":"gas station",
+        "farmácia":"pharmacy","farmacia":"pharmacy","mercado":"supermarket",
+        "supermercado":"supermarket","hospital":"hospital","shopping":"shopping mall",
+        "academia":"gym","dentista":"dentist","médico":"doctor","medico":"doctor",
+        "mecânico":"mechanic","mecanico":"mechanic","cabeleireiro":"hair salon",
+        "barbeiro":"barber","banco":"bank","loja":"store","bar":"bar","pub":"pub",
+        "café":"cafe","cafe":"cafe","hotel":"hotel","pousada":"inn","hostel":"hostel",
+        "igreja":"church","escola":"school","estacionamento":"parking","oficina":"auto repair",
+        "veterinário":"vet","veterinario":"vet","pet shop":"pet shop","livraria":"bookstore",
+        "lavanderia":"laundry","correio":"post office","delegacia":"police station",
+        "conveniência":"convenience store","conveniencia":"convenience store",
+        "レストラン":"restaurant","コンビニ":"convenience store","ガソリンスタンド":"gas station"
+    }
+    # Acha tipo de lugar mencionado
+    found_type = None
+    found_en = None
+    for pt, en in sorted(_place_types.items(), key=lambda x: -len(x[0])):
+        if pt in msg:
+            found_type = pt
+            found_en = en
+            break
+    if found_type and (any(k in msg for k in local_kw) or any(k in msg for k in ["acha","ache","encontra","encontre","busca","busque","procura","procure","tem ","onde","qual","cadê","cade"])):
+        # Extrai adjetivo/tipo (ex: "restaurante indiano" → "indian restaurant")
         import re as _re
-        query = _re.sub(r'^(então|entao|ei|hey|ok|margo|margô|oi|por favor|please)[,\s]*', '', query, flags=_re.IGNORECASE).strip()
-        # Remove verbo de busca
-        for k in search_verbs:
-            if k in query:
-                query = query.split(k, 1)[-1].strip()
-                break
-        # Remove "um/uma/uns/umas" no início
-        query = _re.sub(r'^(um|uma|uns|umas)\s+', '', query).strip()
-        # Remove referências de proximidade
-        for k in ["perto de mim", "perto daqui", "aqui perto", "por perto", "near me", "nearby", "próximo", "proximo"]:
-            query = query.replace(k, "").strip()
-        # Remove "pra mim", "pra gente"
-        query = _re.sub(r'\s*(pra mim|pra gente|pra nós|for me)\s*', ' ', query).strip()
-        return {"ferramenta": "maps_search", "query": query.rstrip('.!? ') or msg}
+        # Pega palavra depois do tipo (ex: "brasileiro", "indiano", "japonês")
+        adj_match = _re.search(found_type + r'\s+(\w+)', msg)
+        adj = adj_match.group(1) if adj_match else ""
+        # Traduz adjetivos comuns
+        _adj_trad = {"brasileiro":"brazilian","indiano":"indian","japonês":"japanese","japones":"japanese",
+                     "italiano":"italian","chinês":"chinese","chines":"chinese","mexicano":"mexican",
+                     "coreano":"korean","tailandês":"thai","tailandes":"thai","árabe":"arabic",
+                     "arabe":"arabic","peruano":"peruvian","francês":"french","frances":"french",
+                     "americano":"american","vegano":"vegan","vegetariano":"vegetarian"}
+        adj_en = _adj_trad.get(adj.lower(), adj)
+        query_en = f"{adj_en} {found_en}".strip() if adj_en else found_en
+        return {"ferramenta": "maps_search", "query": query_en}
 
     # ── CLIMA ──
     clima_kw = ["clima", "tempo", "previsão", "previsao", "temperatura", "chuva",
