@@ -1958,7 +1958,11 @@ def _pre_detectar(msg: str) -> dict:
                      "coreano":"korean","tailandês":"thai","tailandes":"thai","árabe":"arabic",
                      "arabe":"arabic","peruano":"peruvian","francês":"french","frances":"french",
                      "americano":"american","vegano":"vegan","vegetariano":"vegetarian"}
-        adj_en = _adj_trad.get(adj.lower(), adj)
+        adj_en = _adj_trad.get(adj.lower(), "")
+        # Ignora palavras que não são adjetivos de tipo
+        _ignore = ["aqui","perto","de","do","da","em","no","na","um","uma","mim","me","mais","pra","pro","por"]
+        if adj.lower() in _ignore:
+            adj_en = ""
         query_en = f"{adj_en} {found_en}".strip() if adj_en else found_en
         return {"ferramenta": "maps_search", "query": query_en}
 
