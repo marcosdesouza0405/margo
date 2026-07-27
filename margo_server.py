@@ -1867,7 +1867,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
         mi = int(m.group(2)) if m.group(2) else 0
         dt = hora_base_dt + timedelta(days=1)
         dt = dt.replace(hour=h, minute=mi, second=0, microsecond=0)
-        return {"minutos_relativos": 0, "data_hora_iso": dt.isoformat()}
+        return {"minutos_relativos": 0, "data_hora_iso": dt.strftime("%Y-%m-%dT%H:%M:%S")}
 
     # "às Xh" / "às X:XX" / "as Xh30" (hoje)
     m = _re_t.search(r'(?:às|as|at)\s*(\d{1,2})[:\.]?(\d{2})?\s*(?:h(?:oras?)?)?', msg)
@@ -1878,7 +1878,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
         # Se o horário já passou hoje, assume amanhã
         if dt <= hora_base_dt:
             dt += timedelta(days=1)
-        return {"minutos_relativos": 0, "data_hora_iso": dt.isoformat()}
+        return {"minutos_relativos": 0, "data_hora_iso": dt.strftime("%Y-%m-%dT%H:%M:%S")}
 
     # "Xh" / "Xh30" solto (ex: "me lembra 18h", "liga o ar 22h30")
     m = _re_t.search(r'\b(\d{1,2})h(\d{2})?\b', msg)
@@ -1889,7 +1889,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
             dt = hora_base_dt.replace(hour=h, minute=mi, second=0, microsecond=0)
             if dt <= hora_base_dt:
                 dt += timedelta(days=1)
-            return {"minutos_relativos": 0, "data_hora_iso": dt.isoformat()}
+            return {"minutos_relativos": 0, "data_hora_iso": dt.strftime("%Y-%m-%dT%H:%M:%S")}
 
     # "X:XX" formato relógio solto
     m = _re_t.search(r'\b(\d{1,2}):(\d{2})\b', msg)
@@ -1900,7 +1900,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
             dt = hora_base_dt.replace(hour=h, minute=mi, second=0, microsecond=0)
             if dt <= hora_base_dt:
                 dt += timedelta(days=1)
-            return {"minutos_relativos": 0, "data_hora_iso": dt.isoformat()}
+            return {"minutos_relativos": 0, "data_hora_iso": dt.strftime("%Y-%m-%dT%H:%M:%S")}
 
     return {"minutos_relativos": 0, "data_hora_iso": ""}
 
@@ -4035,4 +4035,3 @@ if __name__ == "__main__":
     print("=" * 55)
     uvicorn.run(app, host="0.0.0.0", port=PORT)
 # deploy Fri Jul 17 15:35:12 JST 2026
-# deploy Mon Jul 27 21:02:10 JST 2026
