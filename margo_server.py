@@ -1457,10 +1457,10 @@ def _buscar_brave_legado(query: str, max_results: int = 3) -> str:
 
 # ── DEEPSEEK ───────────────────────────────────────────────────────────────────
 
-def chamar_deepseek_simples(mensagem, max_tokens=150):
+def chamar_deepseek_simples(mensagem, max_tokens=150, modelo="deepseek-v4-flash"):
     try:
         body = json.dumps({
-            "model": "deepseek-v4-flash",
+            "model": modelo,
             "messages": [{"role": "user", "content": mensagem}],
             "temperature": 0.4,
             "max_tokens": max_tokens
@@ -2092,7 +2092,7 @@ Se o histórico mostra que o assistente sugeriu um lugar e perguntou se quer a r
 Retorne APENAS o JSON ou null."""
 
     try:
-        resultado = chamar_deepseek_simples(prompt, max_tokens=100)
+        resultado = chamar_deepseek_simples(prompt, max_tokens=100, modelo="deepseek-v4-pro")
         if not resultado or resultado.strip().lower() == 'null':
             return None
         resultado = re.sub(r'```(?:json)?\s*', '', resultado).strip()
