@@ -1997,21 +1997,15 @@ def _pre_detectar(msg: str) -> dict:
                 break
         return {"ferramenta": "agenda_add", "titulo": titulo, "descricao": "", "data_hora": "", "minutos_relativos": mins}
 
-    # ── PASSAGEM AÉREA ──
-    flight_kw = ["passagem", "passagens", "voo ", "voar ", "flight",
-                 "aérea", "aerea", "avião", "aviao"]
-    if any(k in msg for k in flight_kw):
-        return {"ferramenta": "flight_search", "origem": "", "destino": msg, "origem_iata": "", "destino_iata": "", "data_ida": "", "data_volta": ""}
-
-    # ── HOTEL ──
-    hotel_kw = ["hotel ", "hotéis", "hoteis", "hospedagem", "pousada", "hostel",
-                "onde ficar", "reservar quarto"]
-    if any(k in msg for k in hotel_kw):
-        return {"ferramenta": "hotel_search", "destino": msg, "checkin": "", "checkout": ""}
+    # ── PASSAGEM AÉREA e HOTEL — v4-pro parseia melhor (origem, destino, datas, IATA)
+    flight_kw = ["passagem", "passagens", "voo ", "voar ", "flight", "aérea", "aerea", "avião", "aviao"]
+    hotel_kw = ["hotel ", "hotéis", "hoteis", "hospedagem", "pousada", "hostel", "onde ficar", "reservar quarto"]
+    if any(k in msg for k in flight_kw) or any(k in msg for k in hotel_kw):
+        return None  # v4-pro extrai origem, destino, IATA, datas
 
     return None
 
-def detectar_intencao(mensagem: str, historico: list = None, perfil: dict = None) -> dict:
+def detectar_intencao(mensagem: str, historico: list = None, perfil: dict = None, hora_local: str = '') -> dict:
     """
     Chamada rápida ao DeepSeek para detectar intenção e extrair parâmetros.
     Usa perfil do usuário para personalizar a query.
@@ -2033,8 +2027,9 @@ def detectar_intencao(mensagem: str, historico: list = None, perfil: dict = None
         if hobbies: preferencias += f"- Hobbies: {hobbies}\n"
 
     data_hoje = datetime.now().strftime("%Y-%m-%d")
+    hora_info = f"\nHora local do usuário: {hora_local}" if hora_local else ""
     prompt = f"""Analise a mensagem e retorne um JSON se ela pede uma ação específica.
-Data atual: {data_hoje}
+Data atual: {data_hoje}{hora_info}
 {f'Histórico recente:{chr(10)}{contexto}' if contexto else ''}
 {f'Preferências do usuário:{chr(10)}{preferencias}' if preferencias else ''}
 Mensagem atual: "{mensagem}"
@@ -2219,7 +2214,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
         if ferramenta:
             log(f"Pré-detectado: {ferramenta.get('ferramenta')} via keywords", "intent")
         else:
-            ferramenta = detectar_intencao(mensagem, historico, perfil=perfil)
+            ferramenta = detectar_intencao(mensagem, historico, perfil=perfil, hora_local=hora_local)
 
     # ── BUSCA AUTOMÁTICA para perguntas que precisam de dados atuais ──────────
     palavras_busca_auto = ["tempo", "clima", "chuva", "previsao", "previsão", "temperatura",
