@@ -2343,9 +2343,26 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         q_limpo = _re2.sub(r'(mais uma vez|de novo|novamente|outra vez|again|please|por favor|então|entao|margo|margô)', '', query_maps, flags=_re2.IGNORECASE).strip()
         q_limpo = q_limpo.strip(' ,.') or query_maps
         pais = cidade.split(", ")[-1] if ", " in (cidade or "") else ""
-        # Usa query_en pra tipo de lugar mas mantém cidade no idioma local
-        if ferramenta.get("query_en"):
-            q_limpo = ferramenta["query_en"]
+        # Traduz tipo de lugar pra idioma local do país
+        _trad_jp = {"gas station":"ガソリンスタンド","restaurant":"レストラン","brazilian restaurant":"ブラジル料理",
+                    "indian restaurant":"インド料理","japanese restaurant":"日本料理","italian restaurant":"イタリア料理",
+                    "chinese restaurant":"中華料理","korean restaurant":"韓国料理","thai restaurant":"タイ料理",
+                    "mexican restaurant":"メキシコ料理","french restaurant":"フランス料理",
+                    "steakhouse":"ステーキハウス","pizzeria":"ピザ屋","bakery":"パン屋",
+                    "pharmacy":"薬局","supermarket":"スーパー","hospital":"病院",
+                    "shopping mall":"ショッピングモール","gym":"ジム","dentist":"歯医者",
+                    "doctor":"病院","barber":"床屋","hair salon":"美容院","bank":"銀行",
+                    "convenience store":"コンビニ","parking":"駐車場","laundry":"コインランドリー",
+                    "cafe":"カフェ","bar":"バー","hotel":"ホテル","inn":"旅館",
+                    "vet":"動物病院","auto repair":"車修理","store":"店","church":"教会"}
+        q_en = ferramenta.get("query_en", q_limpo)
+        # Japão → japonês, outros → EN, lusófonos → PT original
+        paises_pt = ["brazil", "brasil", "portugal", "angola", "mozambique"]
+        if "日本" in (cidade or "") or "japan" in (cidade or "").lower():
+            q_limpo = _trad_jp.get(q_en.lower(), q_en)
+        elif pais and pais.lower() not in paises_pt:
+            q_limpo = q_en
+        # senão mantém PT original
         query_busca = f"{q_limpo} {cidade}" if cidade else q_limpo
         
         log(f"Brave Maps Search: query='{query_busca}' lat={latitude} lng={longitude} cidade={cidade}", "busca")
