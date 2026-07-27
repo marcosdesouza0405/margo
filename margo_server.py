@@ -1962,8 +1962,15 @@ def _pre_detectar(msg: str) -> dict:
                    "pra","pro","por","vez","pertinho","proximo","próximo","la","lá","outro","outra"]
         if adj.lower() in _ignore:
             adj = ""
-        query_limpo = f"{found_type} {adj}".strip() if adj else found_type
-        return {"ferramenta": "maps_search", "query": query_limpo}
+        _adj_trad = {"brasileiro":"brazilian","indiano":"indian","japonês":"japanese","japones":"japanese",
+                     "italiano":"italian","chinês":"chinese","chines":"chinese","mexicano":"mexican",
+                     "coreano":"korean","tailandês":"thai","tailandes":"thai","árabe":"arabic",
+                     "arabe":"arabic","peruano":"peruvian","francês":"french","frances":"french",
+                     "americano":"american","vegano":"vegan","vegetariano":"vegetarian"}
+        adj_en = _adj_trad.get(adj.lower(), adj) if adj else ""
+        query_pt = f"{found_type} {adj}".strip() if adj else found_type
+        query_en = f"{adj_en} {found_en}".strip() if adj_en else found_en
+        return {"ferramenta": "maps_search", "query": query_pt, "query_en": query_en}
 
     # ── CLIMA ──
     clima_kw = ["clima", "tempo", "previsão", "previsao", "temperatura", "chuva",
@@ -2336,19 +2343,11 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         q_limpo = _re2.sub(r'(mais uma vez|de novo|novamente|outra vez|again|please|por favor|então|entao|margo|margô)', '', query_maps, flags=_re2.IGNORECASE).strip()
         q_limpo = q_limpo.strip(' ,.') or query_maps
         pais = cidade.split(", ")[-1] if ", " in (cidade or "") else ""
-        log(f"Pre-tradução: q_limpo='{q_limpo}' cidade='{cidade}' pais='{pais}'", "busca")
-        if pais and pais.lower() not in ("brazil", "brasil", "portugal"):
-            try:
-                trad = chamar_deepseek_simples(
-                    f"Translate this place type to the local language of {pais}. Return ONLY the translated words, nothing else: {q_limpo}",
-                    max_tokens=20
-                )
-                log(f"Tradução retornou: '{trad}'", "busca")
-                if trad and len(trad) < 50:
-                    q_limpo = trad.strip().strip('"').strip("'")
-                    log(f"Busca traduzida para {pais}: {q_limpo}", "busca")
-            except Exception as e:
-                log(f"Tradução falhou: {e}", "busca")
+        # Usa query EN pra Brave se não é país lusófono
+        paises_pt = ["brazil", "brasil", "portugal", "angola", "mozambique"]
+        if pais and pais.lower() not in paises_pt and ferramenta.get("query_en"):
+            q_limpo = ferramenta["query_en"]
+            log(f"Busca EN: {q_limpo}", "busca")
         query_busca = f"{q_limpo} {cidade}" if cidade else q_limpo
         
         log(f"Brave Maps Search: query='{query_busca}' lat={latitude} lng={longitude} cidade={cidade}", "busca")
