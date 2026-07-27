@@ -1963,8 +1963,10 @@ def _pre_detectar(msg: str) -> dict:
         _ignore = ["aqui","perto","de","do","da","em","no","na","um","uma","mim","me","mais","pra","pro","por"]
         if adj.lower() in _ignore:
             adj_en = ""
+        # Retorna query original (PT) + tradução EN
+        query_pt = f"{found_type} {adj}".strip() if adj else found_type
         query_en = f"{adj_en} {found_en}".strip() if adj_en else found_en
-        return {"ferramenta": "maps_search", "query": query_en}
+        return {"ferramenta": "maps_search", "query": query_pt, "query_en": query_en}
 
     # ── CLIMA ──
     clima_kw = ["clima", "tempo", "previsão", "previsao", "temperatura", "chuva",
@@ -2332,12 +2334,17 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         except:
             pass
 
-        # Limpa query de palavras conversacionais
+        # Usa query traduzida (EN) se país não é lusófono, senão PT original
+        paises_pt = ["Brazil", "Brasil", "Portugal", "Angola", "Mozambique", "Moçambique"]
+        eh_lusofono = any(p.lower() in (cidade or "").lower() for p in paises_pt)
+        if eh_lusofono:
+            q_final = query_maps  # PT original funciona no Brave
+        else:
+            q_final = ferramenta.get("query_en", query_maps)  # EN pro Brave
+        # Limpa palavras conversacionais
         import re as _re2
-        q_limpo = _re2.sub(r'(mais uma vez|de novo|novamente|outra vez|again|please|por favor|então|entao|margo|margô)', '', query_maps, flags=_re2.IGNORECASE).strip()
-        q_limpo = q_limpo.strip(' ,.') or query_maps
-        
-        # REMOVE O "near" DA QUERY
+        q_limpo = _re2.sub(r'(mais uma vez|de novo|novamente|outra vez|again|please|por favor|então|entao|margo|margô)', '', q_final, flags=_re2.IGNORECASE).strip()
+        q_limpo = q_limpo.strip(' ,.') or q_final
         query_busca = f"{q_limpo} {cidade}" if cidade else q_limpo
         
         log(f"Brave Maps Search: query='{query_busca}' lat={latitude} lng={longitude} cidade={cidade}", "busca")
