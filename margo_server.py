@@ -7,7 +7,6 @@ Arquitetura: FastAPI + DeepSeek + SQLite/Postgres + Fish Audio / ElevenLabs / We
 
 import os, re, json, time, sqlite3, threading, asyncio, base64
 from datetime import datetime, timedelta
-import re
 
 # Domínios descartáveis bloqueados
 DOMINIOS_BLOQUEADOS = {
@@ -332,10 +331,6 @@ class BancoMargo:
             status TEXT DEFAULT 'ativo',
             senha_hash TEXT,
             email_verificado INTEGER DEFAULT 0,
-            stripe_customer_id TEXT,
-            mp_payment_id TEXT,
-            msgs_extras INTEGER DEFAULT 0,
-            fcm_token TEXT,
             criado_em TEXT,
             ultimo_acesso TEXT
         )''')
@@ -1825,7 +1820,92 @@ def buscar_open_meteo(latitude, longitude) -> str:
         log(f"Erro Open-Meteo: {e}", "clima")
         return ""
 
-def _pre_detectar(msg: str) -> dict:
+def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
+    """
+    Parseia referências de tempo na mensagem e retorna:
+    {"minutos_relativos": int, "data_hora_iso": str ou ""}
+    Resolve TUDO no Python — nunca delega ao LLM.
+    """
+    import re as _re_t
+    mins = 0
+    data_hora_iso = ""
+
+    # ── RELATIVO: "daqui X minutos/horas" ──
+    m = _re_t.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*(?:minutos?|min)\b', msg)
+    if m:
+        mins = int(m.group(1))
+    m = _re_t.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*(?:horas?|hours?|h)\b', msg)
+    if m:
+        mins = int(m.group(1)) * 60
+    m = _re_t.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*h\s*(\d+)', msg)
+    if m and not mins:
+        mins = int(m.group(1)) * 60 + int(m.group(2))
+    # "meia hora" / "half hour"
+    if not mins and _re_t.search(r'(meia hora|half\s+(?:an?\s+)?hour)', msg):
+        mins = 30
+
+    if mins > 0:
+        return {"minutos_relativos": mins, "data_hora_iso": ""}
+
+    # ── ABSOLUTO: precisa de hora_local_str pra saber a data base ──
+    hora_base_dt = None
+    if hora_local_str:
+        try:
+            hl = hora_local_str.replace("Z", "+00:00")
+            if len(hl) > 5 and hl[-5] in '+-' and ':' not in hl[-5:]:
+                hl = hl[:-2] + ':' + hl[-2:]
+            hora_base_dt = datetime.fromisoformat(hl)
+        except:
+            pass
+    if not hora_base_dt:
+        hora_base_dt = datetime.now()
+
+    # "amanhã às Xh" / "amanhã às X:XX"
+    m = _re_t.search(r'(?:amanh[aã]|tomorrow)\s+(?:às\s*|as\s*|at\s*)?(\d{1,2})[:\.\s]*h?\s*(\d{2})?', msg)
+    if m:
+        h = int(m.group(1))
+        mi = int(m.group(2)) if m.group(2) else 0
+        dt = hora_base_dt + timedelta(days=1)
+        dt = dt.replace(hour=h, minute=mi, second=0, microsecond=0)
+        return {"minutos_relativos": 0, "data_hora_iso": dt.isoformat()}
+
+    # "às Xh" / "às X:XX" / "as Xh30" (hoje)
+    m = _re_t.search(r'(?:às|as|at)\s*(\d{1,2})[:\.]?(\d{2})?\s*(?:h(?:oras?)?)?', msg)
+    if m:
+        h = int(m.group(1))
+        mi = int(m.group(2)) if m.group(2) else 0
+        dt = hora_base_dt.replace(hour=h, minute=mi, second=0, microsecond=0)
+        # Se o horário já passou hoje, assume amanhã
+        if dt <= hora_base_dt:
+            dt += timedelta(days=1)
+        return {"minutos_relativos": 0, "data_hora_iso": dt.isoformat()}
+
+    # "Xh" / "Xh30" solto (ex: "me lembra 18h", "liga o ar 22h30")
+    m = _re_t.search(r'\b(\d{1,2})h(\d{2})?\b', msg)
+    if m:
+        h = int(m.group(1))
+        mi = int(m.group(2)) if m.group(2) else 0
+        if 0 <= h <= 23:
+            dt = hora_base_dt.replace(hour=h, minute=mi, second=0, microsecond=0)
+            if dt <= hora_base_dt:
+                dt += timedelta(days=1)
+            return {"minutos_relativos": 0, "data_hora_iso": dt.isoformat()}
+
+    # "X:XX" formato relógio solto
+    m = _re_t.search(r'\b(\d{1,2}):(\d{2})\b', msg)
+    if m:
+        h = int(m.group(1))
+        mi = int(m.group(2))
+        if 0 <= h <= 23:
+            dt = hora_base_dt.replace(hour=h, minute=mi, second=0, microsecond=0)
+            if dt <= hora_base_dt:
+                dt += timedelta(days=1)
+            return {"minutos_relativos": 0, "data_hora_iso": dt.isoformat()}
+
+    return {"minutos_relativos": 0, "data_hora_iso": ""}
+
+
+def _pre_detectar(msg: str, hora_local: str = "") -> dict:
     """Pré-detecção de intenção por keywords. Retorna dict ou None."""
     
     # ── SMART HOME ──
@@ -1848,18 +1928,17 @@ def _pre_detectar(msg: str) -> dict:
         disp = disp.rstrip('.!? ')
         # Se tem horário, é agendado
         import re as _re_sh
-        tem_hora = bool(_re_sh.search(r'(\d{1,2}[:\.]?\d{2}|daqui|depois de|às |as |\d+\s*(min|hora|hour|h))', msg))
+        tem_hora = bool(_re_sh.search(r'(\d{1,2}[:\.]?\d{2}|daqui|depois de|às |as |\d+\s*(min|hora|hour|h\b))', msg))
         if tem_hora:
-            mins = 0
-            m = _re_sh.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*(?:minuto|min|m)', msg)
-            if m: mins = int(m.group(1))
-            m = _re_sh.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*(?:hora|hour|h)', msg)
-            if m: mins = int(m.group(1)) * 60
+            tempo = _parsear_tempo(msg, hora_local)
             # Remove tempo do nome do dispositivo
             disp = _re_sh.sub(r'(hoje|amanhã|amanha|daqui|depois de|às |as ).*', '', disp).strip()
             disp = _re_sh.sub(r'\d{1,2}[:\.]?\d{2}.*', '', disp).strip()
+            disp = _re_sh.sub(r'\b\d{1,2}h\d{0,2}\b', '', disp).strip()
             disp = disp.rstrip(' ,.')
-            return {"ferramenta": "smart_home_agendado", "acao": acao, "dispositivo": disp, "valor": "", "data_hora": "", "minutos_relativos": mins}
+            return {"ferramenta": "smart_home_agendado", "acao": acao, "dispositivo": disp, "valor": "",
+                    "data_hora": tempo.get("data_hora_iso", ""),
+                    "minutos_relativos": tempo.get("minutos_relativos", 0)}
         return {"ferramenta": "smart_home", "acao": acao, "dispositivo": disp}
 
     # ── SPOTIFY ──
@@ -1906,9 +1985,12 @@ def _pre_detectar(msg: str) -> dict:
         return {"ferramenta": "maps_navigate", "destino": dest.rstrip('.!? ')}
 
     # ── PASSAGEM AÉREA e HOTEL — v4-pro parseia melhor (antes de maps_search!)
+    # MAS: se tem "perto de mim" / "nearby", é busca local, não reserva
     flight_kw = ["passagem", "passagens", "voo ", "voar ", "flight", "aérea", "aerea", "avião", "aviao"]
     hotel_kw = ["hotel ", "hotéis", "hoteis", "hospedagem", "pousada", "hostel", "onde ficar", "reservar quarto"]
-    if any(k in msg for k in flight_kw) or any(k in msg for k in hotel_kw):
+    local_indicadores = ["perto", "próximo", "proximo", "nearby", "near me", "aqui", "perto de mim", "por perto"]
+    eh_busca_local = any(k in msg for k in local_indicadores)
+    if not eh_busca_local and (any(k in msg for k in flight_kw) or any(k in msg for k in hotel_kw)):
         return None  # v4-pro extrai origem, destino, IATA, datas
 
     # ── BUSCA LOCAL ──
@@ -1962,11 +2044,6 @@ def _pre_detectar(msg: str) -> dict:
                    "pra","pro","por","vez","pertinho","proximo","próximo","la","lá","outro","outra"]
         if adj.lower() in _ignore:
             adj = ""
-        _adj_trad = {"brasileiro":"brazilian","indiano":"indian","japonês":"japanese","japones":"japanese",
-                     "italiano":"italian","chinês":"chinese","chines":"chinese","mexicano":"mexican",
-                     "coreano":"korean","tailandês":"thai","tailandes":"thai","árabe":"arabic",
-                     "arabe":"arabic","peruano":"peruvian","francês":"french","frances":"french",
-                     "americano":"american","vegano":"vegan","vegetariano":"vegetarian"}
         adj_en = _adj_trad.get(adj.lower(), adj) if adj else ""
         query_pt = f"{found_type} {adj}".strip() if adj else found_type
         query_en = f"{adj_en} {found_en}".strip() if adj_en else found_en
@@ -1999,30 +2076,26 @@ def _pre_detectar(msg: str) -> dict:
                 "depois", "daqui", "às ", "as ", "tomorrow", "later",
                 "時", "分", "明日"]
     if any(k in msg for k in agenda_kw) and any(t in msg for t in time_ctx):
-        # Se tem horário absoluto (às Xh, amanhã), deixa v4-pro parsear
+        # Parseia tempo no Python — NUNCA delega ao LLM
         import re as _re
-        tem_hora_abs = bool(_re.search(r'(às \d|amanhã|amanha|tomorrow|\d{1,2}[:\.]\d{2})', msg))
-        if tem_hora_abs:
-            return None  # v4-pro gera data_hora ISO correto
-        # Só resolve minutos relativos simples
-        mins = 0
-        # "daqui X minutos/min" ou "depois de X minutos/min"
-        m = _re.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*(?:minuto|min|m)', msg)
-        if m: mins = int(m.group(1))
-        # "daqui X horas" ou "depois de X horas"
-        m = _re.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*(?:hora|hour|h)', msg)
-        if m: mins = int(m.group(1)) * 60
-        # "daqui Xh30" ou "1h30"
-        m = _re.search(r'(\d+)\s*h\s*(\d+)', msg)
-        if m and not mins: mins = int(m.group(1)) * 60 + int(m.group(2))
-        # Limpa titulo
+        tempo = _parsear_tempo(msg, hora_local)
+        # Limpa titulo — remove prefixos de comando e referências de tempo
         titulo = msg
-        for k in ["me lembra de ", "me lembra ", "lembra de ", "depois de "]:
+        for k in ["me lembra de ", "me lembra ", "lembra de ", "remind me to ", "remind me ",
+                   "depois de ", "lembrete ", "agenda ", "agendar "]:
             if k in titulo:
                 titulo = titulo.split(k, 1)[-1].strip()
                 break
-        return {"ferramenta": "agenda_add", "titulo": titulo, "descricao": "", "data_hora": "", "minutos_relativos": mins}
-
+        # Remove referências de tempo do título
+        titulo = _re.sub(r'(daqui|depois de|às|as|amanhã|amanha|tomorrow|at)\s+\d.*', '', titulo).strip()
+        titulo = _re.sub(r'\b\d{1,2}h\d{0,2}\b', '', titulo).strip()
+        titulo = _re.sub(r'\b\d{1,2}:\d{2}\b', '', titulo).strip()
+        titulo = titulo.rstrip(' ,.')
+        if not titulo:
+            titulo = msg  # fallback: usa mensagem original
+        return {"ferramenta": "agenda_add", "titulo": titulo, "descricao": "",
+                "data_hora": tempo.get("data_hora_iso", ""),
+                "minutos_relativos": tempo.get("minutos_relativos", 0)}
     return None
 
 def detectar_intencao(mensagem: str, historico: list = None, perfil: dict = None, hora_local: str = '') -> dict:
@@ -2230,7 +2303,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     else:
         # Pré-detecção por keywords (DeepSeek v4-flash falha em chamar ferramentas)
         msg_low = mensagem.lower().strip()
-        ferramenta = _pre_detectar(msg_low)
+        ferramenta = _pre_detectar(msg_low, hora_local=hora_local)
         if ferramenta:
             log(f"Pré-detectado: {ferramenta.get('ferramenta')} via keywords", "intent")
         else:
@@ -2316,12 +2389,14 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
                     break
         
         # Remove palavras no início: por, para, um, uma, o, a, de, etc.
-        query_maps = _re3.sub(r'^(por|para|pra|pro|um|uma|uns|umas|o|a|os|as|de|da|do|das|dos|pra|pro|pelo|pela|pelo|pela|no|na|nos|nas)\s+', '', query_maps, flags=_re3.IGNORECASE)
+        query_maps = _re3.sub(r'^(por|para|pra|pro|um|uma|uns|umas|o|a|os|as|de|da|do|das|dos|pra|pro|pelo|pela|no|na|nos|nas)\s+', '', query_maps, flags=_re3.IGNORECASE)
         # Remove palavras no meio: perto de mim, aqui perto, etc.
         query_maps = _re3.sub(r'\s*(perto de mim|aqui perto|por perto|near me|nearby|perto daqui|aqui do lado)\s*', ' ', query_maps, flags=_re3.IGNORECASE)
         # Remove artigos soltos no meio: um, uma, o, a, os, as
         query_maps = _re3.sub(r'\s+(um|uma|uns|umas|o|a|os|as)\s+', ' ', query_maps, flags=_re3.IGNORECASE)
-        query_maps = query_maps.strip()
+        # Remove ruído conversacional: "bom", "que seja", "mais", "legal", etc.
+        query_maps = _re3.sub(r'\b(bom|boa|que seja|legal|bacana|barato|caro|melhor|mais|muito|bem|algum|alguma|qualquer)\b', '', query_maps, flags=_re3.IGNORECASE)
+        query_maps = _re3.sub(r'\s+', ' ', query_maps).strip()
         
         # Busca cidade via geocoding reverso gratuito
         cidade = ""
@@ -2344,7 +2419,6 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         q_limpo = q_limpo.strip(' ,.') or query_maps
         pais = cidade.split(", ")[-1] if ", " in (cidade or "") else ""
         # Query simples: tipo original + cidade. Brave funciona melhor assim.
-        pass
         query_busca = f"{q_limpo} {cidade}" if cidade else q_limpo
         
         log(f"Brave Maps Search: query='{query_busca}' lat={latitude} lng={longitude} cidade={cidade}", "busca")
@@ -2467,8 +2541,13 @@ INSTRUÇÕES OBRIGATÓRIAS:
         except:
             pass
 
-        log(f"Salvando lembrete: titulo={titulo_agenda} | data_hora={data_hora_agenda} | user={user_id}", 'agenda')
-        banco.salvar_lembrete(user_id, titulo_agenda, descricao_agenda, data_hora_agenda)
+        if data_hora_agenda:
+            log(f"Salvando lembrete: titulo={titulo_agenda} | data_hora={data_hora_agenda} | user={user_id}", 'agenda')
+            banco.salvar_lembrete(user_id, titulo_agenda, descricao_agenda, data_hora_agenda)
+        else:
+            log(f"Lembrete DESCARTADO (sem data_hora): titulo={titulo_agenda} | user={user_id}", 'agenda')
+            if not resposta_limpa or len(resposta_limpa) < 5:
+                resposta_limpa = f"Não consegui entender o horário do lembrete. Pode repetir? Ex: 'me lembra de {titulo_agenda} daqui 30 minutos' ou 'me lembra às 18h'"
 
     # ── SMART HOME AGENDADO ────────────────────────────────────────────────────
     if ferramenta and ferramenta.get("ferramenta") == "smart_home_agendado":
@@ -2499,8 +2578,12 @@ INSTRUÇÕES OBRIGATÓRIAS:
             "valor": ferramenta.get("valor")
         })
         titulo_sh = f"{ferramenta.get('acao','ligar')} {ferramenta.get('dispositivo','')}"
-        banco.salvar_lembrete_smart(user_id, titulo_sh, acao_json, data_hora_sh)
-        log(f"Smart agendado: {titulo_sh} @ {data_hora_sh} UTC", "smart")
+        if data_hora_sh:
+            banco.salvar_lembrete_smart(user_id, titulo_sh, acao_json, data_hora_sh)
+            log(f"Smart agendado: {titulo_sh} @ {data_hora_sh} UTC", "smart")
+        else:
+            log(f"Smart agendado DESCARTADO (sem data_hora): {titulo_sh}", "smart")
+            resposta_limpa = f"Não consegui entender o horário. Pode repetir? Ex: 'liga o {ferramenta.get('dispositivo','')} às 18h' ou 'daqui 30 minutos'"
 
     # ── SMART HOME (SmartThings) ───────────────────────────────────────────────
     if ferramenta and ferramenta.get("ferramenta") == "smart_home":
@@ -3275,38 +3358,6 @@ scheduler_thread = threading.Thread(target=verificar_agenda, daemon=True)
 scheduler_thread.start()
 print(">>> SCHEDULER AGENDA INICIADO <<<")
 log("Scheduler de agenda iniciado", "agenda")
-
-GOOGLE_TTS_API_KEY = os.environ.get("GOOGLE_TTS_API_KEY", "")
-
-def falar_google_tts(texto, idioma="pt-br", genero="F"):
-    """Google Cloud TTS — voz Standard-C (free tier 4M chars/mês)"""
-    if not GOOGLE_TTS_API_KEY:
-        return None
-    try:
-        vozes = {
-            ("pt-br", "F"): ("pt-BR", "pt-BR-Standard-C"),
-            ("pt-br", "M"): ("pt-BR", "pt-BR-Standard-B"),
-            ("en", "F"):    ("en-US", "en-US-Standard-F"),
-            ("en", "M"):    ("en-US", "en-US-Standard-D"),
-        }
-        lang_code, voice_name = vozes.get((idioma, genero), ("pt-BR", "pt-BR-Standard-C"))
-        url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={GOOGLE_TTS_API_KEY}"
-        payload = json.dumps({
-            "input": {"text": texto},
-            "voice": {"languageCode": lang_code, "name": voice_name},
-            "audioConfig": {"audioEncoding": "MP3", "speakingRate": 1.05}
-        }).encode("utf-8")
-        req = urllib.request.Request(url, data=payload,
-              headers={"Content-Type": "application/json"})
-        resp = urllib.request.urlopen(req, timeout=10)
-        data = json.loads(resp.read())
-        audio_b64 = data.get("audioContent", "")
-        if audio_b64:
-            return base64.b64decode(audio_b64)
-        return None
-    except Exception as e:
-        log(f"Google TTS erro: {e}", "gtts")
-        return None
 
 GOOGLE_TTS_API_KEY = os.environ.get("GOOGLE_TTS_API_KEY", "")
 
