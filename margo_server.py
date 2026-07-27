@@ -1819,8 +1819,8 @@ def _pre_detectar(msg: str) -> dict:
     """Pré-detecção de intenção por keywords. Retorna dict ou None."""
     
     # ── SMART HOME ──
-    smart_on = ["liga ", "ligar ", "acende ", "acender ", "turn on ", "switch on ", "つけて"]
-    smart_off = ["desliga ", "desligar ", "apaga ", "apagar ", "turn off ", "switch off ", "消して"]
+    smart_on = ["liga ", "ligar ", "ligue ", "acende ", "acender ", "acenda ", "turn on ", "switch on ", "つけて"]
+    smart_off = ["desliga ", "desligar ", "desligue ", "apaga ", "apagar ", "apague ", "turn off ", "switch off ", "消して"]
     smart_devs = ["luz", "light", "ar condicionado", "ventilador", "tv", "lampada",
                   "lâmpada", "luminária", "luminaria", "lavanderia", "banheiro", "quarto",
                   "sala", "電気", "エアコン", "fan", "air"]
@@ -1835,7 +1835,22 @@ def _pre_detectar(msg: str) -> dict:
             if k in disp:
                 disp = disp.split(k, 1)[-1].strip()
                 break
-        return {"ferramenta": "smart_home", "acao": acao, "dispositivo": disp.rstrip('.!? ')}
+        disp = disp.rstrip('.!? ')
+        # Se tem horário, é agendado
+        import re as _re_sh
+        tem_hora = bool(_re_sh.search(r'(\d{1,2}[:\.]?\d{2}|daqui|depois de|às |as |\d+\s*(min|hora|hour|h))', msg))
+        if tem_hora:
+            mins = 0
+            m = _re_sh.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*(?:minuto|min|m)', msg)
+            if m: mins = int(m.group(1))
+            m = _re_sh.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*(?:hora|hour|h)', msg)
+            if m: mins = int(m.group(1)) * 60
+            # Remove tempo do nome do dispositivo
+            disp = _re_sh.sub(r'(hoje|amanhã|amanha|daqui|depois de|às |as ).*', '', disp).strip()
+            disp = _re_sh.sub(r'\d{1,2}[:\.]?\d{2}.*', '', disp).strip()
+            disp = disp.rstrip(' ,.')
+            return {"ferramenta": "smart_home_agendado", "acao": acao, "dispositivo": disp, "valor": "", "data_hora": "", "minutos_relativos": mins}
+        return {"ferramenta": "smart_home", "acao": acao, "dispositivo": disp}
 
     # ── SPOTIFY ──
     spotify_kw = ["toca ", "tocar ", "coloca ", "bota ", "play ", "põe ", "poe ",
@@ -1868,7 +1883,8 @@ def _pre_detectar(msg: str) -> dict:
 
     # ── NAVEGAÇÃO ──
     nav_kw = ["me leva ", "leva pro ", "leva pra ", "leva para ", "navega ", "rota para ",
-              "rota pro ", "rota pra ", "como chego ", "como ir ", "ir para ", "ir pro ",
+              "rota pro ", "rota pra ", "traça a rota", "traca a rota", "trace a rota",
+              "como chego ", "como ir ", "ir para ", "ir pro ",
               "vai pro ", "vai pra ", "vai para ", "take me to ", "navigate to ",
               "連れてって", "案内して"]
     if any(k in msg for k in nav_kw):
