@@ -2334,17 +2334,22 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         except:
             pass
 
-        # Usa query traduzida (EN) se país não é lusófono, senão PT original
-        paises_pt = ["Brazil", "Brasil", "Portugal", "Angola", "Mozambique", "Moçambique"]
-        eh_lusofono = any(p.lower() in (cidade or "").lower() for p in paises_pt)
-        if eh_lusofono:
-            q_final = query_maps  # PT original funciona no Brave
-        else:
-            q_final = ferramenta.get("query_en", query_maps)  # EN pro Brave
-        # Limpa palavras conversacionais
+        # Traduz query pra língua local do país (DeepSeek flash, ~5 tokens)
         import re as _re2
-        q_limpo = _re2.sub(r'(mais uma vez|de novo|novamente|outra vez|again|please|por favor|então|entao|margo|margô)', '', q_final, flags=_re2.IGNORECASE).strip()
-        q_limpo = q_limpo.strip(' ,.') or q_final
+        q_limpo = _re2.sub(r'(mais uma vez|de novo|novamente|outra vez|again|please|por favor|então|entao|margo|margô)', '', query_maps, flags=_re2.IGNORECASE).strip()
+        q_limpo = q_limpo.strip(' ,.') or query_maps
+        pais = cidade.split(", ")[-1] if ", " in (cidade or "") else ""
+        if pais and pais.lower() not in ("brazil", "brasil", "portugal"):
+            try:
+                trad = chamar_deepseek_simples(
+                    f"Translate this place type to the local language of {pais}. Return ONLY the translated words, nothing else: {q_limpo}",
+                    max_tokens=20
+                )
+                if trad and len(trad) < 50:
+                    q_limpo = trad.strip().strip('"').strip("'")
+                    log(f"Busca traduzida para {pais}: {q_limpo}", "busca")
+            except:
+                pass
         query_busca = f"{q_limpo} {cidade}" if cidade else q_limpo
         
         log(f"Brave Maps Search: query='{query_busca}' lat={latitude} lng={longitude} cidade={cidade}", "busca")
