@@ -2336,17 +2336,19 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         q_limpo = _re2.sub(r'(mais uma vez|de novo|novamente|outra vez|again|please|por favor|então|entao|margo|margô)', '', query_maps, flags=_re2.IGNORECASE).strip()
         q_limpo = q_limpo.strip(' ,.') or query_maps
         pais = cidade.split(", ")[-1] if ", " in (cidade or "") else ""
+        log(f"Pre-tradução: q_limpo='{q_limpo}' cidade='{cidade}' pais='{pais}'", "busca")
         if pais and pais.lower() not in ("brazil", "brasil", "portugal"):
             try:
                 trad = chamar_deepseek_simples(
                     f"Translate this place type to the local language of {pais}. Return ONLY the translated words, nothing else: {q_limpo}",
                     max_tokens=20
                 )
+                log(f"Tradução retornou: '{trad}'", "busca")
                 if trad and len(trad) < 50:
                     q_limpo = trad.strip().strip('"').strip("'")
                     log(f"Busca traduzida para {pais}: {q_limpo}", "busca")
-            except:
-                pass
+            except Exception as e:
+                log(f"Tradução falhou: {e}", "busca")
         query_busca = f"{q_limpo} {cidade}" if cidade else q_limpo
         
         log(f"Brave Maps Search: query='{query_busca}' lat={latitude} lng={longitude} cidade={cidade}", "busca")
