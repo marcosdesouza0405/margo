@@ -2254,7 +2254,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
             if latitude and longitude:
                 # Tem GPS — busca cidade real
                 try:
-                    geo_url = f"https://nominatim.openstreetmap.org/reverse?lat={latitude}&lon={longitude}&format=json&accept-language=en"
+                    geo_url = f"https://nominatim.openstreetmap.org/reverse?lat={latitude}&lon={longitude}&format=json"
                     geo_req = urllib.request.Request(geo_url, headers={"User-Agent": "MargoApp/1.0"})
                     geo_resp = urllib.request.urlopen(geo_req, timeout=5)
                     geo_data = json.loads(geo_resp.read())
@@ -2343,11 +2343,9 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         q_limpo = _re2.sub(r'(mais uma vez|de novo|novamente|outra vez|again|please|por favor|então|entao|margo|margô)', '', query_maps, flags=_re2.IGNORECASE).strip()
         q_limpo = q_limpo.strip(' ,.') or query_maps
         pais = cidade.split(", ")[-1] if ", " in (cidade or "") else ""
-        # Usa query EN pra Brave se não é país lusófono
-        paises_pt = ["brazil", "brasil", "portugal", "angola", "mozambique"]
-        if pais and pais.lower() not in paises_pt and ferramenta.get("query_en"):
+        # Usa query_en pra tipo de lugar mas mantém cidade no idioma local
+        if ferramenta.get("query_en"):
             q_limpo = ferramenta["query_en"]
-            log(f"Busca EN: {q_limpo}", "busca")
         query_busca = f"{q_limpo} {cidade}" if cidade else q_limpo
         
         log(f"Brave Maps Search: query='{query_busca}' lat={latitude} lng={longitude} cidade={cidade}", "busca")
