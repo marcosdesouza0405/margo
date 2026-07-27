@@ -2286,7 +2286,7 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         # Busca cidade via geocoding reverso gratuito
         cidade = ""
         try:
-            geo_url = f"https://nominatim.openstreetmap.org/reverse?lat={latitude}&lon={longitude}&format=json&accept-language=pt"
+            geo_url = f"https://nominatim.openstreetmap.org/reverse?lat={latitude}&lon={longitude}&format=json&accept-language=en"
             geo_req = urllib.request.Request(geo_url, headers={"User-Agent": "MargoApp/1.0"})
             geo_resp = urllib.request.urlopen(geo_req, timeout=5)
             geo_data = json.loads(geo_resp.read())
@@ -2314,9 +2314,9 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
 Resultados da busca:
 {resultados_maps}
 
-Retorne APENAS um JSON com o melhor resultado LOCAL mais próximo:
+Retorne APENAS um JSON com o melhor resultado dos dados acima (NUNCA invente):
 {{"nome": "nome do lugar", "endereco": "endereço completo com cidade e país", "query": "nome do lugar, endereço completo"}}
-Priorize lugares reais e próximos. Use o endereço mais completo possível. Sem texto extra."""
+Use SOMENTE informações que aparecem nos resultados acima. Se nenhum resultado tem endereço, retorne {{"nome":"","endereco":"","query":""}}"""
             try:
                 resultado_lugar = chamar_deepseek_simples(prompt_lugar, max_tokens=120)
                 resultado_lugar = re.sub(r'```(?:json)?\s*', '', resultado_lugar).strip()
@@ -2343,11 +2343,13 @@ BUSCA LOCAL — O usuário perguntou sobre: "{query_maps}" em {cidade or 'locali
 Resultados encontrados:
 {resultados_maps}
 
-INSTRUÇÕES:
-- Comente sobre 1 ou 2 lugares encontrados com detalhes úteis (nome, endereço, por que vale)
-- No final, pergunte se o usuário quer a rota até lá
-- CRÍTICO: responda TODA a mensagem (inclusive a pergunta da rota) no MESMO IDIOMA que o usuário está falando — se ele falou inglês, tudo em inglês
-- NÃO emita JSON de ferramenta agora — a navegação só acontece se o usuário confirmar"""
+INSTRUÇÕES OBRIGATÓRIAS:
+- Use SOMENTE os resultados acima. NUNCA invente lugares da sua memória.
+- Se os resultados não mostram nada na cidade do usuário, diga que não encontrou nada próximo.
+- Comente sobre 1 ou 2 lugares DOS RESULTADOS ACIMA com nome e endereço exatos.
+- No final, pergunte se o usuário quer a rota até lá.
+- Responda no MESMO IDIOMA que o usuário falou.
+- NÃO emita JSON de ferramenta agora — a navegação só acontece se o usuário confirmar."""
 
     # Gera resposta natural
     # Usa vision se tiver imagem
