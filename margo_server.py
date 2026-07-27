@@ -1973,8 +1973,12 @@ def _pre_detectar(msg: str) -> dict:
                 "depois", "daqui", "às ", "as ", "tomorrow", "later",
                 "時", "分", "明日"]
     if any(k in msg for k in agenda_kw) and any(t in msg for t in time_ctx):
-        # Tenta extrair tempo relativo
+        # Se tem horário absoluto (às Xh, amanhã), deixa v4-pro parsear
         import re as _re
+        tem_hora_abs = bool(_re.search(r'(às \d|amanhã|amanha|tomorrow|\d{1,2}[:\.]\d{2})', msg))
+        if tem_hora_abs:
+            return None  # v4-pro gera data_hora ISO correto
+        # Só resolve minutos relativos simples
         mins = 0
         # "daqui X minutos/min" ou "depois de X minutos/min"
         m = _re.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*(?:minuto|min|m)', msg)
@@ -2334,7 +2338,7 @@ Retorne APENAS um JSON com o melhor resultado dos dados acima (NUNCA invente):
 {{"nome": "nome do lugar", "endereco": "endereço completo com cidade e país", "query": "nome do lugar, endereço completo"}}
 Use SOMENTE informações que aparecem nos resultados acima. Se nenhum resultado tem endereço, retorne {{"nome":"","endereco":"","query":""}}"""
             try:
-                resultado_lugar = chamar_deepseek_simples(prompt_lugar, max_tokens=120)
+                resultado_lugar = chamar_deepseek_simples(prompt_lugar, max_tokens=120, modelo="deepseek-v4-pro")
                 resultado_lugar = re.sub(r'```(?:json)?\s*', '', resultado_lugar).strip()
                 lugar = json.loads(resultado_lugar)
                 if lugar.get("query"):
