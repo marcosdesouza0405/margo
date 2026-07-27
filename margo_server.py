@@ -1474,7 +1474,17 @@ def chamar_deepseek_simples(mensagem, max_tokens=150, modelo="deepseek-v4-flash"
             }
         )
         resp = urllib.request.urlopen(req, timeout=20)
-        return json.loads(resp.read())["choices"][0]["message"]["content"].strip()
+        msg = json.loads(resp.read())["choices"][0]["message"]
+        content = (msg.get("content") or "").strip()
+        # v4-pro pode colocar JSON no reasoning_content
+        if not content and msg.get("reasoning_content"):
+            # Extrai JSON do reasoning
+            rc = msg["reasoning_content"]
+            import re as _re_rc
+            json_match = _re_rc.search(r'(\{[^{}]*"ferramenta"[^{}]*\})', rc)
+            if json_match:
+                content = json_match.group(1)
+        return content
     except Exception as e:
         log(f"DeepSeek simples erro: {e}")
         return None
