@@ -1958,15 +1958,12 @@ def _pre_detectar(msg: str) -> dict:
                      "coreano":"korean","tailandês":"thai","tailandes":"thai","árabe":"arabic",
                      "arabe":"arabic","peruano":"peruvian","francês":"french","frances":"french",
                      "americano":"american","vegano":"vegan","vegetariano":"vegetarian"}
-        adj_en = _adj_trad.get(adj.lower(), "")
-        # Ignora palavras que não são adjetivos de tipo
-        _ignore = ["aqui","perto","de","do","da","em","no","na","um","uma","mim","me","mais","pra","pro","por"]
+        _ignore = ["aqui","perto","de","do","da","em","no","na","um","uma","mim","me","mais",
+                   "pra","pro","por","vez","pertinho","proximo","próximo","la","lá","outro","outra"]
         if adj.lower() in _ignore:
-            adj_en = ""
-        # Retorna query original (PT) + tradução EN
-        query_pt = f"{found_type} {adj}".strip() if adj else found_type
-        query_en = f"{adj_en} {found_en}".strip() if adj_en else found_en
-        return {"ferramenta": "maps_search", "query": query_pt, "query_en": query_en}
+            adj = ""
+        query_limpo = f"{found_type} {adj}".strip() if adj else found_type
+        return {"ferramenta": "maps_search", "query": query_limpo}
 
     # ── CLIMA ──
     clima_kw = ["clima", "tempo", "previsão", "previsao", "temperatura", "chuva",
