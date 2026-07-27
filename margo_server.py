@@ -1473,19 +1473,17 @@ def chamar_deepseek_simples(mensagem, max_tokens=150, modelo="deepseek-v4-flash"
                 "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
             }
         )
-        resp = urllib.request.urlopen(req, timeout=20)
+        resp = urllib.request.urlopen(req, timeout=30)
         msg = json.loads(resp.read())["choices"][0]["message"]
         content = (msg.get("content") or "").strip()
-        # v4-pro pode colocar JSON no reasoning_content
-        if not content and msg.get("reasoning_content"):
-            # Extrai JSON do reasoning
+        # v4-pro: JSON pode estar no reasoning_content ou content pode estar vazio
+        if (not content or content == 'null') and msg.get("reasoning_content"):
             rc = msg["reasoning_content"]
             import re as _re_rc
-            json_match = _re_rc.search(r'(\{[^{}]*"ferramenta"[^{}]*\})', rc)
-            if not json_match:
-                json_match = _re_rc.search(r'(\{[^{}]*"flight_search"[^{}]*\}|\{[^{}]*"hotel_search"[^{}]*\}|\{[^{}]*"agenda_add"[^{}]*\}|\{[^{}]*"smart_home"[^{}]*\})', rc)
+            json_match = _re_rc.search(r'(\{[^{}]*"ferramenta"\s*:\s*"[^"]+"[^}]*\})', rc)
             if json_match:
                 content = json_match.group(1)
+                log(f"Extraído do reasoning: {content[:120]}", "intent")
         return content
     except Exception as e:
         log(f"DeepSeek simples erro: {e}")
@@ -2103,7 +2101,7 @@ Se o histórico mostra que o assistente sugeriu um lugar e perguntou se quer a r
 Retorne APENAS o JSON ou null."""
 
     try:
-        resultado = chamar_deepseek_simples(prompt, max_tokens=100, modelo="deepseek-v4-pro")
+        resultado = chamar_deepseek_simples(prompt, max_tokens=500, modelo="deepseek-v4-pro")
         if not resultado or resultado.strip().lower() == 'null':
             return None
         resultado = re.sub(r'```(?:json)?\s*', '', resultado).strip()
