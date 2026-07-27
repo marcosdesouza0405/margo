@@ -1482,6 +1482,8 @@ def chamar_deepseek_simples(mensagem, max_tokens=150, modelo="deepseek-v4-flash"
             rc = msg["reasoning_content"]
             import re as _re_rc
             json_match = _re_rc.search(r'(\{[^{}]*"ferramenta"[^{}]*\})', rc)
+            if not json_match:
+                json_match = _re_rc.search(r'(\{[^{}]*"flight_search"[^{}]*\}|\{[^{}]*"hotel_search"[^{}]*\}|\{[^{}]*"agenda_add"[^{}]*\}|\{[^{}]*"smart_home"[^{}]*\})', rc)
             if json_match:
                 content = json_match.group(1)
         return content
@@ -1905,6 +1907,12 @@ def _pre_detectar(msg: str) -> dict:
                 break
         return {"ferramenta": "maps_navigate", "destino": dest.rstrip('.!? ')}
 
+    # ── PASSAGEM AÉREA e HOTEL — v4-pro parseia melhor (antes de maps_search!)
+    flight_kw = ["passagem", "passagens", "voo ", "voar ", "flight", "aérea", "aerea", "avião", "aviao"]
+    hotel_kw = ["hotel ", "hotéis", "hoteis", "hospedagem", "pousada", "hostel", "onde ficar", "reservar quarto"]
+    if any(k in msg for k in flight_kw) or any(k in msg for k in hotel_kw):
+        return None  # v4-pro extrai origem, destino, IATA, datas
+
     # ── BUSCA LOCAL ──
     local_kw = ["perto de mim", "perto daqui", "aqui perto", "por perto", "próximo",
                 "proximo", "nearby", "near me", "近くの"]
@@ -2006,12 +2014,6 @@ def _pre_detectar(msg: str) -> dict:
                 titulo = titulo.split(k, 1)[-1].strip()
                 break
         return {"ferramenta": "agenda_add", "titulo": titulo, "descricao": "", "data_hora": "", "minutos_relativos": mins}
-
-    # ── PASSAGEM AÉREA e HOTEL — v4-pro parseia melhor (origem, destino, datas, IATA)
-    flight_kw = ["passagem", "passagens", "voo ", "voar ", "flight", "aérea", "aerea", "avião", "aviao"]
-    hotel_kw = ["hotel ", "hotéis", "hoteis", "hospedagem", "pousada", "hostel", "onde ficar", "reservar quarto"]
-    if any(k in msg for k in flight_kw) or any(k in msg for k in hotel_kw):
-        return None  # v4-pro extrai origem, destino, IATA, datas
 
     return None
 
