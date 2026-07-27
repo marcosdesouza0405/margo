@@ -1831,13 +1831,13 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
     data_hora_iso = ""
 
     # ── RELATIVO: "daqui X minutos/horas" ──
-    m = _re_t.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*(?:minutos?|min)\b', msg)
+    m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*(?:minutos?|min)\b', msg)
     if m:
         mins = int(m.group(1))
-    m = _re_t.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*(?:horas?|hours?|h)\b', msg)
+    m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*(?:horas?|hours?|h)\b', msg)
     if m:
         mins = int(m.group(1)) * 60
-    m = _re_t.search(r'(?:daqui|depois de|after|in)\s+(\d+)\s*h\s*(\d+)', msg)
+    m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*h\s*(\d+)', msg)
     if m and not mins:
         mins = int(m.group(1)) * 60 + int(m.group(2))
     # "meia hora" / "half hour"
@@ -2075,7 +2075,10 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
     time_ctx = ["hora", "horas", "minuto", "minutos", "min", "amanhã", "amanha",
                 "depois", "daqui", "às ", "as ", "tomorrow", "later",
                 "時", "分", "明日"]
-    if any(k in msg for k in agenda_kw) and any(t in msg for t in time_ctx):
+    # Detecta tempo por padrão numérico também (22:13, 18h, 9h30)
+    import re as _re_agenda
+    tem_padrao_tempo = bool(_re_agenda.search(r'\b\d{1,2}[h:]\d{0,2}\b', msg))
+    if any(k in msg for k in agenda_kw) and (any(t in msg for t in time_ctx) or tem_padrao_tempo):
         # Parseia tempo no Python — NUNCA delega ao LLM
         import re as _re
         tempo = _parsear_tempo(msg, hora_local)
@@ -3330,10 +3333,11 @@ async def agenda_pendentes(user_id: str):
         return JSONResponse({"pendentes": []})
 
 def verificar_agenda():
-    """Scheduler: executa ações smart home agendadas a cada 60s."""
+    """Scheduler: executa ações smart home agendadas + envia push de lembretes a cada 60s."""
     import time
     while True:
         try:
+            # ── SMART HOME AGENDADO ──
             vencidas = banco.acoes_smart_vencidas()
             for item in vencidas:
                 try:
@@ -3347,8 +3351,51 @@ def verificar_agenda():
                     banco.marcar_acao_executada(item["id"])
                     log(f"Smart agendado executado: {item['titulo']} → {resultado}", "smart")
                 except Exception as e:
-                    banco.marcar_acao_executada(item["id"])  # evita loop infinito de retry
+                    banco.marcar_acao_executada(item["id"])
                     log(f"Erro executando smart agendado {item.get('id')}: {e}", "smart")
+
+            # ── LEMBRETES NORMAIS — push notification ──
+            try:
+                conn = banco._get_conn()
+                cur = conn.cursor()
+                ph = "%s" if banco._pg else "?"
+                agora = datetime.now()
+                cur.execute(
+                    f"SELECT id, user_id, titulo, descricao, data_hora, lembrado_3h"
+                    f" FROM agenda"
+                    f" WHERE acao_smart IS NULL AND lembrado_3h = 0"
+                    f" AND data_hora != '' AND data_hora IS NOT NULL"
+                    f" AND data_hora <= {ph}",
+                    ((agora + timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%S"),)
+                )
+                rows = cur.fetchall()
+                cols = [d[0] for d in cur.description]
+                for row in rows:
+                    item = dict(zip(cols, row))
+                    try:
+                        dt = datetime.fromisoformat(item["data_hora"])
+                        diff_min = (agora - dt).total_seconds() / 60
+                        if diff_min > 5:
+                            cur.execute(f"UPDATE agenda SET lembrado_3h=1 WHERE id={ph}", (item["id"],))
+                            continue
+                        usuario = banco.buscar_usuario_por_id(item["user_id"])
+                        fcm_token = (usuario.get("fcm_token") or "") if usuario else ""
+                        titulo_lembrete = item.get("titulo", "Lembrete")
+                        descricao_lembrete = item.get("descricao", "")
+                        if fcm_token:
+                            enviar_push(fcm_token, f"⏰ {titulo_lembrete}", descricao_lembrete or titulo_lembrete)
+                            log(f"Push lembrete enviado: {titulo_lembrete} user={item['user_id']}", "agenda")
+                        else:
+                            log(f"Lembrete venceu sem FCM token: {titulo_lembrete} user={item['user_id']}", "agenda")
+                        cur.execute(f"UPDATE agenda SET lembrado_3h=1 WHERE id={ph}", (item["id"],))
+                    except Exception as e:
+                        log(f"Erro notificando lembrete {item.get('id')}: {e}", "agenda")
+                        cur.execute(f"UPDATE agenda SET lembrado_3h=1 WHERE id={ph}", (item["id"],))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                log(f"Scheduler lembretes erro: {e}", "agenda")
+
         except Exception as e:
             log(f"Scheduler erro: {e}", "smart")
         time.sleep(60)
