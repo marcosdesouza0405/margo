@@ -2284,7 +2284,12 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         # Weather não abre nada no app — só responde
         ferramenta = None
 
-    if ferramenta and ferramenta.get("ferramenta") == "maps_search" and BRAVE_API_KEY and latitude and longitude:
+    if ferramenta and ferramenta.get("ferramenta") == "maps_search" and BRAVE_API_KEY:
+        if not latitude or not longitude:
+            log(f"maps_search SEM GPS — lat={latitude} lng={longitude}", "busca")
+            # Tenta sem localização (busca genérica)
+            latitude = latitude or 0
+            longitude = longitude or 0
         query_maps = ferramenta.get("query", "")
         
         # LIMPA A QUERY FORTE: remove tudo que não é parte da busca
