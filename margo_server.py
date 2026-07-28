@@ -1982,7 +1982,15 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
             if k in dest:
                 dest = dest.split(k, 1)[-1].strip()
                 break
-        return {"ferramenta": "maps_navigate", "destino": dest.rstrip('.!? ')}
+        dest = dest.rstrip('.!? ')
+        # Se destino é vago/referência ("lá", "aí", vazio), deixa LLM resolver com histórico
+        vagos = {"", "lá", "la", "aí", "ai", "ali", "there", "here", "esse", "essa",
+                 "nesse", "nessa", "aquele", "aquela", "esse lugar", "essa lugar",
+                 "esse restaurante", "esse local", "nele", "nela", "pra lá", "pra la",
+                 "pro lugar", "pro local", "pro restaurante"}
+        if dest.lower() in vagos or len(dest) < 3:
+            return None  # LLM resolve com contexto da conversa
+        return {"ferramenta": "maps_navigate", "destino": dest}
 
     # ── PASSAGEM AÉREA e HOTEL — v4-pro parseia melhor (antes de maps_search!)
     # MAS: se tem "perto de mim" / "nearby", é busca local, não reserva
