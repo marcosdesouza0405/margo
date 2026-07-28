@@ -2206,6 +2206,60 @@ def extrair_onboarding_completo(texto):
             pass
     return None
 
+def _detectar_idioma(msg: str) -> str:
+    """Detecta idioma da mensagem por caracteres e palavras comuns. Retorna código ou ''."""
+    if not msg or len(msg.strip()) < 3:
+        return ""
+    texto = msg.strip()
+
+    # Japonês: hiragana, katakana, kanji
+    jp_chars = sum(1 for ch in texto if '\u3040' <= ch <= '\u309f' or '\u30a0' <= ch <= '\u30ff' or '\u4e00' <= ch <= '\u9fff')
+    if jp_chars >= 2 or jp_chars / max(len(texto), 1) > 0.3:
+        return "Japanese"
+
+    # Coreano: hangul
+    ko_chars = sum(1 for ch in texto if '\uac00' <= ch <= '\ud7af' or '\u1100' <= ch <= '\u11ff')
+    if ko_chars >= 2:
+        return "Korean"
+
+    # Chinês simplificado (sem hiragana/katakana = não é japonês)
+    cn_chars = sum(1 for ch in texto if '\u4e00' <= ch <= '\u9fff')
+    if cn_chars >= 3 and jp_chars == cn_chars:
+        return "Chinese"
+
+    # Idiomas latinos: detecta por palavras comuns
+    palavras = texto.lower().split()
+    if len(palavras) < 2:
+        return ""
+
+    en_words = {"the", "is", "are", "was", "were", "what", "how", "why", "where", "when",
+                "can", "could", "would", "should", "have", "has", "do", "does", "did",
+                "this", "that", "with", "from", "for", "not", "but", "and", "you", "my",
+                "will", "about", "just", "please", "help", "want", "need", "know", "think",
+                "good", "going", "turn", "off", "set", "remind", "tell", "show", "find"}
+    es_words = {"el", "la", "los", "las", "es", "son", "está", "están", "qué", "cómo",
+                "dónde", "cuándo", "por", "para", "pero", "también", "puede", "quiero",
+                "tengo", "hacer", "este", "esta", "muy", "bien", "hola", "gracias"}
+    fr_words = {"le", "la", "les", "est", "sont", "avec", "dans", "pour", "mais", "aussi",
+                "je", "tu", "nous", "vous", "ils", "elles", "cette", "ces", "très",
+                "bien", "merci", "bonjour", "comment", "pourquoi", "quand", "faire"}
+
+    set_palavras = set(palavras)
+    en_count = len(set_palavras & en_words)
+    es_count = len(set_palavras & es_words)
+    fr_count = len(set_palavras & fr_words)
+
+    total = len(palavras)
+    if en_count >= 2 and en_count / total >= 0.2:
+        return "English"
+    if es_count >= 2 and es_count / total >= 0.2:
+        return "Spanish"
+    if fr_count >= 2 and fr_count / total >= 0.2:
+        return "French"
+
+    return ""
+
+
 def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_local="", imagem_base64="", idioma_falado=""):
     config = banco.buscar_config(user_id)
     perfil = banco.buscar_perfil(user_id)
@@ -2289,6 +2343,9 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     system = build_system_prompt(perfil, config)
     if contexto_extra:
         system += f"\n\n{contexto_extra}"
+    # Auto-detecta idioma quando STT não informou
+    if not idioma_falado:
+        idioma_falado = _detectar_idioma(mensagem)
     # Instrução de idioma vai por ÚLTIMO no system prompt (máxima prioridade pro modelo)
     if idioma_falado and idioma_falado.lower() not in ("portuguese", "pt", "pt-br"):
         system += f"\n\n=== MANDATORY LANGUAGE RULE ===\nThe user spoke in {idioma_falado}. You MUST respond ENTIRELY in {idioma_falado}. Do NOT translate their message. Do NOT respond in Portuguese. Reply naturally in {idioma_falado} as if it were your native language."
