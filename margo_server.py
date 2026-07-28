@@ -2208,6 +2208,7 @@ def extrair_onboarding_completo(texto):
 
 def _detectar_idioma(msg: str) -> str:
     """Detecta idioma da mensagem por caracteres e palavras comuns. Retorna código ou ''."""
+    import re as _re_id
     if not msg or len(msg.strip()) < 3:
         return ""
     texto = msg.strip()
@@ -2227,35 +2228,61 @@ def _detectar_idioma(msg: str) -> str:
     if cn_chars >= 3 and jp_chars == cn_chars:
         return "Chinese"
 
-    # Idiomas latinos: detecta por palavras comuns
-    palavras = texto.lower().split()
+    # Limpa pontuação e expande contrações antes de detectar
+    limpo = texto.lower()
+    limpo = _re_id.sub(r"n't\b", " not", limpo)
+    limpo = _re_id.sub(r"'s\b", " is", limpo)
+    limpo = _re_id.sub(r"'re\b", " are", limpo)
+    limpo = _re_id.sub(r"'m\b", " am", limpo)
+    limpo = _re_id.sub(r"'ll\b", " will", limpo)
+    limpo = _re_id.sub(r"'ve\b", " have", limpo)
+    limpo = _re_id.sub(r"'d\b", " would", limpo)
+    limpo = _re_id.sub(r"[^a-záàâãéèêíïóôõúüñçäëïöü\s]", " ", limpo)
+    palavras = limpo.split()
     if len(palavras) < 2:
         return ""
 
-    en_words = {"the", "is", "are", "was", "were", "what", "how", "why", "where", "when",
-                "can", "could", "would", "should", "have", "has", "do", "does", "did",
-                "this", "that", "with", "from", "for", "not", "but", "and", "you", "my",
+    en_words = {"the", "is", "are", "am", "was", "were", "what", "how", "why", "where", "when",
+                "can", "could", "would", "should", "have", "has", "do", "does", "did", "not",
+                "this", "that", "with", "from", "for", "but", "and", "you", "your", "my", "me",
                 "will", "about", "just", "please", "help", "want", "need", "know", "think",
-                "good", "going", "turn", "off", "set", "remind", "tell", "show", "find"}
+                "good", "going", "turn", "off", "on", "set", "remind", "tell", "show", "find",
+                "like", "today", "tomorrow", "weather", "time", "here", "there", "it", "in",
+                "so", "if", "up", "out", "get", "got", "go", "come", "make", "take", "see",
+                "look", "give", "use", "new", "now", "way", "day", "too", "any", "all", "much",
+                "hi", "hello", "hey", "thanks", "thank", "yes", "no", "ok", "sure", "right"}
     es_words = {"el", "la", "los", "las", "es", "son", "está", "están", "qué", "cómo",
                 "dónde", "cuándo", "por", "para", "pero", "también", "puede", "quiero",
-                "tengo", "hacer", "este", "esta", "muy", "bien", "hola", "gracias"}
+                "tengo", "hacer", "este", "esta", "muy", "bien", "hola", "gracias",
+                "yo", "tu", "como", "donde", "cuando", "más", "todo", "aquí", "hay"}
     fr_words = {"le", "la", "les", "est", "sont", "avec", "dans", "pour", "mais", "aussi",
                 "je", "tu", "nous", "vous", "ils", "elles", "cette", "ces", "très",
-                "bien", "merci", "bonjour", "comment", "pourquoi", "quand", "faire"}
+                "bien", "merci", "bonjour", "comment", "pourquoi", "quand", "faire",
+                "ne", "pas", "oui", "non", "ici", "qui", "que", "où"}
 
     set_palavras = set(palavras)
     en_count = len(set_palavras & en_words)
     es_count = len(set_palavras & es_words)
     fr_count = len(set_palavras & fr_words)
 
+    # Pega o maior score
+    melhor = max(en_count, es_count, fr_count)
+    if melhor < 1:
+        return ""
     total = len(palavras)
-    if en_count >= 2 and en_count / total >= 0.2:
-        return "English"
-    if es_count >= 2 and es_count / total >= 0.2:
-        return "Spanish"
-    if fr_count >= 2 and fr_count / total >= 0.2:
-        return "French"
+    ratio = melhor / total
+
+    # Frases curtas (2-4 palavras): basta 1 match com ratio >= 0.25
+    if total <= 4 and melhor >= 1 and ratio >= 0.25:
+        if en_count == melhor: return "English"
+        if es_count == melhor: return "Spanish"
+        if fr_count == melhor: return "French"
+
+    # Frases normais: 2+ matches
+    if melhor >= 2 and ratio >= 0.15:
+        if en_count == melhor: return "English"
+        if es_count == melhor: return "Spanish"
+        if fr_count == melhor: return "French"
 
     return ""
 
