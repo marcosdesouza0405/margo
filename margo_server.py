@@ -2370,13 +2370,14 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     system = build_system_prompt(perfil, config)
     if contexto_extra:
         system += f"\n\n{contexto_extra}"
-    # Auto-detecta idioma quando STT não informou
-    if not idioma_falado:
-        idioma_falado = _detectar_idioma(mensagem)
     # Instrução de idioma vai por ÚLTIMO no system prompt (máxima prioridade pro modelo)
     if idioma_falado and idioma_falado.lower() not in ("portuguese", "pt", "pt-br"):
+        # STT detectou idioma específico — força esse idioma
         system += f"\n\n=== MANDATORY LANGUAGE RULE ===\nThe user spoke in {idioma_falado}. You MUST respond ENTIRELY in {idioma_falado}. Do NOT translate their message. Do NOT respond in Portuguese. Reply naturally in {idioma_falado} as if it were your native language."
         mensagem = f"{mensagem}\n\n[Respond in {idioma_falado}]"
+    else:
+        # Sem STT — manda regra genérica forte pra detectar e espelhar o idioma
+        system += "\n\n=== MANDATORY LANGUAGE RULE ===\nDetect the language of the user\'s CURRENT message. You MUST respond ENTIRELY in that SAME language. If the user writes in English, respond in English. If Japanese, respond in Japanese. If Spanish, respond in Spanish. NEVER default to Portuguese unless the user wrote in Portuguese. Match the user\'s language exactly."
 
     import time as _t
     _t0 = _t.time()
