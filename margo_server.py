@@ -4106,7 +4106,7 @@ async def salvar_perfil_completo(request: Request):
             "genero":              data.get("genero", "F"),
             "personalidade":       data.get("personalidade", "").strip(),
             "voz_provider":        data.get("voz_provider", "device"),
-            "voz_chave":           data.get("voz_chave", "").strip(),
+            "voz_chave":           "",  # NUNCA salvar chave API no banco — fica só no device
             "voz_id":              data.get("voz_id", "").strip(),
             "onboarding_completo": True,
         })
@@ -4117,6 +4117,91 @@ async def salvar_perfil_completo(request: Request):
         log(f"Erro /salvar_perfil_completo: {e}")
         return JSONResponse({"erro": str(e)}, status_code=500)
 
+
+
+# ── RECUPERAÇÃO DE SENHA ─────────────────────────────────────────────────────
+_reset_codes = {}  # email -> {"code": "123456", "expires": datetime}
+
+@app.post("/recuperar_senha")
+async def recuperar_senha(request: Request):
+    """Envia código de 6 dígitos por email para redefinir senha."""
+    import random
+    try:
+        data = await request.json()
+        email = (data.get("email") or "").strip().lower()
+        if not email:
+            return JSONResponse({"erro": "Email obrigatório"}, status_code=400)
+        # Verifica se email existe
+        conn = banco._get_conn()
+        cur = conn.cursor()
+        ph = "%s" if banco._pg else "?"
+        cur.execute(f"SELECT user_id FROM usuarios WHERE email={ph}", (email,))
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            # Não revela se email existe ou não (segurança)
+            return JSONResponse({"ok": True, "msg": "Se o email estiver cadastrado, enviaremos um código."})
+        code = str(random.randint(100000, 999999))
+        _reset_codes[email] = {"code": code, "expires": datetime.now() + timedelta(minutes=15)}
+        # Envia email
+        try:
+            import resend
+            resend.api_key = RESEND_API_KEY
+            resend.Emails.send({
+                "from": "Margo by Orbiby <noreply@orbiby.com>",
+                "to": email,
+                "subject": "Código para redefinir senha — Margo",
+                "html": f"""
+                <div style="font-family:Arial; max-width:400px; margin:auto; padding:20px;">
+                    <h2 style="color:#2196F3;">Redefinição de senha</h2>
+                    <p>Seu código de redefinição:</p>
+                    <div style="font-size:32px; font-weight:bold; letter-spacing:8px; color:#2196F3; text-align:center; padding:20px; background:#f5f5f5; border-radius:8px;">{code}</div>
+                    <p style="color:#666; font-size:13px; margin-top:20px;">Este código expira em 15 minutos.</p>
+                    <p style="color:#666; font-size:13px;">Se você não solicitou, ignore este email.</p>
+                </div>"""
+            })
+            log(f"Código reset enviado para {email}", "auth")
+        except Exception as e:
+            log(f"Erro enviar email reset: {e}", "auth")
+            return JSONResponse({"erro": "Erro ao enviar email"}, status_code=500)
+        return JSONResponse({"ok": True, "msg": "Se o email estiver cadastrado, enviaremos um código."})
+    except Exception as e:
+        log(f"Erro /recuperar_senha: {e}", "auth")
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.post("/redefinir_senha")
+async def redefinir_senha(request: Request):
+    """Valida código e redefine a senha."""
+    try:
+        data = await request.json()
+        email = (data.get("email") or "").strip().lower()
+        code = (data.get("code") or "").strip()
+        nova_senha = data.get("nova_senha", "")
+        if not email or not code or not nova_senha:
+            return JSONResponse({"erro": "Email, código e nova senha obrigatórios"}, status_code=400)
+        if len(nova_senha) < 6:
+            return JSONResponse({"erro": "Senha deve ter no mínimo 6 caracteres"}, status_code=400)
+        entry = _reset_codes.get(email)
+        if not entry or entry["code"] != code:
+            return JSONResponse({"erro": "Código inválido"}, status_code=400)
+        if datetime.now() > entry["expires"]:
+            del _reset_codes[email]
+            return JSONResponse({"erro": "Código expirado. Solicite um novo."}, status_code=400)
+        # Atualiza senha
+        import hashlib
+        senha_hash = hashlib.sha256(nova_senha.encode()).hexdigest()
+        conn = banco._get_conn()
+        cur = conn.cursor()
+        ph = "%s" if banco._pg else "?"
+        cur.execute(f"UPDATE usuarios SET senha_hash={ph} WHERE email={ph}", (senha_hash, email))
+        conn.commit()
+        conn.close()
+        del _reset_codes[email]
+        log(f"Senha redefinida para {email}", "auth")
+        return JSONResponse({"ok": True, "msg": "Senha redefinida com sucesso!"})
+    except Exception as e:
+        log(f"Erro /redefinir_senha: {e}", "auth")
+        return JSONResponse({"erro": str(e)}, status_code=500)
 @app.get("/uso/{user_id}")
 def uso(user_id: str):
     """Retorna uso diário do usuário — para o frontend mostrar msgs restantes"""
