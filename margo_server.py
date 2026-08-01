@@ -2603,10 +2603,13 @@ INSTRUÇÕES OBRIGATÓRIAS:
     if not resposta_limpa:
         # DeepSeek retornou ferramenta — faz nova chamada pedindo resposta em texto
         resposta_limpa = chamar_deepseek(
-            system + contexto_busca + "\n\nIMPORTANTE: Responda em texto natural, não em JSON.",
+            system + contexto_busca + "\n\nIMPORTANTE: Responda em texto natural, não em JSON. Não use chaves {} na resposta.",
             mensagem, historico, max_tokens=600
         )
         resposta_limpa = re.sub(r'\{[^{}]*"ferramenta"[^{}]*\}', '', resposta_limpa).strip()
+    # Fallback garantido: nunca envia resposta vazia
+    if not resposta_limpa or len(resposta_limpa.strip()) < 2:
+        resposta_limpa = "Desculpe, não entendi bem. Pode reformular?"
 
     # ── AGENDA ────────────────────────────────────────────────────────────────
     if ferramenta and ferramenta.get("ferramenta") == "agenda_add":
