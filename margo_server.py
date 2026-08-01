@@ -1178,7 +1178,9 @@ def st_resolver_dispositivo(access_token: str, nome_dispositivo: str) -> dict:
             return d
 
     # 2. Busca por todas as palavras do pedido (mais específico primeiro)
-    palavras = [p for p in nome_lower.split() if len(p) > 2]
+    # Mantém keywords curtas de dispositivo (tv, ar, ac) que seriam descartadas pelo filtro de tamanho
+    _device_kw = {"tv", "ar", "ac", "pc", "hd", "ir"}
+    palavras = [p for p in nome_lower.split() if len(p) > 2 or p in _device_kw]
     for d in dispositivos:
         label = d.get("label", "").lower()
         if all(p in label for p in palavras):
