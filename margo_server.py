@@ -1168,40 +1168,67 @@ def st_executar_comando(access_token: str, device_id: str, componente: str, capa
         return False
 
 def st_resolver_dispositivo(access_token: str, nome_dispositivo: str) -> dict:
-    """Encontra dispositivo priorizando tipo (ar, tv, luz) antes de localização"""
+    """Encontra dispositivo priorizando match exato > todas as palavras > localização"""
     dispositivos = st_listar_dispositivos(access_token)
     nome_lower = nome_dispositivo.lower().strip()
+    log(f"SmartThings resolver: buscando '{nome_lower}' entre {[d.get('label','?') for d in dispositivos]}", "smart")
 
-    # 1. Busca exata
+    _device_kw = {"tv", "ar", "ac", "pc", "hd", "ir"}
+    _stopwords = {"do", "da", "dos", "das", "de", "no", "na", "nos", "nas", "o", "a", "os", "as", "um", "uma", "meu", "minha"}
+    palavras = [p for p in nome_lower.split() if (len(p) > 2 or p in _device_kw) and p not in _stopwords]
+    log(f"SmartThings palavras filtradas: {palavras}", "smart")
+
+    _locais = {"sala", "quarto", "cozinha", "banheiro", "varanda", "garagem", "escritorio",
+               "corredor", "jardim", "suite", "lavanderia", "area", "living", "room",
+               "bedroom", "kitchen", "bathroom", "garage", "office"}
+    _tipos = {"luz", "lampada", "light", "tv", "televisao", "ar", "ac", "condicionado",
+              "ventilador", "fan", "cortina", "tomada", "plug", "camera", "sensor", "fechadura"}
+
+    palavras_local = [p for p in palavras if p in _locais]
+    palavras_tipo = [p for p in palavras if p in _tipos]
+
+    # 1. Busca exata no label
     for d in dispositivos:
         if d.get("label", "").lower() == nome_lower:
+            log(f"SmartThings match exato: {d.get('label')}", "smart")
             return d
 
-    # 2. Busca por todas as palavras do pedido (mais específico primeiro)
-    # Mantém keywords curtas de dispositivo (tv, ar, ac) que seriam descartadas pelo filtro de tamanho
-    _device_kw = {"tv", "ar", "ac", "pc", "hd", "ir"}
-    palavras = [p for p in nome_lower.split() if len(p) > 2 or p in _device_kw]
-    for d in dispositivos:
-        label = d.get("label", "").lower()
-        if all(p in label for p in palavras):
-            return d
+    # 2. Todas as palavras significativas estão no label
+    if palavras:
+        for d in dispositivos:
+            label = d.get("label", "").lower()
+            if all(p in label for p in palavras):
+                log(f"SmartThings match todas palavras: {d.get('label')}", "smart")
+                return d
 
-    # 3. Busca parcial — nome dentro do label
-    for d in dispositivos:
-        label = d.get("label", "").lower()
-        if nome_lower in label:
-            return d
-
-    # 4. Busca por palavras individuais — prioriza match com mais palavras
+    # 3. Score ponderado — localização vale mais que tipo
     melhor = None
     melhor_score = 0
     for d in dispositivos:
         label = d.get("label", "").lower()
-        score = sum(1 for p in palavras if p in label)
+        score = 0
+        for p in palavras_tipo:
+            if p in label: score += 1
+        for p in palavras_local:
+            if p in label: score += 3
+        for p in palavras:
+            if p not in palavras_tipo and p not in palavras_local and p in label:
+                score += 1
         if score > melhor_score:
             melhor_score = score
             melhor = d
 
+    if melhor and palavras_local:
+        label_melhor = melhor.get("label", "").lower()
+        local_bate = any(p in label_melhor for p in palavras_local)
+        if not local_bate:
+            log(f"SmartThings rejeitado (local errado): pedido={palavras_local} match={melhor.get('label')}", "smart")
+            return None
+
+    if melhor:
+        log(f"SmartThings match score: {melhor.get('label')} (score={melhor_score})", "smart")
+    else:
+        log(f"SmartThings nenhum match para '{nome_lower}'", "smart")
     return melhor if melhor_score > 0 else None
 
 def st_buscar_capabilities(access_token: str, device_id: str) -> list:
