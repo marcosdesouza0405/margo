@@ -1675,6 +1675,8 @@ FORMATO EXATO (copie e use):
 
 NAVEGAÇÃO — "quero ir para", "rota para", "me leva até", "traça a rota":
 {{"ferramenta": "maps_navigate", "destino": "endereço ou lugar"}}
+{{"ferramenta": "maps_navigate", "destino": "endereço ou lugar", "modo": "transit"}}
+→ Campo "modo" é opcional: "driving" (padrão), "transit" (ônibus/metrô/trem), "walking" (a pé), "bicycling" (bicicleta). Inclua só se o usuário mencionar.
 
 MÚSICA — "toca", "coloca uma música", "coloca no spotify", "quero ouvir":
 {{"ferramenta": "spotify_play", "query": "artista ou música ou playlist"}}
@@ -1905,6 +1907,23 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
     return {"minutos_relativos": 0, "data_hora_iso": ""}
 
 
+def _detectar_modo_transporte(msg: str) -> str:
+    """Detecta modo de transporte da mensagem. Retorna: driving, transit, walking, bicycling ou ''."""
+    transit_kw = ["ônibus", "onibus", "bus", "metrô", "metro", "subway", "trem", "train",
+                  "transporte público", "transporte publico", "public transport", "transit",
+                  "baldeação", "baldeacao", "estação", "estacao", "station"]
+    walk_kw = ["a pé", "a pe", "andando", "walking", "walk", "caminhando", "caminhar"]
+    bike_kw = ["bicicleta", "bike", "cycling", "bicycling", "pedalando", "pedalar", "de bike"]
+
+    if any(k in msg for k in transit_kw):
+        return "transit"
+    if any(k in msg for k in walk_kw):
+        return "walking"
+    if any(k in msg for k in bike_kw):
+        return "bicycling"
+    return ""
+
+
 def _pre_detectar(msg: str, hora_local: str = "") -> dict:
     """Pré-detecção de intenção por keywords. Retorna dict ou None."""
     
@@ -1990,7 +2009,11 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
                  "pro lugar", "pro local", "pro restaurante"}
         if dest.lower() in vagos or len(dest) < 3:
             return None  # LLM resolve com contexto da conversa
-        return {"ferramenta": "maps_navigate", "destino": dest}
+        modo = _detectar_modo_transporte(msg)
+        result = {"ferramenta": "maps_navigate", "destino": dest}
+        if modo:
+            result["modo"] = modo
+        return result
 
     # ── PASSAGEM AÉREA e HOTEL — v4-pro parseia melhor (antes de maps_search!)
     # MAS: se tem "perto de mim" / "nearby", é busca local, não reserva
@@ -2139,7 +2162,8 @@ Data atual: {data_hoje}{hora_info}
 Mensagem atual: "{mensagem}"
 
 Retorne APENAS um JSON válido se a mensagem pede:
-- Navegar/ir para algum lugar: {{"ferramenta":"maps_navigate","destino":"nome do lugar"}}
+- Navegar/ir para algum lugar: {{"ferramenta":"maps_navigate","destino":"nome do lugar","modo":"driving|transit|walking|bicycling"}}
+  → modo é opcional. Use "transit" se o usuário mencionar ônibus/metrô/trem, "walking" se a pé, "bicycling" se bicicleta. Se não mencionar, omita o campo.
 - Buscar lugar próximo: {{"ferramenta":"maps_search","query":"tipo específico de lugar"}}
 - Tocar música: {{"ferramenta":"spotify_play","query":"APENAS gênero, artista ou música específica"}}
 - Tocar no SoundCloud: {{"ferramenta":"soundcloud_play","query":"artista ou gênero"}}
