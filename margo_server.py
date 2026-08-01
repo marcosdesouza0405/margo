@@ -2571,6 +2571,18 @@ INSTRUÇÕES OBRIGATÓRIAS:
 
     # Remove JSON da resposta caso o DeepSeek emita ferramenta em vez de texto
     resposta_limpa = resposta.strip()
+    # Se ferramenta ainda é None, tenta extrair do texto do DeepSeek
+    if not ferramenta and '"ferramenta"' in resposta_limpa:
+        try:
+            import re as _re_json
+            json_match = _re_json.search(r'(\{[^{}]*"ferramenta"[^{}]*\})', resposta_limpa)
+            if json_match:
+                ferramenta_extraida = json.loads(json_match.group(1))
+                if ferramenta_extraida.get("ferramenta"):
+                    ferramenta = ferramenta_extraida
+                    log(f"Ferramenta extraída do texto: {ferramenta.get('ferramenta')}", "intent")
+        except:
+            pass
     # Remove se a resposta inteira é um JSON de ferramenta
     if resposta_limpa.startswith('{') and '"ferramenta"' in resposta_limpa:
         resposta_limpa = ""
