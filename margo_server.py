@@ -2217,12 +2217,12 @@ Retorne APENAS um JSON válido se a mensagem pede:
 - Clima/tempo/previsão: {{"ferramenta":"weather"}}
 → Use para QUALQUER pergunta sobre clima, tempo, chuva, temperatura, previsão, calor, frio
 - Pesquisa na internet: {{"ferramenta":"web_search","query":"termo de busca"}}
-- Agenda/lembrete: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"ISO8601","minutos_relativos":0}}
+- Agenda/lembrete: {{"ferramenta":"agenda_add","titulo":"...","descricao":"...","data_hora":"YYYY-MM-DDTHH:MM:SS (horário REAL, não este texto)","minutos_relativos":0}}
 → minutos_relativos: OBRIGATÓRIO! "daqui 5 min"=5, "daqui 2 horas"=120, "daqui 1h30"=90. Horário fixo=0.
 → Use para: "me lembra de", "agenda", "lembrete", "daqui X minutos", "às X horas"
 → NUNCA use web_search para lembretes/agenda
 - Casa inteligente AGORA: {{"ferramenta":"smart_home","acao":"ligar|desligar|ajustar","dispositivo":"nome do dispositivo"}}
-- Casa inteligente AGENDADA (com horário futuro): {{"ferramenta":"smart_home_agendado","acao":"ligar|desligar|ajustar","dispositivo":"nome","valor":"","data_hora":"ISO8601","minutos_relativos":0}}
+- Casa inteligente AGENDADA (com horário futuro): {{"ferramenta":"smart_home_agendado","acao":"ligar|desligar|ajustar","dispositivo":"nome","valor":"","data_hora":"YYYY-MM-DDTHH:MM:SS (horário REAL, não este texto)","minutos_relativos":0}}
 → Use quando houver horário: "liga o ar às 18h", "desliga a luz daqui 2 horas", "liga o ar quando eu chegar às 19h"
 → minutos_relativos igual à agenda: "daqui 2 horas"=120; horário fixo=0
 - Hotel/hospedagem: {{"ferramenta":"hotel_search","destino":"cidade ou local","checkin":"YYYY-MM-DD ou vazio","checkout":"YYYY-MM-DD ou vazio"}}
@@ -2684,6 +2684,17 @@ INSTRUÇÕES OBRIGATÓRIAS:
         except:
             pass
 
+        # Valida data_hora — rejeita templates literais do LLM
+        if data_hora_agenda and data_hora_agenda.upper() in ("ISO8601", "YYYY-MM-DDTHH:MM:SS", ""):
+            log(f"Lembrete REJEITADO (data_hora é template): {data_hora_agenda}", "agenda")
+            data_hora_agenda = ""
+        if data_hora_agenda:
+            # Verifica se é um ISO válido
+            try:
+                datetime.fromisoformat(data_hora_agenda)
+            except:
+                log(f"Lembrete REJEITADO (data_hora inválido): {data_hora_agenda}", "agenda")
+                data_hora_agenda = ""
         if data_hora_agenda:
             log(f"Salvando lembrete: titulo={titulo_agenda} | data_hora={data_hora_agenda} | user={user_id}", 'agenda')
             banco.salvar_lembrete(user_id, titulo_agenda, descricao_agenda, data_hora_agenda)
