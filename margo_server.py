@@ -1862,7 +1862,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
     data_hora_iso = ""
 
     # ── RELATIVO: "daqui X minutos/horas" ──
-    m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*(?:minutos?|min)\b', msg)
+    m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*(?:minutos?|minutes?|min)\b', msg)
     if m:
         mins = int(m.group(1))
     m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*(?:horas?|hours?|h)\b', msg)
@@ -2133,7 +2133,8 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
                  "remind me", "reminder", "depois de ", "after ",
                  "リマインド", "思い出させて"]
     time_ctx = ["hora", "horas", "minuto", "minutos", "min", "amanhã", "amanha",
-                "depois", "daqui", "às ", "as ", "tomorrow", "later",
+                "depois", "daqui", "às ", "as ", "tomorrow", "later", "minute", "minutes",
+                "hour", "hours", "second", "seconds", "from now", "in ", "after ",
                 "時", "分", "明日"]
     # Detecta tempo por padrão numérico também (22:13, 18h, 9h30)
     import re as _re_agenda
