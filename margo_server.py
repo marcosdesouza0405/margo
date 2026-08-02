@@ -1854,18 +1854,43 @@ def buscar_open_meteo(latitude, longitude) -> str:
 def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
     """
     Parseia referências de tempo na mensagem e retorna:
-    {"minutos_relativos": int, "data_hora_iso": str ou ""}
+    {"minutos_relativos": int, "data_hora_iso": str (em UTC) ou ""}
     Resolve TUDO no Python — nunca delega ao LLM.
+    Retorna data_hora_iso SEMPRE em UTC pra o scheduler comparar com datetime.now() no servidor.
     """
     import re as _re_t
+    from datetime import timezone as _tz
     mins = 0
     data_hora_iso = ""
 
+    # ── PARSEAR hora_local pra saber base e offset ──
+    hora_base_dt = None
+    offset = None
+    if hora_local_str:
+        try:
+            hl = hora_local_str.replace("Z", "+00:00")
+            if len(hl) > 5 and hl[-5] in '+-' and ':' not in hl[-5:]:
+                hl = hl[:-2] + ':' + hl[-2:]
+            hora_base_dt = datetime.fromisoformat(hl)
+            offset = hora_base_dt.utcoffset()
+        except:
+            pass
+    if not hora_base_dt:
+        hora_base_dt = datetime.now()
+
+    def _to_utc(dt):
+        """Converte datetime local para UTC string"""
+        if offset:
+            dt_naive = dt.replace(tzinfo=None)
+            dt_utc = dt_naive - offset
+            return dt_utc.strftime("%Y-%m-%dT%H:%M:%S")
+        return dt.strftime("%Y-%m-%dT%H:%M:%S")
+
     # ── RELATIVO: "daqui X minutos/horas" ──
-    m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*(?:minutos?|minutes?|min)\b', msg)
+    m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*(?:minutos?|minutes?|min)', msg)
     if m:
         mins = int(m.group(1))
-    m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*(?:horas?|hours?|h)\b', msg)
+    m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*(?:horas?|hours?|h)', msg)
     if m:
         mins = int(m.group(1)) * 60
     m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*h\s*(\d+)', msg)
@@ -1876,43 +1901,34 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
         mins = 30
 
     if mins > 0:
-        return {"minutos_relativos": mins, "data_hora_iso": ""}
+        # Calcula data_hora UTC diretamente
+        dt_exato = hora_base_dt + timedelta(minutes=mins)
+        data_hora_utc = _to_utc(dt_exato)
+        return {"minutos_relativos": mins, "data_hora_iso": data_hora_utc}
 
     # ── ABSOLUTO: precisa de hora_local_str pra saber a data base ──
-    hora_base_dt = None
-    if hora_local_str:
-        try:
-            hl = hora_local_str.replace("Z", "+00:00")
-            if len(hl) > 5 and hl[-5] in '+-' and ':' not in hl[-5:]:
-                hl = hl[:-2] + ':' + hl[-2:]
-            hora_base_dt = datetime.fromisoformat(hl)
-        except:
-            pass
-    if not hora_base_dt:
-        hora_base_dt = datetime.now()
 
-    # "amanhã às Xh" / "amanhã às X:XX"
+    # "amanhã às Xh" / "amanhã às X:XX" / "tomorrow at X"
     m = _re_t.search(r'(?:amanh[aã]|tomorrow)\s+(?:às\s*|as\s*|at\s*)?(\d{1,2})[:\.\s]*h?\s*(\d{2})?', msg)
     if m:
         h = int(m.group(1))
         mi = int(m.group(2)) if m.group(2) else 0
         dt = hora_base_dt + timedelta(days=1)
         dt = dt.replace(hour=h, minute=mi, second=0, microsecond=0)
-        return {"minutos_relativos": 0, "data_hora_iso": dt.strftime("%Y-%m-%dT%H:%M:%S")}
+        return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
 
-    # "às Xh" / "às X:XX" / "as Xh30" (hoje)
-    m = _re_t.search(r'(?:às|as|at)\s*(\d{1,2})[:\.]?(\d{2})?\s*(?:h(?:oras?)?)?', msg)
+    # "às Xh" / "às X:XX" / "at X" (hoje)
+    m = _re_t.search(r'(?:às|as|at)\s*(\d{1,2})[:\.\s]*h?\s*(\d{2})?\s*(?:h(?:oras?)?)?', msg)
     if m:
         h = int(m.group(1))
         mi = int(m.group(2)) if m.group(2) else 0
         dt = hora_base_dt.replace(hour=h, minute=mi, second=0, microsecond=0)
-        # Se o horário já passou hoje, assume amanhã
         if dt <= hora_base_dt:
             dt += timedelta(days=1)
-        return {"minutos_relativos": 0, "data_hora_iso": dt.strftime("%Y-%m-%dT%H:%M:%S")}
+        return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
 
     # "Xh" / "Xh30" solto (ex: "me lembra 18h", "liga o ar 22h30")
-    m = _re_t.search(r'\b(\d{1,2})h(\d{2})?\b', msg)
+    m = _re_t.search(r'(\d{1,2})h(\d{2})?', msg)
     if m:
         h = int(m.group(1))
         mi = int(m.group(2)) if m.group(2) else 0
@@ -1920,10 +1936,10 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
             dt = hora_base_dt.replace(hour=h, minute=mi, second=0, microsecond=0)
             if dt <= hora_base_dt:
                 dt += timedelta(days=1)
-            return {"minutos_relativos": 0, "data_hora_iso": dt.strftime("%Y-%m-%dT%H:%M:%S")}
+            return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
 
     # "X:XX" formato relógio solto
-    m = _re_t.search(r'\b(\d{1,2}):(\d{2})\b', msg)
+    m = _re_t.search(r'(\d{1,2}):(\d{2})', msg)
     if m:
         h = int(m.group(1))
         mi = int(m.group(2))
@@ -1931,10 +1947,9 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
             dt = hora_base_dt.replace(hour=h, minute=mi, second=0, microsecond=0)
             if dt <= hora_base_dt:
                 dt += timedelta(days=1)
-            return {"minutos_relativos": 0, "data_hora_iso": dt.strftime("%Y-%m-%dT%H:%M:%S")}
+            return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
 
     return {"minutos_relativos": 0, "data_hora_iso": ""}
-
 
 def _detectar_modo_transporte(msg: str) -> str:
     """Detecta modo de transporte da mensagem. Retorna: driving, transit, walking, bicycling ou ''."""
@@ -2648,34 +2663,9 @@ INSTRUÇÕES OBRIGATÓRIAS:
         titulo_agenda = ferramenta.get("titulo", "Compromisso")
         descricao_agenda = ferramenta.get("descricao", "")
 
-        # Usa timestamp Unix se disponível (mais preciso)
-        if hora_local:
-            try:
-                # Normaliza offset: +0900 → +09:00
-                hl = hora_local.replace("Z", "+00:00")
-                if len(hl) > 5 and hl[-5] in '+-' and ':' not in hl[-5:]:
-                    hl = hl[:-2] + ':' + hl[-2:]
-                hora_local_dt = datetime.fromisoformat(hl)
-                if minutos_relativos and int(minutos_relativos) > 0:
-                    dt_exato = hora_local_dt + timedelta(minutes=int(minutos_relativos))
-                    # Converte para UTC subtraindo o offset local
-                    offset = hora_local_dt.utcoffset()
-                    if offset:
-                        dt_exato = dt_exato - offset
-                    data_hora_agenda = dt_exato.strftime("%Y-%m-%dT%H:%M:%S")
-                    log(f"Agenda calculada UTC: hora_local={hora_local_dt} + {minutos_relativos}min - offset={offset} = {data_hora_agenda}", "agenda")
-                elif data_hora_agenda:
-                    # Converte horário local do usuário para UTC para comparação correta no servidor
-                    dt_agenda = datetime.fromisoformat(data_hora_agenda.replace("Z", ""))
-                    if dt_agenda.tzinfo is None:
-                        offset = hora_local_dt.utcoffset()
-                        if offset:
-                            # Subtrai offset para converter local → UTC
-                            dt_agenda = dt_agenda - offset
-                    data_hora_agenda = dt_agenda.strftime("%Y-%m-%dT%H:%M:%S")
-                    log(f"Agenda UTC: {data_hora_agenda} (offset={hora_local_dt.utcoffset()})", "agenda")
-            except Exception as e:
-                log(f"Erro ajuste fuso agenda: {e}", "agenda")
+        # _parsear_tempo já retorna em UTC — só loga
+        if data_hora_agenda:
+            log(f"Agenda UTC (via _parsear_tempo): {data_hora_agenda}", "agenda")
 
         # Gera mensagem personalizada da Margo
         nome_usuario = perfil.get("nome", "você")
