@@ -2695,6 +2695,32 @@ INSTRUÇÕES OBRIGATÓRIAS:
             except:
                 log(f"Lembrete REJEITADO (data_hora inválido): {data_hora_agenda}", "agenda")
                 data_hora_agenda = ""
+        # Valida data_hora — rejeita templates literais e valores inválidos
+        data_hora_valido = False
+        if data_hora_agenda:
+            # Rejeita templates literais do LLM
+            if data_hora_agenda.upper() in ("ISO8601", "YYYY-MM-DDTHH:MM:SS", "YYYY-MM-DD", ""):
+                log(f"Lembrete data_hora é template: {data_hora_agenda} — tentando _parsear_tempo", "agenda")
+                data_hora_agenda = ""
+            else:
+                # Verifica se é ISO válido
+                try:
+                    datetime.fromisoformat(data_hora_agenda)
+                    data_hora_valido = True
+                except:
+                    log(f"Lembrete data_hora inválido: {data_hora_agenda} — tentando _parsear_tempo", "agenda")
+                    data_hora_agenda = ""
+
+        # Fallback: se data_hora inválido, tenta parsear da mensagem original
+        if not data_hora_valido:
+            tempo_fallback = _parsear_tempo(mensagem.lower().strip(), hora_local)
+            if tempo_fallback.get("data_hora_iso"):
+                data_hora_agenda = tempo_fallback["data_hora_iso"]
+                log(f"Agenda fallback _parsear_tempo: {data_hora_agenda}", "agenda")
+            elif tempo_fallback.get("minutos_relativos", 0) > 0:
+                data_hora_agenda = tempo_fallback["data_hora_iso"]  # _parsear_tempo já calcula UTC pra relativos
+                log(f"Agenda fallback _parsear_tempo (relativo): {data_hora_agenda}", "agenda")
+
         if data_hora_agenda:
             log(f"Salvando lembrete: titulo={titulo_agenda} | data_hora={data_hora_agenda} | user={user_id}", 'agenda')
             banco.salvar_lembrete(user_id, titulo_agenda, descricao_agenda, data_hora_agenda)
