@@ -1887,10 +1887,10 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
         return dt.strftime("%Y-%m-%dT%H:%M:%S")
 
     # ── RELATIVO: "daqui X minutos/horas" ──
-    m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*(?:minutos?|minutes?|min)', msg)
+    m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*(?:minutos?|minutes?|min)\b', msg)
     if m:
         mins = int(m.group(1))
-    m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*(?:horas?|hours?|h)', msg)
+    m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*(?:horas?|hours?|h)\b', msg)
     if m:
         mins = int(m.group(1)) * 60
     m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*h\s*(\d+)', msg)
@@ -1928,7 +1928,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
         return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
 
     # "Xh" / "Xh30" solto (ex: "me lembra 18h", "liga o ar 22h30")
-    m = _re_t.search(r'(\d{1,2})h(\d{2})?', msg)
+    m = _re_t.search(r'\b(\d{1,2})h(\d{2})?\b', msg)
     if m:
         h = int(m.group(1))
         mi = int(m.group(2)) if m.group(2) else 0
@@ -1939,7 +1939,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
             return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
 
     # "X:XX" formato relógio solto
-    m = _re_t.search(r'(\d{1,2}):(\d{2})', msg)
+    m = _re_t.search(r'\b(\d{1,2}):(\d{2})\b', msg)
     if m:
         h = int(m.group(1))
         mi = int(m.group(2))
