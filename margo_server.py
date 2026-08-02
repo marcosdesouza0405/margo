@@ -3746,38 +3746,98 @@ async def boas_vindas(request: Request):
             if nome_assistente == "Margo":
                 saudacao = f"Hi{', ' + nome if nome else ''}! I'm Margo, your personal AI assistant."
             else:
-                saudacao = f"Hi{', ' + nome if nome else ''}! I'm Margo, and I'll introduce you to {nome_assistente}, your personal AI assistant."
+                saudacao = f"Hi{', ' + nome if nome else ''}! I'm {nome_assistente}, your personal AI assistant powered by Margo."
             mensagem = f"""{saudacao} 🌟
 
-Here's what I can do for you:
-🗺️ Navigate — trace routes via Waze or Google Maps
-🎵 Music — play songs on Spotify or YouTube
-💬 Chat — answer questions and search the web
-📅 Reminders — set and manage your agenda
-📱 WhatsApp — open contacts and send messages
-✈️ Travel — search flights and hotels
-🔔 Wake word — say "Ok Migoo" to open the app hands-free (activate in settings)
+Here's everything I can help you with:
 
-⚙️ Tap the settings icon in the top right to customize your assistant's name, voice and personality.
+💬 *Chat & Search* — Ask me anything! I search the web, answer questions, translate languages and much more.
+
+🗺️ *Navigation* — Just say "take me to..." or "find a restaurant nearby" and I'll trace the route. You can even say "by bus" or "walking" for different transport modes!
+
+🎵 *Music* — "Play [song] on Spotify" and I'll open it for you. Works with YouTube and SoundCloud too.
+
+📅 *Reminders* — "Remind me to call the doctor at 3pm" or "remind me in 30 minutes to check the oven." I'll send you a notification when it's time!
+
+🏠 *Smart Home* — Control your SmartThings devices: "turn on the living room light", "turn off the AC at 10pm." Connect your SmartThings account in settings.
+
+📱 *WhatsApp* — "Send a message to Maria on WhatsApp" and I'll open the conversation for you.
+
+🌤️ *Weather* — "What's the weather like?" and I'll tell you the forecast for your area.
+
+✈️ *Travel* — Search for flights and hotels: "find flights to Tokyo" or "hotels near the beach."
+
+━━━━━━━━━━━━━━━━━━
+⚙️ *Getting Started — Settings*
+
+Tap the ⚙️ icon in the top right corner to personalize your experience:
+
+1️⃣ *About You* — Tell me your name so I can greet you properly.
+
+2️⃣ *Your Assistant* — Give me a custom name and describe my personality! Example: "fun, uses emojis, talks like a close friend, loves music."
+
+3️⃣ *Voice* — Choose between male and female voice. You can also connect your own Fish Audio or ElevenLabs key for premium voices.
+
+4️⃣ *Navigation* — Choose your preferred map app (Google Maps or Waze).
+
+5️⃣ *Spotify* — Connect your Spotify account to play music directly.
+
+6️⃣ *Smart Home* — Connect your Samsung SmartThings account to control lights, AC, TV and more by voice.
+
+━━━━━━━━━━━━━━━━━━
+💡 *Tips:*
+• You can type or use the microphone 🎤 to talk to me
+• I understand Portuguese, English, and many other languages
+• Try: "What can you do?" anytime for a quick recap
 
 How can I help you today?"""
         else:
             if nome_assistente == "Margo":
                 saudacao = f"Olá{', ' + nome if nome else ''}! Sou a Margo, sua assistente pessoal com IA."
             else:
-                saudacao = f"Olá{', ' + nome if nome else ''}! Sou a Margo, e vou te apresentar ao {nome_assistente}, seu assistente pessoal com IA."
+                saudacao = f"Olá{', ' + nome if nome else ''}! Sou {nome_assistente}, seu assistente pessoal com IA da Margo."
             mensagem = f"""{saudacao} 🌟
 
-Veja o que posso fazer por você:
-🗺️ Navegação — traça rotas pelo Waze ou Google Maps
-🎵 Música — toca músicas no Spotify ou YouTube
-💬 Conversa — responde perguntas e pesquisa na web
-📅 Lembretes — cria e gerencia sua agenda
-📱 WhatsApp — abre contatos e envia mensagens
-✈️ Viagens — busca voos e hotéis
-🔔 Wake word — fale "Ok Migoo" para abrir o app sem tocar na tela (ative nas configurações)
+Aqui está tudo que posso fazer por você:
 
-⚙️ Toque no ícone de configurações no canto superior direito para personalizar o nome, voz e personalidade do seu assistente.
+💬 *Conversa e Pesquisa* — Me pergunte qualquer coisa! Pesquiso na web, respondo dúvidas, traduzo idiomas e muito mais.
+
+🗺️ *Navegação* — Diga "me leva até..." ou "acha um restaurante perto" e eu traço a rota. Pode até pedir "de ônibus" ou "a pé" pra diferentes meios de transporte!
+
+🎵 *Música* — "Toca [música] no Spotify" e eu abro pra você. Funciona com YouTube e SoundCloud também.
+
+📅 *Lembretes* — "Me lembra de ligar pro dentista às 15h" ou "me lembra daqui a 30 minutos de olhar o forno." Eu te mando uma notificação quando chegar a hora!
+
+🏠 *Casa Inteligente* — Controle seus dispositivos SmartThings: "liga a luz da sala", "desliga o ar às 22h." Conecte sua conta SmartThings nas configurações.
+
+📱 *WhatsApp* — "Manda mensagem pra Maria no WhatsApp" e eu abro a conversa pra você.
+
+🌤️ *Clima* — "Como tá o tempo?" e eu te digo a previsão da sua região.
+
+✈️ *Viagens* — Busque voos e hotéis: "procura voos pra Tóquio" ou "hotéis perto da praia."
+
+━━━━━━━━━━━━━━━━━━
+⚙️ *Começando — Configurações*
+
+Toque no ícone ⚙️ no canto superior direito para personalizar sua experiência:
+
+1️⃣ *Sobre Você* — Me diga seu nome pra eu te cumprimentar direitinho.
+
+2️⃣ *Seu Assistente* — Me dê um nome personalizado e descreva minha personalidade! Exemplo: "divertida, usa emojis, fala como amiga próxima, adora música."
+
+3️⃣ *Voz* — Escolha entre voz masculina e feminina. Você também pode conectar sua própria chave Fish Audio ou ElevenLabs para vozes premium.
+
+4️⃣ *Navegação* — Escolha seu app de mapa preferido (Google Maps ou Waze).
+
+5️⃣ *Spotify* — Conecte sua conta Spotify para tocar músicas direto pelo app.
+
+6️⃣ *Casa Inteligente* — Conecte sua conta Samsung SmartThings para controlar luzes, ar, TV e mais por voz.
+
+━━━━━━━━━━━━━━━━━━
+💡 *Dicas:*
+• Você pode digitar ou usar o microfone 🎤 pra falar comigo
+• Eu entendo português, inglês e muitos outros idiomas
+• Experimente: "O que você pode fazer?" a qualquer momento
 
 Como posso te ajudar hoje?"""
         return JSONResponse({"mensagem": mensagem})
