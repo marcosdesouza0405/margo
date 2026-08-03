@@ -2054,6 +2054,11 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
         if dest.lower() in vagos or len(dest) < 3:
             return None  # LLM resolve com contexto da conversa
         modo = _detectar_modo_transporte(msg)
+        # Remove texto de transporte do destino
+        import re as _re_nav
+        dest = _re_nav.sub(r',?\s*(mas\s+)?(eu\s+)?(preciso|quero|vou|gostaria|prefiro)\s+(ir\s+)?(de\s+)?(trem|ônibus|onibus|metrô|metro|bus|bicicleta|bike|a pé|a pe|andando|carro|taxi|uber).*', '', dest, flags=_re_nav.IGNORECASE).strip()
+        dest = _re_nav.sub(r'\s+(de\s+)?(trem|ônibus|onibus|metrô|metro|bus|bicicleta|bike|a pé|a pe|andando|carro|taxi|uber)\s*$', '', dest, flags=_re_nav.IGNORECASE).strip()
+        dest = dest.rstrip(' ,.')
         result = {"ferramenta": "maps_navigate", "destino": dest}
         if modo:
             result["modo"] = modo
@@ -3515,8 +3520,15 @@ async def agenda_pendentes(user_id: str):
         log(f"Agenda pendentes erro: {e}", "agenda")
         return JSONResponse({"pendentes": []})
 
+_scheduler_rodando = False
+
 def verificar_agenda():
     """Scheduler: executa ações smart home agendadas + envia push de lembretes a cada 60s."""
+    global _scheduler_rodando
+    if _scheduler_rodando:
+        log("Scheduler já rodando — ignorando nova thread", "scheduler")
+        return
+    _scheduler_rodando = True
     import time
     while True:
         try:
