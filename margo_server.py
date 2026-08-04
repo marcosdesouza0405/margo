@@ -186,6 +186,7 @@ def kokoro_tts(texto: str, idioma: str = "pt-br", genero: str = "F") -> bytes:
         # Normaliza ANTES de tudo: en/english/en-US -> en-us; pt/portuguese/pt-BR -> pt-br
         _idi = (idioma or "").lower()
         lang = {"en": "en-us", "english": "en-us", "en-us": "en-us",
+                "ja": "ja-jp", "japanese": "ja-jp", "ja-jp": "ja-jp",
                 "pt": "pt-br", "portuguese": "pt-br", "pt-br": "pt-br"}.get(_idi, "pt-br")
         gen = genero.upper() if genero else "F"
         voz = VOZES_KOKORO.get(lang, VOZES_KOKORO["pt-br"]).get(gen, "pf_dora")
