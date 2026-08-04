@@ -3551,7 +3551,7 @@ def verificar_agenda():
                     log(f"Erro executando smart agendado {item.get('id')}: {e}", "smart")
 
             # ── LEMBRETES NORMAIS — push notification ──
-            log(f"Scheduler tick: {datetime.now().strftime('%H:%M:%S')} UTC", "scheduler")
+            pass  # tick silencioso
             try:
                 conn = banco._get_conn()
                 cur = conn.cursor()
