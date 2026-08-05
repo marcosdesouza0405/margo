@@ -171,7 +171,7 @@ if KOKORO_ENABLED:
 VOZES_KOKORO = {
     "pt-br": {"F": "pf_dora", "M": "pm_alex"},
     "en-us": {"F": "af_heart", "M": "am_michael"},
-    "ja": {"F": "jf_alpha", "M": "jm_alpha"},
+    "ja": {"F": "jf_alpha", "M": "jm_kumo"},
 }
 
 def kokoro_tts(texto: str, idioma: str = "pt-br", genero: str = "F") -> bytes:
