@@ -171,7 +171,7 @@ if KOKORO_ENABLED:
 VOZES_KOKORO = {
     "pt-br": {"F": "pf_dora", "M": "pm_alex"},
     "en-us": {"F": "af_heart", "M": "am_michael"},
-    "ja-jp": {"F": "jf_alpha", "M": "jm_alpha"},
+    "ja": {"F": "jf_alpha", "M": "jm_alpha"},
 }
 
 def kokoro_tts(texto: str, idioma: str = "pt-br", genero: str = "F") -> bytes:
@@ -186,7 +186,7 @@ def kokoro_tts(texto: str, idioma: str = "pt-br", genero: str = "F") -> bytes:
         # Normaliza ANTES de tudo: en/english/en-US -> en-us; pt/portuguese/pt-BR -> pt-br
         _idi = (idioma or "").lower()
         lang = {"en": "en-us", "english": "en-us", "en-us": "en-us",
-                "ja": "ja-jp", "japanese": "ja-jp", "ja-jp": "ja-jp",
+                "ja": "ja", "japanese": "ja", "ja-jp": "ja",
                 "pt": "pt-br", "portuguese": "pt-br", "pt-br": "pt-br"}.get(_idi, "pt-br")
         gen = genero.upper() if genero else "F"
         voz = VOZES_KOKORO.get(lang, VOZES_KOKORO["pt-br"]).get(gen, "pf_dora")
