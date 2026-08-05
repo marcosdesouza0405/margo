@@ -3735,11 +3735,17 @@ async def kokoro_tts_endpoint(request: Request):
         if not texto:
             return JSONResponse({"erro": "texto obrigatório"}, status_code=400)
 
-        # Edge TTS para pt-BR (Francisca F, Antonio M) — gratuito e neural
-        if idioma == "pt-br":
+        # Edge TTS — PT-BR e JA-JP (gratuito e neural)
+        _edge_voices = {
+            "pt-br": {"F": "pt-BR-FranciscaNeural", "M": "pt-BR-AntonioNeural"},
+            "ja-jp": {"F": "ja-JP-NanamiNeural", "M": "ja-JP-KeitaNeural"},
+            "ja":    {"F": "ja-JP-NanamiNeural", "M": "ja-JP-KeitaNeural"},
+        }
+        _edge_map = _edge_voices.get(idioma)
+        if _edge_map:
             try:
                 import edge_tts, asyncio, io
-                voz = "pt-BR-FranciscaNeural" if genero == "F" else "pt-BR-AntonioNeural"
+                voz = _edge_map.get(genero, _edge_map["F"])
                 comm = edge_tts.Communicate(texto, voz)
                 audio_data = b""
                 async for chunk in comm.stream():
