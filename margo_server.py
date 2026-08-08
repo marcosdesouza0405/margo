@@ -4423,6 +4423,25 @@ async def redefinir_senha(request: Request):
     except Exception as e:
         log(f"Erro /redefinir_senha: {e}", "auth")
         return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.post("/admin/plano")
+async def admin_atualizar_plano(request: Request):
+    """Admin: atualiza plano de um usuário"""
+    try:
+        data = await request.json()
+        admin_key = data.get("key", "")
+        if admin_key != "orbiby2026admin":
+            return JSONResponse({"erro": "Não autorizado"}, status_code=401)
+        user_id = data.get("user_id", "")
+        plano = data.get("plano", "")
+        if not user_id or not plano:
+            return JSONResponse({"erro": "user_id e plano obrigatórios"}, status_code=400)
+        banco.atualizar_plano(user_id, plano)
+        log(f"Admin: plano de {user_id} → {plano}", "admin")
+        return JSONResponse({"ok": True, "msg": f"Plano atualizado para {plano}"})
+    except Exception as e:
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
 @app.get("/uso/{user_id}")
 def uso(user_id: str):
     """Retorna uso diário do usuário — para o frontend mostrar msgs restantes"""
