@@ -3795,7 +3795,7 @@ async def boas_vindas(request: Request):
             nome = perfil.get("nome", "")
             nome_assistente = config_u.get("nome_assistente", "Margo")
 
-        idioma = config_u.get("idioma", "pt-BR") if usuario else "pt-BR"
+        idioma = data.get("idioma", "") or (config_u.get("idioma", "") if usuario else "") or "pt-BR"
 
         if idioma == "en-US":
             if nome_assistente == "Margo":
