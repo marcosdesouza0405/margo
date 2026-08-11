@@ -4526,22 +4526,26 @@ async def verificar_compra(request: Request):
         api = _get_play_api()
 
         if is_subscription:
-            result = api.purchases().subscriptions().get(
+            result = api.purchases().subscriptionsv2().get(
                 packageName=BILLING_PACKAGE,
-                subscriptionId=product_id,
                 token=purchase_token
             ).execute()
 
-            # paymentState: 0=pendente, 1=pago, 2=trial
-            payment_state = result.get("paymentState")
-            if payment_state not in [1, 2]:
-                log(f"[BILLING] Pagamento não confirmado: paymentState={payment_state}", "billing")
-                return JSONResponse({"ok": False, "error": "Pagamento não confirmado"}, status_code=400)
+            # subscriptionState: ACTIVE, CANCELED, EXPIRED, etc
+            state = result.get("subscriptionState", "")
+            log(f"[BILLING] Sub state: {state}", "billing")
+            if state not in ["SUBSCRIPTION_STATE_ACTIVE", "SUBSCRIPTION_STATE_IN_GRACE_PERIOD"]:
+                log(f"[BILLING] Sub não ativa: {state}", "billing")
+                return JSONResponse({"ok": False, "error": f"Assinatura não ativa: {state}"}, status_code=400)
+
+            # Pegar product_id dos lineItems
+            line_items = result.get("lineItems", [])
+            actual_product = line_items[0].get("productId", product_id) if line_items else product_id
 
             # Mapear product_id → plano
-            if product_id == "pro_monthly":
+            if actual_product == "pro_monthly":
                 plano = "pro"
-            elif product_id == "pro_plus_monthly":
+            elif actual_product == "pro_plus_monthly":
                 plano = "pro_plus"
             else:
                 plano = "pro"
