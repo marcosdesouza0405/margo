@@ -2458,7 +2458,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     if idioma_falado and idioma_falado.lower() not in ("portuguese", "pt", "pt-br"):
         # STT detectou idioma específico — força esse idioma
         system += f"\n\n=== MANDATORY LANGUAGE RULE ===\nThe user spoke in {idioma_falado}. You MUST respond ENTIRELY in {idioma_falado}. Do NOT translate their message. Do NOT respond in Portuguese. Reply naturally in {idioma_falado} as if it were your native language."
-        # [Respond in X] removido — MANDATORY LANGUAGE RULE no system prompt já cobre
+        mensagem = f"{mensagem}\n\n[Respond in {idioma_falado}]"
     else:
         # Sem STT — manda regra genérica forte pra detectar e espelhar o idioma
         system += "\n\n=== MANDATORY LANGUAGE RULE ===\nDetect the language of the user\'s CURRENT message. You MUST respond ENTIRELY in that SAME language. If the user writes in English, respond in English. If Japanese, respond in Japanese. If Spanish, respond in Spanish. NEVER default to Portuguese unless the user wrote in Portuguese. Match the user\'s language exactly."
