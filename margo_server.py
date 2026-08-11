@@ -2661,7 +2661,13 @@ INSTRUÇÕES OBRIGATÓRIAS:
         resposta_limpa = re.sub(r'\{[^{}]*"ferramenta"[^{}]*\}', '', resposta_limpa).strip()
     # Fallback garantido: nunca envia resposta vazia
     if not resposta_limpa or len(resposta_limpa.strip()) < 2:
-        resposta_limpa = "Desculpe, não entendi bem. Pode reformular?"
+        # Fallback traduzido pelo idioma do app
+        if idioma_falado and 'japanese' in idioma_falado.lower():
+            resposta_limpa = 'すみません、よく理解できませんでした。もう一度お願いできますか？'
+        elif idioma_falado and idioma_falado.lower() not in ('portuguese', 'pt', 'pt-br', ''):
+            resposta_limpa = "Sorry, I didn't quite understand. Could you try again?"
+        else:
+            resposta_limpa = "Desculpe, não entendi bem. Pode reformular?"
 
     # ── AGENDA ────────────────────────────────────────────────────────────────
     if ferramenta and ferramenta.get("ferramenta") == "agenda_add":
