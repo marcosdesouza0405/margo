@@ -4551,6 +4551,16 @@ async def verificar_compra(request: Request):
                 plano = "pro"
 
             banco.atualizar_plano(user_id, plano)
+            # Salvar purchase_token pra upgrade futuro
+            try:
+                conn2 = banco._get_conn()
+                cur2 = conn2.cursor()
+                ph2 = "%s" if banco._pg else "?"
+                cur2.execute(f"UPDATE usuarios SET billing_provider='google_play', purchase_token={ph2}, billing_product_id={ph2} WHERE user_id={ph2}", (purchase_token, product_id, user_id))
+                conn2.commit()
+                if banco._pg: conn2.close()
+            except Exception as e2:
+                log(f"[BILLING] Erro salvando token: {e2}", "billing")
             log(f"[BILLING] Plano ativado: {user_id} → {plano}", "billing")
             return JSONResponse({"ok": True, "message": f"Plano {plano} ativado!"})
 
@@ -4601,6 +4611,23 @@ async def verificar_compra(request: Request):
         log(f"[BILLING] Erro: {e}", "billing")
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 # ── Fim Google Play Billing endpoint ──────────────────────────────────────────
+
+
+@app.get("/billing/token/{user_id}")
+def billing_token(user_id: str):
+    """Retorna purchase_token atual do usuário pra upgrade de plano."""
+    try:
+        conn = banco._get_conn()
+        cur = conn.cursor()
+        ph = "%s" if banco._pg else "?"
+        cur.execute(f"SELECT purchase_token, billing_product_id, plano FROM usuarios WHERE user_id={ph}", (user_id,))
+        row = cur.fetchone()
+        if banco._pg: conn.close()
+        if row and row[0]:
+            return JSONResponse({"ok": True, "purchase_token": row[0], "product_id": row[1], "plano": row[2]})
+        return JSONResponse({"ok": True, "purchase_token": None, "plano": row[2] if row else "free"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 if __name__ == "__main__":
     print("=" * 55)
