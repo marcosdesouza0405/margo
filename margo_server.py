@@ -2621,8 +2621,8 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
                 if trad and len(trad) < 80:
                     log(f"Query traduzida: '{q_limpo}' → '{trad}'", "busca")
                     q_limpo = trad
-            except:
-                pass
+            except Exception as trad_err:
+                log(f"Erro traduzindo query: {trad_err}", "busca")
         query_busca = f"{q_limpo} {cidade}" if cidade else q_limpo
         
         log(f"Brave Maps Search: query='{query_busca}' lat={latitude} lng={longitude} cidade={cidade}", "busca")
