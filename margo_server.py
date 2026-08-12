@@ -4629,6 +4629,69 @@ def billing_token(user_id: str):
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
+
+@app.post("/billing/verificar_status")
+async def billing_verificar_status(request: Request):
+    """Verifica se assinatura do usuário ainda está ativa no Google Play."""
+    try:
+        body = await request.json()
+        user_id = body.get("user_id", "")
+        if not user_id:
+            return JSONResponse({"ok": False, "error": "user_id obrigatório"}, status_code=400)
+
+        # Buscar token salvo
+        conn = banco._get_conn()
+        cur = conn.cursor()
+        ph = "%s" if banco._pg else "?"
+        cur.execute(f"SELECT purchase_token, billing_product_id, plano, billing_provider FROM usuarios WHERE user_id={ph}", (user_id,))
+        row = cur.fetchone()
+        if banco._pg: conn.close()
+
+        if not row:
+            return JSONResponse({"ok": True, "plano": "free", "changed": False})
+
+        purchase_token = row[0]
+        product_id = row[1]
+        plano_atual = row[2]
+        provider = row[3]
+
+        # Se não tem token ou não é google_play, nada a verificar
+        if not purchase_token or provider != "google_play":
+            return JSONResponse({"ok": True, "plano": plano_atual, "changed": False})
+
+        # Se é plano free, nada a verificar
+        if plano_atual in ["free", "admin"]:
+            return JSONResponse({"ok": True, "plano": plano_atual, "changed": False})
+
+        # Verificar com Google
+        api = _get_play_api()
+        try:
+            result = api.purchases().subscriptionsv2().get(
+                packageName=BILLING_PACKAGE,
+                token=purchase_token
+            ).execute()
+
+            state = result.get("subscriptionState", "")
+            log(f"[BILLING CHECK] {user_id}: state={state} plano={plano_atual}", "billing")
+
+            # Estados ativos
+            if state in ["SUBSCRIPTION_STATE_ACTIVE", "SUBSCRIPTION_STATE_IN_GRACE_PERIOD"]:
+                return JSONResponse({"ok": True, "plano": plano_atual, "changed": False})
+
+            # Cancelado/expirado — rebaixar pra free
+            banco.atualizar_plano(user_id, "free")
+            log(f"[BILLING CHECK] Plano rebaixado: {user_id} → free (state={state})", "billing")
+            return JSONResponse({"ok": True, "plano": "free", "changed": True, "reason": state})
+
+        except Exception as google_err:
+            log(f"[BILLING CHECK] Erro Google API: {google_err}", "billing")
+            # Em caso de erro na API, mantém o plano atual (não punir o usuário)
+            return JSONResponse({"ok": True, "plano": plano_atual, "changed": False})
+
+    except Exception as e:
+        log(f"[BILLING CHECK] Erro: {e}", "billing")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
 if __name__ == "__main__":
     print("=" * 55)
     print("  MARGO SERVER v1.1 — by Orbiby")
