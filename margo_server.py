@@ -4462,6 +4462,17 @@ async def admin_atualizar_plano(request: Request):
         if not user_id or not plano:
             return JSONResponse({"erro": "user_id e plano obrigatórios"}, status_code=400)
         banco.atualizar_plano(user_id, plano)
+        # Se voltou pra free, limpar tokens de billing pra não restaurar
+        if plano == 'free':
+            try:
+                conn_a = banco._get_conn()
+                cur_a = conn_a.cursor()
+                ph_a = "%s" if banco._pg else "?"
+                cur_a.execute(f"UPDATE usuarios SET purchase_token=NULL, billing_product_id=NULL, billing_provider='free' WHERE user_id={ph_a}", (user_id,))
+                conn_a.commit()
+                if banco._pg: conn_a.close()
+            except Exception as ea:
+                log(f"Admin: erro limpando billing: {ea}", "admin")
         log(f"Admin: plano de {user_id} → {plano}", "admin")
         return JSONResponse({"ok": True, "msg": f"Plano atualizado para {plano}"})
     except Exception as e:
