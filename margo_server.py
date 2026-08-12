@@ -2040,7 +2040,7 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
                 break
         # Limpa ruído conversacional
         import re as _resp
-        query = _resp.sub(r'\b(margo|margô|por favor|por gentileza|pra mim|para mim|no spotify|quero|queria|gostaria|pode|poderia|um|uma|uns|umas|me|eu|o|a|os|as|de|do|da|dos|das|no|na)\b', '', query, flags=_resp.IGNORECASE)
+        query = _resp.sub(r'\b(margo|margô|por favor|por gentileza|pra mim|para mim|no spotify|quero|queria|gostaria|pode|poderia)\b', '', query, flags=_resp.IGNORECASE)
         query = _resp.sub(r'\s+', ' ', query).strip().rstrip('.!?, ')
         if query:
             return {"ferramenta": "spotify_play", "query": query}
