@@ -2629,7 +2629,7 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         if query_en and pais and not any(p.lower() in pais.lower() for p in paises_pt):
             q_limpo = query_en
             log(f"Usando query_en: '{q_limpo}'", "busca")
-        query_busca = f"{q_limpo} near {cidade}" if cidade else q_limpo
+        query_busca = q_limpo
         
         log(f"Brave Maps Search: query='{query_busca}' lat={latitude} lng={longitude} cidade={cidade}", "busca")
         resultados_maps = buscar_brave(query_busca, max_results=5)
