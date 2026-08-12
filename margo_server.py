@@ -2038,7 +2038,10 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
             if k in query:
                 query = query.split(k, 1)[-1].strip()
                 break
-        query = query.rstrip('.!? ')
+        # Limpa ruído conversacional
+        import re as _resp
+        query = _resp.sub(r'\b(margo|margô|por favor|por gentileza|pra mim|para mim|no spotify|quero|queria|gostaria|pode|poderia|um|uma|uns|umas|me|eu|o|a|os|as|de|do|da|dos|das|no|na)\b', '', query, flags=_resp.IGNORECASE)
+        query = _resp.sub(r'\s+', ' ', query).strip().rstrip('.!?, ')
         if query:
             return {"ferramenta": "spotify_play", "query": query}
     if any(m in msg for m in music_ctx) and any(k in msg for k in spotify_kw):
@@ -2052,7 +2055,11 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
         for k in ["no youtube", "youtube", "abre um vídeo de", "abre um video de",
                   "coloca no youtube", "busca no youtube"]:
             query = query.replace(k, "")
-        return {"ferramenta": "youtube_search", "query": query.strip().rstrip('.!? ') or msg}
+        # Limpa ruído conversacional
+        import re as _reyt
+        query = _reyt.sub(r'\b(margo|margô|por favor|por gentileza|pra mim|para mim|acha|ache|achei|busca|busque|procura|procure|encontra|encontre|mostra|mostre|coloca|coloque|abre|abra|quero|queria|gostaria|pode|poderia|um|uma|uns|umas|me|mim|eu|o|a|os|as|de|do|da|dos|das|no|na|nos|nas)\b', '', query, flags=_reyt.IGNORECASE)
+        query = _reyt.sub(r'\s+', ' ', query).strip().rstrip('.!?, ')
+        return {"ferramenta": "youtube_search", "query": query or msg}
 
     # ── NAVEGAÇÃO ──
     nav_kw = ["me leva ", "leva pro ", "leva pra ", "leva para ", "navega ", "rota para ",
