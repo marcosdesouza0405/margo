@@ -1056,6 +1056,10 @@ def spotify_play(user_id: str, query: str) -> bool:
                 phones = [d for d in devices if d.get("type") == "Smartphone"]
                 if phones:
                     device_id = phones[0]["id"]
+                else:
+                    # Sem smartphone na lista — deixa o app abrir via Intent
+                    log(f"Spotify: nenhum smartphone encontrado, fallback pro Intent", "spotify")
+                    return False
                     break
                 if tentativa < 4:
                     _time.sleep(2)
