@@ -2036,20 +2036,9 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
                  "pop", "jazz", "funk", "pagode", "mpb", "rap", "hip hop", "reggae",
                  "eletrônica", "eletronica", "clássica", "classica", "gospel", "axé",
                  "bossa nova", "spotify", "no spotify"]
-    if any(k in msg for k in spotify_kw):
-        query = msg
-        for k in spotify_kw:
-            if k in query:
-                query = query.split(k, 1)[-1].strip()
-                break
-        # Limpa ruído conversacional
-        import re as _resp
-        query = _resp.sub(r'\b(margo|margô|por favor|por gentileza|pra mim|para mim|no spotify|quero|queria|gostaria|pode|poderia)\b', '', query, flags=_resp.IGNORECASE)
-        query = _resp.sub(r'\s+', ' ', query).strip().rstrip('.!?, ')
-        if query:
-            return {"ferramenta": "spotify_play", "query": query}
-    if any(m in msg for m in music_ctx) and any(k in msg for k in spotify_kw):
-        return {"ferramenta": "spotify_play", "query": msg}
+    # Spotify: deixa DeepSeek interpretar (query limpa)
+    if any(k in msg for k in spotify_kw) or (any(m in msg for m in music_ctx) and any(k in msg for k in spotify_kw)):
+        return None  # DeepSeek cuida
 
     # ── YOUTUBE ──
     yt_kw = ["youtube", "no youtube", "abre um vídeo", "abre um video",
