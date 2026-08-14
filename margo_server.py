@@ -1086,6 +1086,44 @@ def spotify_play(user_id: str, query: str) -> bool:
         except Exception as e:
             log(f"Spotify devices erro: {e}", "spotify")
 
+        # Se não achou smartphone, inicia retry em background
+        if not phones:
+            log(f"Spotify: sem smartphone, iniciando retry em background", "spotify")
+            import threading
+            def _spotify_retry(token, uri, album_uri, track_position):
+                for i in range(5):
+                    time.sleep(3)
+                    try:
+                        req_r = urllib.request.Request(
+                            "https://api.spotify.com/v1/me/player/devices",
+                            headers={"Authorization": f"Bearer {token}"}
+                        )
+                        devs = json.loads(urllib.request.urlopen(req_r, timeout=10).read()).get("devices", [])
+                        ph = [d for d in devs if d.get("type") == "Smartphone"]
+                        if ph:
+                            did = ph[0]["id"]
+                            log(f"Spotify retry {i+1}: achou smartphone {did}", "spotify")
+                            play_url = f"https://api.spotify.com/v1/me/player/play?device_id={did}"
+                            if uri.startswith("spotify:track") and album_uri:
+                                payload = {"context_uri": album_uri, "offset": {"position": track_position}}
+                            elif uri.startswith("spotify:track"):
+                                payload = {"uris": [uri]}
+                            else:
+                                payload = {"context_uri": uri}
+                            req_p = urllib.request.Request(
+                                play_url, data=json.dumps(payload).encode(),
+                                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                            )
+                            req_p.get_method = lambda: 'PUT'
+                            urllib.request.urlopen(req_p, timeout=10)
+                            log(f"Spotify retry: tocando no smartphone!", "spotify")
+                            return
+                    except Exception as e:
+                        log(f"Spotify retry {i+1} erro: {e}", "spotify")
+                log("Spotify retry: desistiu após 5 tentativas", "spotify")
+            threading.Thread(target=_spotify_retry, args=(token, uri, album_uri, track_position), daemon=True).start()
+            return True  # Retorna True pro app não abrir Intent
+
         # Toca no dispositivo encontrado (ou ativo se nenhum device_id)
         play_url = "https://api.spotify.com/v1/me/player/play"
         if device_id:
