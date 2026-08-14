@@ -1066,6 +1066,25 @@ def spotify_play(user_id: str, query: str) -> bool:
                 elif devices:
                     device_id = devices[0]["id"]
             log(f"Spotify devices: {[(d.get('name'), d.get('type'), d.get('is_active')) for d in devices]} — usando {device_id}", "spotify")
+            # Se não achou smartphone, espera e tenta de novo (Spotify precisa registrar)
+            if not phones and device_id:
+                import time as _time_sp
+                for tentativa in range(3):
+                    _time_sp.sleep(2)
+                    try:
+                        req_retry = urllib.request.Request(
+                            "https://api.spotify.com/v1/me/player/devices",
+                            headers={"Authorization": f"Bearer {token}"}
+                        )
+                        resp_retry = urllib.request.urlopen(req_retry, timeout=10)
+                        devices = json.loads(resp_retry.read()).get("devices", [])
+                        phones = [d for d in devices if d.get("type") == "Smartphone"]
+                        if phones:
+                            device_id = phones[0]["id"]
+                            log(f"Spotify retry {tentativa+1}: achou smartphone {device_id}", "spotify")
+                            break
+                    except:
+                        pass
         except Exception as e:
             log(f"Spotify devices erro: {e}", "spotify")
 
