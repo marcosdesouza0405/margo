@@ -1060,11 +1060,9 @@ def spotify_play(user_id: str, query: str) -> bool:
                 if tentativa < 4:
                     _time.sleep(2)
             if not device_id:
-                ativos = [d for d in devices if d.get("is_active")]
-                if ativos:
-                    device_id = ativos[0]["id"]
-                elif devices:
-                    device_id = devices[0]["id"]
+                # SÓ toca em smartphone — nunca em speakers/Alexa
+                log(f"Spotify: sem smartphone, retornando False pro Intent", "spotify")
+                return False
             log(f"Spotify devices: {[(d.get('name'), d.get('type'), d.get('is_active')) for d in devices]} — usando {device_id}", "spotify")
             # Se não achou smartphone, espera e tenta de novo (Spotify precisa registrar)
             if not phones and device_id:
