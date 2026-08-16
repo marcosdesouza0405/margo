@@ -4275,20 +4275,7 @@ async def mensagem(request: Request):
             })
 
         resultado = processar_mensagem(user_id, mensagem_, latitude, longitude, hora_local=hora_local, imagem_base64=imagem_base64, idioma_falado=idioma_falado)
-        # Só conta interação se a resposta foi real (não fallback/erro)
-        resposta_txt = (resultado.get("resposta", "") or "").strip().lower()
-        _fallbacks = [
-            "desculpe, não entendi", "sorry, i didn't quite understand",
-            "すみません、よく理解できませんでした",
-            "pode reformular", "could you try again", "もう一度お願い",
-            "não consegui entender", "sem resposta",
-        ]
-        eh_fallback = any(f in resposta_txt for f in _fallbacks)
-        eh_muito_curta = len(resposta_txt) < 5
-        if not eh_fallback and not eh_muito_curta:
-            banco.registrar_uso(user_id, usando_extras=uso.get("usando_extras", False))
-        else:
-            log(f"Interação NÃO contada (fallback/curta): user={user_id}", "uso")
+        banco.registrar_uso(user_id, usando_extras=uso.get("usando_extras", False))
         return JSONResponse(resultado)
     except Exception as e:
         log(f"Erro /mensagem: {e}")
