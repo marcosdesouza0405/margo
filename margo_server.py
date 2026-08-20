@@ -2258,6 +2258,77 @@ def _detectar_modo_transporte(msg: str) -> str:
     return ""
 
 
+def _limpar_titulo(texto: str) -> str:
+    """Remove toda a gordura de um título de agenda ou nome de dispositivo.
+    Cortesia, filler, auto-referência, contexto de comando, refs de tempo/data.
+    """
+    import re as _rl
+    t = texto
+
+    # ── Cortesia (PT/EN/JA) ──
+    t = _rl.sub(r'\b(por favor|por gentileza|pf|please|plz|pls)\b', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'(お願い(します|しますね)?|頼む(よ)?)', '', t)
+    # Cortesia no final — exige espaço ANTES (não come "dentista")
+    t = _rl.sub(r'(?<=\s)(t[aá]\??|ok\??|viu\??|hein\??|n[eé]\??|certo\??|beleza\??|valeu|obrigado|obrigada|thanks|thank you|ありがとう)\s*$', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'^(t[aá]\??|ok\??|viu\??|hein\??|certo\??|beleza\??|valeu|obrigado|obrigada|thanks|thank you)\s*[,.]?\s*', '', t, flags=_rl.IGNORECASE)
+
+    # ── Auto-referência ao assistente ──
+    t = _rl.sub(r'\b(margo|margô)\b[,.]?\s*', '', t, flags=_rl.IGNORECASE)
+
+    # ── Contexto de comando / filler que vaza pro título ──
+    # PT
+    t = _rl.sub(r'(n[aã]o (me )?(deixe?|deixa) (eu )?esquecer( de| que)?)', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'(n[aã]o (posso|pode|quero) esquecer( de| que)?)', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'(me (avisa|avise|lembre|lembra|notifica|notifique)( de| que)?)', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'(pode me (avisar|lembrar|notificar)( de| que)?)', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'(preciso (lembrar|me lembrar)( de| que)?)', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'(tenho que lembrar( de)?)', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'\b(quero|preciso|eu tenho|tenho)\b', '', t, flags=_rl.IGNORECASE)
+    # EN
+    t = _rl.sub(r"(don'?t (let me )?forget( to| that| about)?)", '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'(i need to remember( to)?)', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'(can you (remind|notify|alert) me( to| that| about)?)', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'\b(remind me( to)?)\b', '', t, flags=_rl.IGNORECASE)
+    # JA
+    t = _rl.sub(r'(忘れ(ない|させない)で(ください)?)', '', t)
+    t = _rl.sub(r'(リマインド(して)?)', '', t)
+    t = _rl.sub(r'(教えて(ください)?)', '', t)
+
+    # ── Referências de tempo/data ──
+    t = _rl.sub(r'\b(hoje|today|amanh[aã]|tomorrow|明日|今日)\b', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'\b(segunda(-feira)?|ter[cç]a(-feira)?|quarta(-feira)?|quinta(-feira)?|sexta(-feira)?|s[aá]bado|domingo)\b', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'(月曜日|月曜|火曜日|火曜|水曜日|水曜|木曜日|木曜|金曜日|金曜|土曜日|土曜|日曜日|日曜)', '', t)
+    t = _rl.sub(r'\b(pr[oó]xim[oa]|next)\b', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'(来週|今週)', '', t)
+    t = _rl.sub(r'\b(no )?dia\s+\d{1,2}\b', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'\bon the \d{1,2}(st|nd|rd|th)\b', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'\d{1,2}日', '', t)
+    t = _rl.sub(r'\b\d{1,2}[/\-]\d{1,2}([/\-]\d{2,4})?\b', '', t)
+    t = _rl.sub(r'(daqui\s+a?\s*|depois de\s+|after\s+|in\s+)\d+\s*(minutos?|minutes?|min|horas?|hours?|h)\b', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'(meia hora|half\s+(an?\s+)?hour)', '', t, flags=_rl.IGNORECASE)
+    # Hora — AM/PM primeiro (mais específico)
+    t = _rl.sub(r'([àa]s\s*|at\s+)?\d{1,2}(:\d{2})?\s*(am|pm)\b', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'([àa]s\s*|at\s+)?\d{1,2}[:\.\s]*h\s*\d{0,2}', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'([àa]s\s*|at\s+)\d{1,2}(:\d{2})?', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'\d{1,2}時(\d{1,2}分)?', '', t)
+
+    # ── Partículas JA soltas (の、に、で、は、を) ──
+    t = _rl.sub(r'^[のにではをがも\s]+', '', t)
+    t = _rl.sub(r'[のにではをがも\s]+$', '', t)
+
+    # ── Preposições PT/EN soltas ──
+    t = _rl.sub(r'^\s*(de|que|do|da|no|na|to|that|about)\s+', '', t, flags=_rl.IGNORECASE)
+    t = _rl.sub(r'\s+(de|que|do|da|no|na|to|that|about)\s*$', '', t, flags=_rl.IGNORECASE)
+
+    # ── Limpeza final ──
+    t = _rl.sub(r'\s+', ' ', t).strip()
+    t = t.strip(' ,.!?;:-')
+    # Capitaliza primeira letra
+    if t:
+        t = t[0].upper() + t[1:]
+    return t
+
 def _pre_detectar(msg: str, hora_local: str = "") -> dict:
     """Pré-detecção de intenção por keywords. Retorna dict ou None."""
     
@@ -2278,7 +2349,7 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
             if k in disp:
                 disp = disp.split(k, 1)[-1].strip()
                 break
-        disp = disp.rstrip('.!? ')
+        disp = _limpar_titulo(disp)
         # Se tem horário, é agendado
         import re as _re_sh
         tem_hora = bool(_re_sh.search(r'(\d{1,2}[:\.]?\d{2}|daqui|depois de|às |as |\d+\s*(min|hora|hour|h\b))', msg))
@@ -2460,7 +2531,7 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
         titulo = _re.sub(r'(daqui|depois de|às|as|amanhã|amanha|tomorrow|at)\s+\d.*', '', titulo).strip()
         titulo = _re.sub(r'\b\d{1,2}h\d{0,2}\b', '', titulo).strip()
         titulo = _re.sub(r'\b\d{1,2}:\d{2}\b', '', titulo).strip()
-        titulo = titulo.rstrip(' ,.')
+        titulo = _limpar_titulo(titulo)
         if not titulo:
             titulo = msg  # fallback: usa mensagem original
         return {"ferramenta": "agenda_add", "titulo": titulo, "descricao": "",
