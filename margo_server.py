@@ -4869,6 +4869,26 @@ def uso(user_id: str):
 def agenda(user_id: str):
     return {"lembretes": banco.buscar_lembretes(user_id)}
 
+
+@app.delete("/agenda/{user_id}/{lembrete_id}")
+async def deletar_lembrete(user_id: str, lembrete_id: int):
+    """Remove um lembrete da agenda."""
+    try:
+        conn = banco._get_conn()
+        c = conn.cursor()
+        ph = "%s" if banco._pg else "?"
+        c.execute(f"DELETE FROM agenda WHERE id={ph} AND user_id={ph}", (lembrete_id, user_id))
+        deletados = c.rowcount
+        conn.commit()
+        conn.close()
+        if deletados > 0:
+            log(f"Lembrete {lembrete_id} deletado user={user_id}", "agenda")
+            return {"ok": True, "msg": f"Lembrete {lembrete_id} removido"}
+        return {"ok": False, "msg": "Lembrete não encontrado"}
+    except Exception as e:
+        log(f"Erro deletar lembrete: {e}", "agenda")
+        return JSONResponse({"ok": False, "msg": str(e)}, status_code=500)
+
 @app.post("/reset_onboarding")
 async def reset_onboarding(request: Request):
     data    = await request.json()
