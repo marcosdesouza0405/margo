@@ -122,6 +122,7 @@ def enviar_push(token: str, titulo: str, corpo: str):
         from firebase_admin import messaging
         app = get_firebase_app()
         if not app:
+            log("Push FALHOU: Firebase app não inicializado (FIREBASE_CREDENTIALS vazio?)", "fcm")
             return False
         msg = messaging.Message(
             notification=messaging.Notification(title=titulo, body=corpo),
@@ -1897,6 +1898,17 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
     {"minutos_relativos": int, "data_hora_iso": str (em UTC) ou ""}
     Resolve TUDO no Python — nunca delega ao LLM.
     Retorna data_hora_iso SEMPRE em UTC pra o scheduler comparar com datetime.now() no servidor.
+    
+    Suporta:
+    - Relativo: "daqui 30 min", "in 2 hours", "meia hora"
+    - Amanhã: "amanhã às 14h", "tomorrow at 3pm"
+    - Dia específico: "dia 18 às 18h", "dia 25", "on the 18th at 6pm"
+    - Dia da semana PT: "sexta às 10h", "próxima segunda às 14h"
+    - Dia da semana EN: "next Monday at 3pm", "Friday at 10am"  
+    - Dia da semana JA: "月曜日の15時", "金曜日に10時"
+    - Data JA: "18日の18時", "25日に14時"
+    - AM/PM: "at 3pm", "at 10:30am"
+    - Absoluto hoje: "às 18h", "at 15:00", "18h30"
     """
     import re as _re_t
     from datetime import timezone as _tz
@@ -1926,6 +1938,58 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
             return dt_utc.strftime("%Y-%m-%dT%H:%M:%S")
         return dt.strftime("%Y-%m-%dT%H:%M:%S")
 
+    def _extrair_hora(texto):
+        """Extrai hora e minuto de um trecho de texto. Retorna (hora, minuto) ou None.
+        Suporta: 18h, 18h30, 18:30, at 3pm, às 15h, 3pm, 10am, 15時, 15時30分
+        """
+        # Japonês: 15時 / 15時30分
+        mj = _re_t.search(r'(\d{1,2})時\s*(\d{1,2})?分?', texto)
+        if mj:
+            h = int(mj.group(1))
+            mi = int(mj.group(2)) if mj.group(2) else 0
+            if 0 <= h <= 23:
+                return (h, mi)
+        # AM/PM: "3pm", "10:30am", "3 pm", "at 3pm"
+        ma = _re_t.search(r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b', texto, _re_t.IGNORECASE)
+        if ma:
+            h = int(ma.group(1))
+            mi = int(ma.group(2)) if ma.group(2) else 0
+            ampm = ma.group(3).lower()
+            if ampm == 'pm' and h != 12:
+                h += 12
+            elif ampm == 'am' and h == 12:
+                h = 0
+            if 0 <= h <= 23:
+                return (h, mi)
+        # "às Xh" / "as Xh" / "at X" / Xh / X:XX
+        mh = _re_t.search(r'(?:às\s*|as\s*|at\s*)?(\d{1,2})[:\.\s]*h\s*(\d{2})?', texto)
+        if mh:
+            h = int(mh.group(1))
+            mi = int(mh.group(2)) if mh.group(2) else 0
+            if 0 <= h <= 23:
+                return (h, mi)
+        mc = _re_t.search(r'(?:às\s*|as\s*|at\s+)(\d{1,2}):(\d{2})', texto)
+        if mc:
+            h = int(mc.group(1))
+            mi = int(mc.group(2))
+            if 0 <= h <= 23:
+                return (h, mi)
+        # "at X" sem h (EN): "at 3", "at 15"
+        mat = _re_t.search(r'\bat\s+(\d{1,2})\b', texto)
+        if mat:
+            h = int(mat.group(1))
+            if 0 <= h <= 23:
+                return (h, 0)
+        return None
+
+    def _proximo_weekday(base_dt, target_weekday):
+        """Retorna o próximo datetime com o weekday alvo (0=seg, 6=dom).
+        Se hoje é o mesmo weekday, retorna da próxima semana."""
+        dias = (target_weekday - base_dt.weekday()) % 7
+        if dias == 0:
+            dias = 7  # se é o mesmo dia, vai pra próxima semana
+        return base_dt + timedelta(days=dias)
+
     # ── RELATIVO: "daqui X minutos/horas" ──
     m = _re_t.search(r'(?:daqui\s*a?\s*|depois de\s+|after\s+|in\s+)(\d+)\s*(?:minutos?|minutes?|min)\b', msg)
     if m:
@@ -1941,21 +2005,196 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
         mins = 30
 
     if mins > 0:
-        # Calcula data_hora UTC diretamente
         dt_exato = hora_base_dt + timedelta(minutes=mins)
         data_hora_utc = _to_utc(dt_exato)
         return {"minutos_relativos": mins, "data_hora_iso": data_hora_utc}
 
     # ── ABSOLUTO: precisa de hora_local_str pra saber a data base ──
 
-    # "amanhã às Xh" / "amanhã às X:XX" / "tomorrow at X"
-    m = _re_t.search(r'(?:amanh[aã]|tomorrow)\s+(?:às\s*|as\s*|at\s*)?(\d{1,2})[:\.\s]*h?\s*(\d{2})?', msg)
+    # ── DIA DA SEMANA (PT/EN/JA) ──
+    dias_semana_pt = {
+        'segunda': 0, 'segunda-feira': 0, 'seg': 0,
+        'terça': 1, 'terca': 1, 'terça-feira': 1, 'terca-feira': 1, 'ter': 1,
+        'quarta': 2, 'quarta-feira': 2, 'qua': 2,
+        'quinta': 3, 'quinta-feira': 3, 'qui': 3,
+        'sexta': 4, 'sexta-feira': 4, 'sex': 4,
+        'sábado': 5, 'sabado': 5, 'sáb': 5, 'sab': 5,
+        'domingo': 6, 'dom': 6,
+    }
+    dias_semana_en = {
+        'monday': 0, 'mon': 0, 'tuesday': 1, 'tue': 1, 'tues': 1,
+        'wednesday': 2, 'wed': 2, 'thursday': 3, 'thu': 3, 'thur': 3, 'thurs': 3,
+        'friday': 4, 'fri': 4, 'saturday': 5, 'sat': 5, 'sunday': 6, 'sun': 6,
+    }
+    dias_semana_ja = {
+        '月曜日': 0, '月曜': 0, '火曜日': 1, '火曜': 1,
+        '水曜日': 2, '水曜': 2, '木曜日': 3, '木曜': 3,
+        '金曜日': 4, '金曜': 4, '土曜日': 5, '土曜': 5,
+        '日曜日': 6, '日曜': 6,
+    }
+
+    # Tenta casar dia da semana no texto
+    target_wd = None
+    # PT: "próxima segunda às 14h", "sexta às 10h", "na quarta às 9h"
+    for nome, wd in sorted(dias_semana_pt.items(), key=lambda x: -len(x[0])):
+        if _re_t.search(r'\b' + _re_t.escape(nome) + r'\b', msg):
+            target_wd = wd
+            break
+    # EN: "next monday at 3pm", "friday at 10am", "on wednesday at 2pm"
+    if target_wd is None:
+        for nome, wd in sorted(dias_semana_en.items(), key=lambda x: -len(x[0])):
+            if _re_t.search(r'\b' + _re_t.escape(nome) + r'\b', msg):
+                target_wd = wd
+                break
+    # JA: "月曜日の15時"
+    if target_wd is None:
+        for nome, wd in sorted(dias_semana_ja.items(), key=lambda x: -len(x[0])):
+            if nome in msg:
+                target_wd = wd
+                break
+
+    if target_wd is not None:
+        dt = _proximo_weekday(hora_base_dt, target_wd)
+        hora_info = _extrair_hora(msg)
+        if hora_info:
+            h, mi = hora_info
+        else:
+            h, mi = 9, 0  # default 9h se não especificou hora
+        dt = dt.replace(hour=h, minute=mi, second=0, microsecond=0)
+        return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
+
+    # ── DIA ESPECÍFICO DO MÊS ──
+    # PT: "dia 18 às 18h", "dia 25 às 14h30", "no dia 10"
+    m = _re_t.search(r'(?:no\s+)?dia\s+(\d{1,2})\b', msg)
     if m:
-        h = int(m.group(1))
-        mi = int(m.group(2)) if m.group(2) else 0
+        dia = int(m.group(1))
+        if 1 <= dia <= 31:
+            hora_info = _extrair_hora(msg)
+            if hora_info:
+                h, mi = hora_info
+            else:
+                h, mi = 9, 0
+            try:
+                dt = hora_base_dt.replace(day=dia, hour=h, minute=mi, second=0, microsecond=0)
+                if dt <= hora_base_dt:
+                    # Próximo mês
+                    if dt.month == 12:
+                        dt = dt.replace(year=dt.year + 1, month=1)
+                    else:
+                        dt = dt.replace(month=dt.month + 1)
+                return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
+            except ValueError:
+                pass  # dia inválido pro mês
+
+    # EN: "on the 18th at 6pm", "on the 25th", "the 10th at 3pm"
+    m = _re_t.search(r'(?:on\s+)?the\s+(\d{1,2})(?:st|nd|rd|th)\b', msg)
+    if m:
+        dia = int(m.group(1))
+        if 1 <= dia <= 31:
+            hora_info = _extrair_hora(msg)
+            if hora_info:
+                h, mi = hora_info
+            else:
+                h, mi = 9, 0
+            try:
+                dt = hora_base_dt.replace(day=dia, hour=h, minute=mi, second=0, microsecond=0)
+                if dt <= hora_base_dt:
+                    if dt.month == 12:
+                        dt = dt.replace(year=dt.year + 1, month=1)
+                    else:
+                        dt = dt.replace(month=dt.month + 1)
+                return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
+            except ValueError:
+                pass
+
+    # JA: "18日の18時", "25日に14時", "10日"
+    m = _re_t.search(r'(\d{1,2})日', msg)
+    if m:
+        dia = int(m.group(1))
+        if 1 <= dia <= 31:
+            hora_info = _extrair_hora(msg)
+            if hora_info:
+                h, mi = hora_info
+            else:
+                h, mi = 9, 0
+            try:
+                dt = hora_base_dt.replace(day=dia, hour=h, minute=mi, second=0, microsecond=0)
+                if dt <= hora_base_dt:
+                    if dt.month == 12:
+                        dt = dt.replace(year=dt.year + 1, month=1)
+                    else:
+                        dt = dt.replace(month=dt.month + 1)
+                return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
+            except ValueError:
+                pass
+
+    # ── DATA COMPLETA: "20/08", "08/20", "20-08-2026" ──
+    # DD/MM ou DD-MM
+    m = _re_t.search(r'\b(\d{1,2})[/\-](\d{1,2})(?:[/\-](\d{2,4}))?\b', msg)
+    if m:
+        d1, d2 = int(m.group(1)), int(m.group(2))
+        ano = int(m.group(3)) if m.group(3) else hora_base_dt.year
+        if ano < 100:
+            ano += 2000
+        # Assume DD/MM (formato BR/JP)
+        dia_c, mes_c = d1, d2
+        if mes_c > 12:  # fallback MM/DD
+            dia_c, mes_c = d2, d1
+        if 1 <= dia_c <= 31 and 1 <= mes_c <= 12:
+            hora_info = _extrair_hora(msg)
+            if hora_info:
+                h, mi = hora_info
+            else:
+                h, mi = 9, 0
+            try:
+                dt = hora_base_dt.replace(year=ano, month=mes_c, day=dia_c,
+                                          hour=h, minute=mi, second=0, microsecond=0)
+                if dt <= hora_base_dt:
+                    dt = dt.replace(year=dt.year + 1)
+                return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
+            except ValueError:
+                pass
+
+    # "amanhã às Xh" / "amanhã às X:XX" / "tomorrow at X"
+    m = _re_t.search(r'(?:amanh[aã]|tomorrow)', msg)
+    if m:
+        hora_info = _extrair_hora(msg)
+        if hora_info:
+            h, mi = hora_info
+        else:
+            h, mi = 9, 0
         dt = hora_base_dt + timedelta(days=1)
         dt = dt.replace(hour=h, minute=mi, second=0, microsecond=0)
         return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
+
+    # "hoje às Xh" / "today at X"
+    m = _re_t.search(r'(?:hoje|today)', msg)
+    if m:
+        hora_info = _extrair_hora(msg)
+        if hora_info:
+            h, mi = hora_info
+            dt = hora_base_dt.replace(hour=h, minute=mi, second=0, microsecond=0)
+            if dt <= hora_base_dt:
+                dt += timedelta(days=1)
+            return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
+
+    # ── HORA SOLTA (sem contexto de data) — assume hoje/amanhã ──
+
+    # AM/PM solto: "3pm", "10:30am" (sem "at")
+    m = _re_t.search(r'\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b', msg, _re_t.IGNORECASE)
+    if m:
+        h = int(m.group(1))
+        mi = int(m.group(2)) if m.group(2) else 0
+        ampm = m.group(3).lower()
+        if ampm == 'pm' and h != 12:
+            h += 12
+        elif ampm == 'am' and h == 12:
+            h = 0
+        if 0 <= h <= 23:
+            dt = hora_base_dt.replace(hour=h, minute=mi, second=0, microsecond=0)
+            if dt <= hora_base_dt:
+                dt += timedelta(days=1)
+            return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
 
     # "às Xh" / "às X:XX" / "at X" (hoje)
     m = _re_t.search(r'(?:às|as|at)\s*(\d{1,2})[:\.\s]*h?\s*(\d{2})?\s*(?:h(?:oras?)?)?', msg)
@@ -1966,6 +2205,17 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
         if dt <= hora_base_dt:
             dt += timedelta(days=1)
         return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
+
+    # 日本語: "15時", "15時30分" solto
+    m = _re_t.search(r'(\d{1,2})時\s*(\d{1,2})?分?', msg)
+    if m:
+        h = int(m.group(1))
+        mi = int(m.group(2)) if m.group(2) else 0
+        if 0 <= h <= 23:
+            dt = hora_base_dt.replace(hour=h, minute=mi, second=0, microsecond=0)
+            if dt <= hora_base_dt:
+                dt += timedelta(days=1)
+            return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
 
     # "Xh" / "Xh30" solto (ex: "me lembra 18h", "liga o ar 22h30")
     m = _re_t.search(r'\b(\d{1,2})h(\d{2})?\b', msg)
@@ -3627,6 +3877,8 @@ def verificar_agenda():
                 )
                 rows = cur.fetchall()
                 cols = [d[0] for d in cur.description]
+                if rows:
+                    log(f"Scheduler encontrou {len(rows)} lembretes vencidos", "agenda")
                 for row in rows:
                     item = dict(zip(cols, row))
                     try:
