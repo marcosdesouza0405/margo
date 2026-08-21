@@ -3067,7 +3067,9 @@ INSTRUÇÕES OBRIGATÓRIAS:
     if ferramenta and ferramenta.get("ferramenta") == "agenda_add":
         data_hora_agenda = ferramenta.get("data_hora", "")
         minutos_relativos = ferramenta.get("minutos_relativos", 0)
-        titulo_agenda = ferramenta.get("titulo", "Compromisso")
+        titulo_agenda = _limpar_titulo(ferramenta.get("titulo", "Compromisso"))
+        if not titulo_agenda:
+            titulo_agenda = "Compromisso"
         descricao_agenda = ferramenta.get("descricao", "")
 
         # _parsear_tempo já retorna em UTC — só loga
