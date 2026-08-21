@@ -2423,6 +2423,13 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
                 dest = dest.split(k, 1)[-1].strip()
                 break
         dest = dest.rstrip('.!? ')
+        # Remove "daqui" no início e justificativa/finalidade que vaza pro destino
+        import re as _re_dest
+        dest = _re_dest.sub(r'^(daqui\s+)?(para|pra|até|ate|pro)\s+', '', dest, flags=_re_dest.IGNORECASE).strip()
+        dest = _re_dest.sub(r'\s+(para|pra|por que|porque|pois|que)\s+(eu|a gente|nós|nos|me|ter|saber|ver|entender|poder|conseguir|calcular|conferir|checar|estimar|preciso|quero|vou).*$', '', dest, flags=_re_dest.IGNORECASE).strip()
+        dest = _re_dest.sub(r'\s+(so |só )?(for me to|so i can|so that|because|to get|to see|to know|to check|to have).*$', '', dest, flags=_re_dest.IGNORECASE).strip()
+        dest = _re_dest.sub(r'\s+(ために|から|ので|って).*$', '', dest).strip()
+        dest = dest.rstrip(' ,.')
         # Se destino é vago/referência ("lá", "aí", vazio), deixa LLM resolver com histórico
         vagos = {"", "lá", "la", "aí", "ai", "ali", "there", "here", "esse", "essa",
                  "nesse", "nessa", "aquele", "aquela", "esse lugar", "essa lugar",
