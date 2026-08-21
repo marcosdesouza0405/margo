@@ -4870,6 +4870,46 @@ async def admin_atualizar_plano(request: Request):
     except Exception as e:
         return JSONResponse({"erro": str(e)}, status_code=500)
 
+
+@app.post("/admin/criar_conta")
+async def admin_criar_conta(request: Request):
+    """Admin: cria conta de teste sem verificação de email."""
+    try:
+        import hashlib, uuid
+        data = await request.json()
+        if data.get("key", "") != "orbiby2026admin":
+            return JSONResponse({"erro": "Não autorizado"}, status_code=401)
+        email = data.get("email", "").strip().lower()
+        senha = data.get("senha", "").strip()
+        plano = data.get("plano", "free")
+        if not email or "@" not in email or len(senha) < 6:
+            return JSONResponse({"erro": "Email válido e senha com 6+ chars obrigatórios"}, status_code=400)
+        existente = banco.buscar_usuario_por_email(email)
+        if existente:
+            return JSONResponse({"erro": "Email já cadastrado", "user_id": existente.get("user_id")}, status_code=400)
+        senha_hash = hashlib.sha256((email + senha + "margo_orbiby_salt").encode()).hexdigest()
+        user_id = "u_" + str(uuid.uuid4()).replace("-", "")[:16]
+        agora = datetime.now().isoformat()
+        conn = banco._get_conn()
+        c = conn.cursor()
+        ph = "%s" if banco._pg else "?"
+        if banco._pg:
+            c.execute(f"""INSERT INTO usuarios
+                (user_id, email, nome, plano, status, senha_hash, criado_em, ultimo_acesso)
+                VALUES ({ph},{ph},{ph},{ph},'ativo',{ph},{ph},{ph})""",
+                (user_id, email, "", plano, senha_hash, agora, agora))
+        else:
+            c.execute(f"""INSERT INTO usuarios
+                (user_id, email, nome, plano, status, senha_hash, criado_em, ultimo_acesso)
+                VALUES ({ph},{ph},{ph},{ph},'ativo',{ph},{ph},{ph})""",
+                (user_id, email, "", plano, senha_hash, agora, agora))
+        conn.commit()
+        conn.close()
+        log(f"Admin: conta criada {email} → {user_id} plano={plano}", "admin")
+        return JSONResponse({"ok": True, "user_id": user_id, "email": email, "plano": plano})
+    except Exception as e:
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
 @app.get("/uso/{user_id}")
 def uso(user_id: str):
     """Retorna uso diário do usuário — para o frontend mostrar msgs restantes"""
