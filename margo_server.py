@@ -1982,6 +1982,26 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
                 return (h, 0)
         return None
 
+    def _ajustar_periodo(h, mi, texto):
+        """Ajusta hora com base no período do dia (da tarde, da noite, etc).
+        '5 horas da tarde' → 17h, '5 da manhã' → 5h
+        """
+        if h > 12:
+            return (h, mi)  # Já é 24h, não precisa ajustar
+        if _re_t.search(r'da\s+(tarde|noite)', texto, _re_t.IGNORECASE):
+            if h != 12:
+                h += 12
+        elif _re_t.search(r'da\s+(manh[aã]|madrugada)', texto, _re_t.IGNORECASE):
+            if h == 12:
+                h = 0
+        elif _re_t.search(r'(午後|PM)', texto):
+            if h != 12:
+                h += 12
+        elif _re_t.search(r'(午前|AM)', texto):
+            if h == 12:
+                h = 0
+        return (h, mi)
+
     def _proximo_weekday(base_dt, target_weekday):
         """Retorna o próximo datetime com o weekday alvo (0=seg, 6=dom).
         Se hoje é o mesmo weekday, retorna da próxima semana."""
@@ -2057,7 +2077,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
         dt = _proximo_weekday(hora_base_dt, target_wd)
         hora_info = _extrair_hora(msg)
         if hora_info:
-            h, mi = hora_info
+            h, mi = _ajustar_periodo(*hora_info, msg)
         else:
             h, mi = 9, 0  # default 9h se não especificou hora
         dt = dt.replace(hour=h, minute=mi, second=0, microsecond=0)
@@ -2071,7 +2091,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
         if 1 <= dia <= 31:
             hora_info = _extrair_hora(msg)
             if hora_info:
-                h, mi = hora_info
+                h, mi = _ajustar_periodo(*hora_info, msg)
             else:
                 h, mi = 9, 0
             try:
@@ -2093,7 +2113,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
         if 1 <= dia <= 31:
             hora_info = _extrair_hora(msg)
             if hora_info:
-                h, mi = hora_info
+                h, mi = _ajustar_periodo(*hora_info, msg)
             else:
                 h, mi = 9, 0
             try:
@@ -2114,7 +2134,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
         if 1 <= dia <= 31:
             hora_info = _extrair_hora(msg)
             if hora_info:
-                h, mi = hora_info
+                h, mi = _ajustar_periodo(*hora_info, msg)
             else:
                 h, mi = 9, 0
             try:
@@ -2143,7 +2163,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
         if 1 <= dia_c <= 31 and 1 <= mes_c <= 12:
             hora_info = _extrair_hora(msg)
             if hora_info:
-                h, mi = hora_info
+                h, mi = _ajustar_periodo(*hora_info, msg)
             else:
                 h, mi = 9, 0
             try:
@@ -2160,7 +2180,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
     if m:
         hora_info = _extrair_hora(msg)
         if hora_info:
-            h, mi = hora_info
+            h, mi = _ajustar_periodo(*hora_info, msg)
         else:
             h, mi = 9, 0
         dt = hora_base_dt + timedelta(days=1)
@@ -2172,7 +2192,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
     if m:
         hora_info = _extrair_hora(msg)
         if hora_info:
-            h, mi = hora_info
+            h, mi = _ajustar_periodo(*hora_info, msg)
             dt = hora_base_dt.replace(hour=h, minute=mi, second=0, microsecond=0)
             if dt <= hora_base_dt:
                 dt += timedelta(days=1)
