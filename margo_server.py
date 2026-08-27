@@ -2778,30 +2778,77 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     # ── MODO TRADUTOR ──────────────────────────────────────────────────────────
     trad = tradutor_get(user_id)
 
-    # Aguardando idiomas após pedido de ativação
-    if trad.get("aguardando"):
-        idiomas = chamar_deepseek_simples(
-            f'Extraia os dois idiomas desta frase e responda APENAS JSON: '
-            f'{{"origem": "idioma1", "destino": "idioma2"}}\n'
-            f'Frase: {mensagem}',
-            max_tokens=40
-        )
-        try:
-            dados_trad = json.loads(idiomas.replace("```json","").replace("```","").strip())
-            orig = dados_trad.get("origem", "português")
-            dest = dados_trad.get("destino", "inglês")
-            _tradutor_estado[user_id] = {"ativo": True, "origem": orig, "destino": dest, "aguardando": False}
-            resposta = f"Modo tradutor ativado! Traduzindo de {orig} para {dest}. Pode falar!"
-        except:
-            resposta = "Não entendi os idiomas. Pode repetir? Ex: português e inglês"
-        sessoes.adicionar(user_id, mensagem, resposta)
-        return {"resposta": resposta, "onboarding": False, "ferramenta": None}
-
-    # Detecta pedido de ativar/desativar tradutor
+    # Detecta desativar ANTES de qualquer outro estado (evita loop de travamento)
     intencao_trad = detectar_intencao_tradutor(mensagem)
     if intencao_trad == "desativar":
         tradutor_desativar(user_id)
         return {"resposta": "Modo tradutor desativado.", "onboarding": False, "ferramenta": None}
+
+    # Aguardando idiomas após pedido de ativação
+    if trad.get("aguardando"):
+        # Parser de idiomas por regex — sem depender do LLM
+        import re as _re_trad
+        _idiomas_map = {
+            'portugues': 'português', 'português': 'português', 'portuguese': 'português', 'pt': 'português', 'pt-br': 'português', 'ポルトガル語': 'português',
+            'ingles': 'inglês', 'inglês': 'inglês', 'english': 'inglês', 'en': 'inglês', 'inglés': 'inglês', '英語': 'inglês',
+            'japones': 'japonês', 'japonês': 'japonês', 'japanese': 'japonês', 'ja': 'japonês', 'japonés': 'japonês', '日本語': 'japonês',
+            'espanhol': 'espanhol', 'spanish': 'espanhol', 'es': 'espanhol', 'español': 'espanhol', 'スペイン語': 'espanhol',
+            'frances': 'francês', 'francês': 'francês', 'french': 'francês', 'fr': 'francês', 'フランス語': 'francês',
+            'alemao': 'alemão', 'alemão': 'alemão', 'german': 'alemão', 'de': 'alemão', 'ドイツ語': 'alemão',
+            'italiano': 'italiano', 'italian': 'italiano', 'it': 'italiano', 'イタリア語': 'italiano',
+            'chines': 'chinês', 'chinês': 'chinês', 'chinese': 'chinês', 'zh': 'chinês', '中国語': 'chinês',
+            'coreano': 'coreano', 'korean': 'coreano', 'ko': 'coreano', '韓国語': 'coreano',
+            'russo': 'russo', 'russian': 'russo', 'ru': 'russo', 'ロシア語': 'russo',
+            'arabe': 'árabe', 'árabe': 'árabe', 'arabic': 'árabe', 'ar': 'árabe', 'アラビア語': 'árabe',
+        }
+        msg_lower = mensagem.lower().strip()
+        # Remove acentos pra facilitar matching
+        import unicodedata
+        msg_norm = unicodedata.normalize('NFD', msg_lower)
+        msg_norm = ''.join(c for c in msg_norm if unicodedata.category(c) != 'Mn')
+        found = []
+        for key, nome in sorted(_idiomas_map.items(), key=lambda x: -len(x[0])):
+            key_norm = unicodedata.normalize('NFD', key.lower())
+            key_norm = ''.join(c for c in key_norm if unicodedata.category(c) != 'Mn')
+            if key_norm in msg_norm or key in msg_lower:
+                if nome not in found:
+                    found.append(nome)
+                if len(found) >= 2:
+                    break
+        if len(found) >= 2:
+            orig, dest = found[0], found[1]
+            _tradutor_estado[user_id] = {"ativo": True, "origem": orig, "destino": dest, "aguardando": False}
+            resposta = f"Modo tradutor ativado! Traduzindo de {orig} para {dest}. Pode falar!"
+        else:
+            # Fallback: DeepSeek pra idiomas não mapeados (tailandês, filipino, hindi, etc)
+            try:
+                idiomas_llm = chamar_deepseek_simples(
+                    f'Extraia os dois idiomas desta frase. Responda SOMENTE com JSON puro, sem markdown, sem texto extra:\n'
+                    f'{{"origem": "nome_do_idioma", "destino": "nome_do_idioma"}}\n'
+                    f'Frase: {mensagem}',
+                    max_tokens=60
+                )
+                limpo = idiomas_llm.replace("```json","").replace("```","").replace("\n","").strip()
+                # Tenta extrair JSON de qualquer posição no texto
+                import re as _re_trad_fb
+                json_match = _re_trad_fb.search(r'\{[^}]+\}', limpo)
+                if json_match:
+                    dados_trad = json.loads(json_match.group())
+                    orig = dados_trad.get("origem", "").strip()
+                    dest = dados_trad.get("destino", "").strip()
+                    if orig and dest:
+                        _tradutor_estado[user_id] = {"ativo": True, "origem": orig, "destino": dest, "aguardando": False}
+                        resposta = f"Modo tradutor ativado! Traduzindo de {orig} para {dest}. Pode falar!"
+                    else:
+                        resposta = "Não entendi os idiomas. Pode repetir? Ex: português e inglês, thai and japanese, ポルトガル語と日本語"
+                else:
+                    resposta = "Não entendi os idiomas. Pode repetir? Ex: português e inglês, thai and japanese, ポルトガル語と日本語"
+            except:
+                resposta = "Não entendi os idiomas. Pode repetir? Ex: português e inglês, thai and japanese, ポルトガル語と日本語"
+        sessoes.adicionar(user_id, mensagem, resposta)
+        return {"resposta": resposta, "onboarding": False, "ferramenta": None}
+
+    # Detecta pedido de ativar tradutor (desativar já foi tratado acima)
     if intencao_trad == "ativar":
         _tradutor_estado[user_id] = {"ativo": False, "origem": "", "destino": "", "aguardando": True}
         return {"resposta": "Claro! Quais idiomas você quer traduzir?", "onboarding": False, "ferramenta": None}
