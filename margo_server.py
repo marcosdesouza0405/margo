@@ -289,11 +289,11 @@ class BancoMargo:
 
     def _get_conn(self):
         if self._pg:
+            from psycopg2 import pool as _pgpool
             # Pool de conexões — evita handshake TLS com o Supabase a cada operação
             if not hasattr(self, '_pool') or self._pool is None:
-                from psycopg2 import pool as _pgpool
-                self._pool = _pgpool.ThreadedConnectionPool(2, 20, self._conn_str)
-                log("Pool de conexões Postgres criado (1-10)", "banco")
+                self._pool = _pgpool.ThreadedConnectionPool(2, 10, self._conn_str)
+                log("Pool de conexões Postgres criado (2-10)", "banco")
             conn = self._pool.getconn()
             # Testa se a conexão está viva; se não, descarta e pega outra
             try:
@@ -303,7 +303,19 @@ class BancoMargo:
             except Exception:
                 try: self._pool.putconn(conn, close=True)
                 except Exception: pass
-                conn = self._pool.getconn()
+                # Retry com outra conexão do pool
+                try:
+                    conn = self._pool.getconn()
+                    cur = conn.cursor()
+                    cur.execute("SELECT 1")
+                    cur.fetchone()
+                except Exception:
+                    # Pool inteiro corrompido — recria
+                    log("Pool corrompido (SSL morto), recriando...", "banco")
+                    try: self._pool.closeall()
+                    except Exception: pass
+                    self._pool = _pgpool.ThreadedConnectionPool(2, 10, self._conn_str)
+                    conn = self._pool.getconn()
             return _PooledConn(conn, self._pool)
         return sqlite3.connect(DB_FILE)
 
