@@ -292,7 +292,7 @@ class BancoMargo:
             # Pool de conexões — evita handshake TLS com o Supabase a cada operação
             if not hasattr(self, '_pool') or self._pool is None:
                 from psycopg2 import pool as _pgpool
-                self._pool = _pgpool.ThreadedConnectionPool(1, 10, self._conn_str)
+                self._pool = _pgpool.ThreadedConnectionPool(2, 20, self._conn_str)
                 log("Pool de conexões Postgres criado (1-10)", "banco")
             conn = self._pool.getconn()
             # Testa se a conexão está viva; se não, descarta e pega outra
