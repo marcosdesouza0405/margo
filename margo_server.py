@@ -3462,6 +3462,119 @@ async def st_webhook(request: Request):
         log(f"SmartThings webhook erro: {e}", "smartthings")
         return JSONResponse({"erro": str(e)}, status_code=500)
 
+
+# ── Cache do token Client Credentials ──
+_spotify_cc_token = {"token": "", "expires_at": ""}
+
+def spotify_client_credentials_token() -> str:
+    """Obtém token via Client Credentials (sem OAuth do usuário)."""
+    global _spotify_cc_token
+    try:
+        if _spotify_cc_token["token"] and datetime.fromisoformat(_spotify_cc_token["expires_at"]) > datetime.now():
+            return _spotify_cc_token["token"]
+    except:
+        pass
+    try:
+        import base64
+        creds = base64.b64encode(f"{SPOTIFY_CLIENT_ID}:{SPOTIFY_CLIENT_SECRET}".encode()).decode()
+        body = b"grant_type=client_credentials"
+        req = urllib.request.Request(
+            "https://accounts.spotify.com/api/token",
+            data=body,
+            headers={
+                "Authorization": f"Basic {creds}",
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read())
+        _spotify_cc_token["token"] = data["access_token"]
+        _spotify_cc_token["expires_at"] = (datetime.now() + timedelta(seconds=data.get("expires_in", 3600) - 60)).isoformat()
+        log("Spotify Client Credentials token obtido", "spotify")
+        return data["access_token"]
+    except Exception as e:
+        log(f"Spotify CC token erro: {e}", "spotify")
+        return ""
+
+
+@app.post("/spotify/search")
+async def spotify_search_endpoint(request: Request):
+    """Busca música/artista/album no Spotify via Client Credentials.
+    Retorna URI direto pra abrir no app do Spotify (sem OAuth).
+    """
+    try:
+        data = await request.json()
+        query = data.get("query", "").strip()
+        if not query:
+            return JSONResponse({"ok": False, "erro": "query vazia"}, status_code=400)
+
+        token = spotify_client_credentials_token()
+        if not token:
+            return JSONResponse({"ok": False, "erro": "Spotify indisponível"}, status_code=503)
+
+        # Busca tracks, artists e albums
+        search_url = f"https://api.spotify.com/v1/search?q={urllib.parse.quote(query)}&type=track,artist,album&limit=3"
+        req = urllib.request.Request(search_url, headers={"Authorization": f"Bearer {token}"})
+        resp = urllib.request.urlopen(req, timeout=10)
+        resultado = json.loads(resp.read())
+
+        tracks = resultado.get("tracks", {}).get("items", [])
+        artists = resultado.get("artists", {}).get("items", [])
+        albums = resultado.get("albums", {}).get("items", [])
+
+        # Detecta intenção: se a query parece ser só artista ou tem música específica
+        query_lower = query.lower()
+
+        # Palavras que indicam que quer uma MÚSICA específica
+        eh_musica = any(w in query_lower for w in [
+            " - ", " do ", " de ", " by ", " from ", " da ", " das ", " dos ",
+            "toca ", "play ", "plays ", "coloca ", "bota ", "põe "
+        ])
+
+        # Se tem track e parece ser pedido de música, ou se o primeiro resultado é track com match bom
+        if tracks and (eh_musica or not artists):
+            t = tracks[0]
+            return JSONResponse({
+                "ok": True,
+                "type": "track",
+                "uri": t["uri"],
+                "name": t["name"],
+                "artist": t["artists"][0]["name"] if t.get("artists") else "",
+                "album": t.get("album", {}).get("name", ""),
+                "image": t.get("album", {}).get("images", [{}])[0].get("url", ""),
+                "deep_link": f"spotify:track:{t['id']}"
+            })
+
+        # Se parece ser só artista
+        if artists:
+            a = artists[0]
+            return JSONResponse({
+                "ok": True,
+                "type": "artist",
+                "uri": a["uri"],
+                "name": a["name"],
+                "image": a.get("images", [{}])[0].get("url", ""),
+                "deep_link": f"spotify:artist:{a['id']}"
+            })
+
+        # Album como fallback
+        if albums:
+            al = albums[0]
+            return JSONResponse({
+                "ok": True,
+                "type": "album",
+                "uri": al["uri"],
+                "name": al["name"],
+                "artist": al["artists"][0]["name"] if al.get("artists") else "",
+                "image": al.get("images", [{}])[0].get("url", ""),
+                "deep_link": f"spotify:album:{al['id']}"
+            })
+
+        return JSONResponse({"ok": False, "erro": "Nenhum resultado encontrado"})
+    except Exception as e:
+        log(f"Spotify search erro: {e}", "spotify")
+        return JSONResponse({"ok": False, "erro": str(e)}, status_code=500)
+
 @app.post("/spotify/play")
 async def spotify_play_endpoint(request: Request):
     """Toca música no Spotify via OAuth"""
