@@ -5050,6 +5050,35 @@ async def admin_atualizar_plano(request: Request):
         return JSONResponse({"erro": str(e)}, status_code=500)
 
 
+
+@app.post("/admin/deletar_conta")
+async def admin_deletar_conta(request: Request):
+    """Admin: deleta conta e todos os dados do usuário."""
+    try:
+        data = await request.json()
+        if data.get("key", "") != "orbiby2026admin":
+            return JSONResponse({"erro": "Não autorizado"}, status_code=401)
+        user_id = data.get("user_id", "").strip()
+        if not user_id:
+            return JSONResponse({"erro": "user_id obrigatório"}, status_code=400)
+        conn = banco._get_conn()
+        c = conn.cursor()
+        ph = "%s" if banco._pg else "?"
+        tabelas = ["agenda", "resumos_sessao", "config_assistente", "perfil_usuario", "usuarios"]
+        deletados = {}
+        for t in tabelas:
+            try:
+                c.execute(f"DELETE FROM {t} WHERE user_id={ph}", (user_id,))
+                deletados[t] = c.rowcount
+            except Exception:
+                deletados[t] = 0
+        conn.commit()
+        conn.close()
+        log(f"Admin: conta {user_id} deletada — {deletados}", "admin")
+        return JSONResponse({"ok": True, "user_id": user_id, "deletados": deletados})
+    except Exception as e:
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
 @app.post("/admin/criar_conta")
 async def admin_criar_conta(request: Request):
     """Admin: cria conta de teste sem verificação de email."""
