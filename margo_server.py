@@ -5006,7 +5006,7 @@ async def redefinir_senha(request: Request):
             return JSONResponse({"erro": "Código expirado. Solicite um novo."}, status_code=400)
         # Atualiza senha
         import hashlib
-        senha_hash = hashlib.sha256(nova_senha.encode()).hexdigest()
+        senha_hash = hashlib.sha256((email + nova_senha + "margo_orbiby_salt").encode()).hexdigest()
         conn = banco._get_conn()
         cur = conn.cursor()
         ph = "%s" if banco._pg else "?"
