@@ -3532,7 +3532,7 @@ async def spotify_search_endpoint(request: Request):
         ])
 
         # Se tem track e parece ser pedido de música, ou se o primeiro resultado é track com match bom
-        if tracks and (eh_musica or not artists):
+        if tracks:
             t = tracks[0]
             return JSONResponse({
                 "ok": True,
