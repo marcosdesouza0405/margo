@@ -596,7 +596,7 @@ class BancoMargo:
                 (user_id, hoje))
         # Se usando extras, decrementa
         if usando_extras:
-            c.execute(f"UPDATE usuarios SET msgs_extras = MAX(0, COALESCE(msgs_extras,0) - 1) WHERE user_id={ph}", (user_id,))
+            c.execute(f"UPDATE usuarios SET msgs_extras = GREATEST(0, COALESCE(msgs_extras,0) - 1) WHERE user_id={ph}", (user_id,))
         conn.commit()
         conn.close()
 
