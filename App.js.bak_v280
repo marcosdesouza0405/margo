@@ -11,12 +11,11 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Contacts from 'expo-contacts';
 import { Audio } from 'expo-av';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
 import * as Localization from 'expo-localization';
+import * as TaskManager from 'expo-task-manager';
 // WakeWordService importado via NativeModules diretamente
-const groqSTTEmitter = Platform.OS === 'android' ? new NativeEventEmitter(NativeModules.GroqSTTModule) : null;
-const GroqSTT = NativeModules.GroqSTTModule || { iniciar: () => Promise.resolve(), parar: () => Promise.resolve() };
+const groqSTTEmitter = new NativeEventEmitter(NativeModules.GroqSTTModule);
 
 // Configura canal de notificação Android
 if (Platform.OS === 'android') {
@@ -42,10 +41,18 @@ Notifications.setNotificationHandler({
   }),
 });
 
+const MARGO_TASK = 'margo-foreground-task';
 import * as Device from 'expo-device';
-import { useBilling } from './BillingManager';
 
-
+// Módulo nativo de microfone (Expo Modules API)
+let ExpoMicrophoneModule = null;
+let micEmitter = null;
+try {
+  const micMod = require('./modules/modules/expo-microphone');
+  ExpoMicrophoneModule = micMod.default || micMod;
+  const { EventEmitter } = require('expo-modules-core');
+  if (ExpoMicrophoneModule) micEmitter = new EventEmitter(ExpoMicrophoneModule);
+} catch(e) { console.log('Módulo nativo não disponível:', e.message); }
 
 // expo-speech-recognition — mantido como fallback
 let ExpoSpeechRecognitionModule = null;
@@ -60,7 +67,7 @@ const ICON = require('./assets/icon.png');
 const BACKEND = 'https://margo-production-98a9.up.railway.app';
 
 const C = {
-  bg:      '#152A2E', bg2: '#112225', bg3: '#1A3035',
+  bg:      '#0D1A1C', bg2: '#112225', bg3: '#1A3035',
   cyan:    '#2E9AAF', cyanDim: 'rgba(46,154,175,0.15)',
   text:    '#E8E8F0', text2: '#8888A0', text3: '#555568',
   border:  'rgba(46,154,175,0.15)', red: '#FF6B6B',
@@ -71,11 +78,12 @@ const CFG_PADRAO = {
   apiKey: '', voiceId: '',
   apiKeyFish: '', voiceIdFish: '',
   apiKeyEleven: '', voiceIdEleven: '',
-  navApp: 'gmaps',
+  navApp: 'waze',
   personalidade: '', perfilNome: '', perfilNascimento: '',
   perfilProfissao: '', perfilMusica: '', perfilComida: '',
   perfilHobbies: '', perfilExtra: '',
   wakeWordOn: false,
+  idioma: 'pt-BR',
   idioma: 'pt-BR',
   backendUrl: BACKEND,
 };
@@ -133,9 +141,9 @@ const STRINGS = {
     voz: 'VOZ',
     genero_voz: 'Escolha o gênero da voz do assistente.',
     provedor_voz: 'Provedor de voz:',
-    kokoro_desc: 'Voz neural gratuita com tecnologia Kokoro AI',
-    fish_link: 'Como criar conta no Fish Audio',
-    eleven_link: 'Como criar conta no ElevenLabs',
+    kokoro_desc: '✨ Voz neural gratuita com tecnologia Kokoro AI',
+    fish_link: '📖 Como criar conta no Fish Audio',
+    eleven_link: '📖 Como criar conta no ElevenLabs',
     spotify_label: 'SPOTIFY',
     spotify_desc: 'Conecte sua conta para tocar músicas direto pelo app.',
     salvar: 'Salvar configurações',
@@ -159,88 +167,15 @@ const STRINGS = {
     numero_invalido: 'Número inválido.',
     pagamento_titulo: 'Forma de pagamento',
     pagamento_msg: 'Como deseja pagar?',
-    pagamento_cartao: 'Cartão de crédito',
-    pagamento_pix: 'PIX',
-    paywall_trial_titulo: 'Trial encerrado!',
+    pagamento_cartao: '💳 Cartão de crédito',
+    pagamento_pix: '🏦 PIX',
+    paywall_trial_titulo: '🎉 Trial encerrado!',
     paywall_trial_msg: 'Você usou todas as 50 interações gratuitas. Assine um plano para continuar!',
-    paywall_limite_titulo: 'Limite atingido!',
+    paywall_limite_titulo: '⚠️ Limite atingido!',
     paywall_limite_msg: 'Você atingiu seu limite diário. Assine um plano superior ou compre interações extras!',
-    btn_pro: 'Pro — R$14,90/mês',
-    btn_pro_plus: 'Pro+ — R$29,90/mês',
-    btn_avulso: '50 interações — R$12,90',
-    paywall_pro: 'Pro — 20 msgs/dia  R$14,90/mês',
-    paywall_pro_plus: 'Pro+ — 50 msgs/dia  R$29,90/mês',
-    paywall_agora_nao: 'Agora não',
-    // Recuperação de senha
-    esqueci_senha: 'Esqueceu a senha?',
-    titulo_recuperar: 'Recuperar senha',
-    sub_recuperar: 'Digite seu email e enviaremos um código para redefinir sua senha.',
-    btn_enviar_codigo: 'Enviar código',
-    titulo_redefinir: 'Redefinir senha',
-    sub_redefinir: 'Digite o código enviado para',
-    placeholder_codigo: '000000',
-    placeholder_nova_senha: 'Nova senha (mínimo 6 caracteres)',
-    placeholder_confirmar_nova: 'Confirmar nova senha',
-    btn_redefinir: 'Redefinir senha',
-    senha_redefinida: 'Senha redefinida! Faça login com a nova senha.',
-    senhas_nao_coincidem: 'As senhas não coincidem.',
-    codigo_obrigatorio: 'Digite o código de 6 dígitos.',
-    // Perfil
-    nome_label: 'Seu nome',
-    nascimento_label: 'Data de nascimento (DD/MM/AAAA)',
-    profissao_label: 'Sua profissão',
-    musica_label: 'Música favorita',
-    comida_label: 'Comida favorita',
-    hobbies_label: 'Hobbies e interesses',
-    extra_label: 'Algo mais sobre você (opcional)',
-    personalidade_label: 'Personalidade',
-    // Idioma
-    idioma_label: 'IDIOMA',
-    idioma_desc: 'Escolha o idioma do app.',
-    // Navegação
-    nav_label: 'NAVEGAÇÃO',
-    nav_desc: 'App de navegação preferido',
-    // Voz
-    feminino: 'Feminino',
-    masculino: 'Masculino',
-    api_key_label: 'Chave de API',
-    voice_id_label: 'ID da voz',
-    // Smart Home
-    smart_home_label: 'CASA INTELIGENTE',
-    smart_home_desc: 'Controle dispositivos via SmartThings (Samsung).',
-    conectar_smart: 'Conectar SmartThings',
-    smart_conectado: 'SmartThings conectado!',
-    smart_dispositivos: 'Dispositivos',
-    // Spotify
-    conectar_spotify: 'Conectar Spotify',
-    spotify_conectado: 'Spotify conectado! ✓',
-    spotify_ja_vinculado: 'Sua conta já está vinculada.',
-    spotify_reconectar: 'Reconectar',
-    // Conta
-    conta_label: 'CONTA',
-    plano_label: 'Plano',
-    // Erros
-    erro_conexao: 'Sem conexão com o servidor.',
-    erro_email: 'Email inválido.',
-    erro_senha: 'Digite sua senha.',
-    erro_spotify: 'Não foi possível conectar ao Spotify.',
-    erro_smart: 'Não foi possível conectar ao SmartThings.',
-    // Verificação email
-    verificar_email_titulo: 'Verifique seu email',
-    verificar_email_msg: 'Enviamos um código de 6 dígitos para',
-    verificar_email_sub: 'Digite abaixo para ativar sua conta.',
-    confirmar: 'Confirmar',
-    // Chat
-    balao_eu: 'EU',
-    msgs_restantes_trial: 'msgs restantes (trial)',
-    msgs_restantes_hoje: 'msgs restantes hoje',
-    trial: 'trial',
-    hoje: 'hoje',
-    extras: 'extras',
-    // Upgrade
-    msgs_dia: 'msgs/dia',
-    mes: 'mês',
-    interacoes_extras: 'interações extras',
+    btn_pro: '🔥 Pro — R$9,90/mês',
+    btn_pro_plus: '🚀 Pro+ — R$19,90/mês',
+    btn_avulso: '💊 50 interações — R$9,90',
   },
   'en-US': {
     app_desc: 'Your personal AI assistant\nwith a unique personality',
@@ -265,9 +200,9 @@ const STRINGS = {
     voz: 'VOICE',
     genero_voz: 'Choose the voice gender for your assistant.',
     provedor_voz: 'Voice provider:',
-    kokoro_desc: 'Free neural voice powered by Kokoro AI',
-    fish_link: 'How to create a Fish Audio account',
-    eleven_link: 'How to create an ElevenLabs account',
+    kokoro_desc: '✨ Free neural voice powered by Kokoro AI',
+    fish_link: '📖 How to create a Fish Audio account',
+    eleven_link: '📖 How to create an ElevenLabs account',
     spotify_label: 'SPOTIFY',
     spotify_desc: 'Connect your account to play music directly from the app.',
     salvar: 'Save settings',
@@ -288,220 +223,19 @@ const STRINGS = {
     numero_invalido: 'Invalid number.',
     pagamento_titulo: 'Payment method',
     pagamento_msg: 'How would you like to pay?',
-    pagamento_cartao: 'Credit card',
-    pagamento_pix: 'PIX',
-    paywall_trial_titulo: 'Trial ended!',
+    pagamento_cartao: '💳 Credit card',
+    pagamento_pix: '🏦 PIX',
+    paywall_trial_titulo: '🎉 Trial ended!',
     paywall_trial_msg: 'You used all 50 free interactions. Subscribe to continue!',
-    paywall_limite_titulo: 'Limit reached!',
+    paywall_limite_titulo: '⚠️ Limit reached!',
     paywall_limite_msg: 'You reached your daily limit. Subscribe or buy extra interactions!',
-    btn_pro: 'Pro — R$14.90/mo',
-    btn_pro_plus: 'Pro+ — R$29.90/mo',
-    btn_avulso: '50 interactions — R$12.90',
-    paywall_pro: 'Pro — 20 msgs/day  R$14.90/mo',
-    paywall_pro_plus: 'Pro+ — 50 msgs/day  R$29.90/mo',
-    paywall_agora_nao: 'Not now',
-    // Password recovery
-    esqueci_senha: 'Forgot your password?',
-    titulo_recuperar: 'Recover password',
-    sub_recuperar: 'Enter your email and we\'ll send a code to reset your password.',
-    btn_enviar_codigo: 'Send code',
-    titulo_redefinir: 'Reset password',
-    sub_redefinir: 'Enter the code sent to',
-    placeholder_codigo: '000000',
-    placeholder_nova_senha: 'New password (minimum 6 characters)',
-    placeholder_confirmar_nova: 'Confirm new password',
-    btn_redefinir: 'Reset password',
-    senha_redefinida: 'Password reset! Sign in with your new password.',
-    senhas_nao_coincidem: 'Passwords do not match.',
-    codigo_obrigatorio: 'Enter the 6-digit code.',
-    // Profile
-    nome_label: 'Your name',
-    nascimento_label: 'Date of birth (MM/DD/YYYY)',
-    profissao_label: 'Your profession',
-    musica_label: 'Favorite music',
-    comida_label: 'Favorite food',
-    hobbies_label: 'Hobbies and interests',
-    extra_label: 'Anything else about you (optional)',
-    personalidade_label: 'Personality',
-    // Language
-    idioma_label: 'LANGUAGE',
-    idioma_desc: 'Choose the app language.',
-    // Navigation
-    nav_label: 'NAVIGATION',
-    nav_desc: 'Preferred navigation app',
-    // Voice
-    feminino: 'Female',
-    masculino: 'Male',
-    api_key_label: 'API Key',
-    voice_id_label: 'Voice ID',
-    // Smart Home
-    smart_home_label: 'SMART HOME',
-    smart_home_desc: 'Control devices via SmartThings (Samsung).',
-    conectar_smart: 'Connect SmartThings',
-    smart_conectado: 'SmartThings connected!',
-    smart_dispositivos: 'Devices',
-    // Spotify
-    conectar_spotify: 'Connect Spotify',
-    spotify_conectado: 'Spotify connected! ✓',
-    spotify_ja_vinculado: 'Your account is already linked.',
-    spotify_reconectar: 'Reconnect',
-    // Account
-    conta_label: 'ACCOUNT',
-    plano_label: 'Plan',
-    // Errors
-    erro_conexao: 'No connection to server.',
-    erro_email: 'Invalid email.',
-    erro_senha: 'Enter your password.',
-    erro_spotify: 'Could not connect to Spotify.',
-    erro_smart: 'Could not connect to SmartThings.',
-    // Email verification
-    verificar_email_titulo: 'Verify your email',
-    verificar_email_msg: 'We sent a 6-digit code to',
-    verificar_email_sub: 'Enter it below to activate your account.',
-    confirmar: 'Confirm',
-    // Chat
-    balao_eu: 'ME',
-    msgs_restantes_trial: 'msgs remaining (trial)',
-    msgs_restantes_hoje: 'msgs remaining today',
-    trial: 'trial',
-    hoje: 'today',
-    extras: 'extras',
-    // Upgrade
-    msgs_dia: 'msgs/day',
-    mes: 'month',
-    interacoes_extras: 'extra interactions',
-  },
-  'ja-JP': {
-    app_desc: 'あなただけのAIアシスタント\nユニークな個性を持つ',
-    criar_conta: 'アカウント作成',
-    ja_tenho_conta: 'すでにアカウントをお持ちの方',
-    by_orbiby: 'by Orbiby',
-    voltar: '← 戻る',
-    titulo_cadastro: 'アカウント作成',
-    sub_cadastro: 'アカウントを作成して、どのデバイスでもMargoにアクセスできます。',
-    placeholder_email: 'メールアドレス',
-    placeholder_senha: 'パスワード（6文字以上）',
-    placeholder_confirmar: 'パスワード確認',
-    titulo_login: 'ログイン',
-    sub_login: 'アカウントにログインしてください。',
-    placeholder_senha_login: 'パスワード',
-    btn_entrar: 'ログイン',
-    titulo_config: '設定',
-    sobre_voce: 'あなたについて',
-    sua_assistente: 'アシスタント',
-    placeholder_nome_assistente: 'アシスタントの名前',
-    placeholder_personalidade: '性格 — 例：明るい、絵文字を使う、音楽好き、親しい友達のように話す...',
-    voz: '音声',
-    genero_voz: 'アシスタントの声の性別を選んでください。',
-    provedor_voz: '音声プロバイダー:',
-    kokoro_desc: 'Kokoro AIによる無料ニューラル音声',
-    fish_link: 'Fish Audioアカウントの作成方法',
-    eleven_link: 'ElevenLabsアカウントの作成方法',
-    spotify_label: 'SPOTIFY',
-    spotify_desc: 'アカウントを接続して、アプリから直接音楽を再生できます。',
-    salvar: '設定を保存',
-    sair: 'ログアウト / アカウント切替',
-    placeholder_msg: 'メッセージを入力...',
-    online: 'オンライン',
-    ouvindo: '聞いています...',
-    pensando: '考えています...',
-    plano_free: '無料トライアル（50回）',
-    plano_pro: 'Pro ✓（1日20回）',
-    plano_pro_plus: 'Pro+ ✓（1日50回）',
-    plano_admin: 'Admin ✓',
-    sair_titulo: 'ログアウト',
-    sair_msg: '本当によろしいですか？',
-    sair_btn: 'ログアウト',
-    cancelar: 'キャンセル',
-    contato_nao_encontrado: '連絡先が見つかりません。',
-    numero_invalido: '無効な番号です。',
-    pagamento_titulo: 'お支払い方法',
-    pagamento_msg: 'お支払い方法を選択してください。',
-    pagamento_cartao: 'クレジットカード',
-    pagamento_pix: 'PIX',
-    paywall_trial_titulo: 'トライアル終了！',
-    paywall_trial_msg: '50回の無料体験をすべて使い切りました。プランに登録して続けましょう！',
-    paywall_limite_titulo: '上限に達しました！',
-    paywall_limite_msg: '1日の上限に達しました。上位プランに登録するか、追加回数を購入してください！',
-    btn_pro: 'Pro — R$14.90/月',
-    btn_pro_plus: 'Pro+ — R$29.90/月',
-    btn_avulso: '50回追加 — R$12.90',
-    paywall_pro: 'Pro — 1日20回  R$14.90/月',
-    paywall_pro_plus: 'Pro+ — 1日50回  R$29.90/月',
-    paywall_agora_nao: '今はしない',
-    esqueci_senha: 'パスワードをお忘れですか？',
-    titulo_recuperar: 'パスワード回復',
-    sub_recuperar: 'メールアドレスを入力してください。リセットコードをお送りします。',
-    btn_enviar_codigo: 'コードを送信',
-    titulo_redefinir: 'パスワード再設定',
-    sub_redefinir: 'に送信されたコードを入力してください',
-    placeholder_codigo: '000000',
-    placeholder_nova_senha: '新しいパスワード（6文字以上）',
-    placeholder_confirmar_nova: '新しいパスワード確認',
-    btn_redefinir: 'パスワードを再設定',
-    senha_redefinida: 'パスワードが再設定されました！新しいパスワードでログインしてください。',
-    senhas_nao_coincidem: 'パスワードが一致しません。',
-    codigo_obrigatorio: '6桁のコードを入力してください。',
-    // プロフィール
-    nome_label: 'お名前',
-    nascimento_label: '生年月日（YYYY/MM/DD）',
-    profissao_label: '職業',
-    musica_label: '好きな音楽',
-    comida_label: '好きな食べ物',
-    hobbies_label: '趣味・関心',
-    extra_label: 'その他（任意）',
-    personalidade_label: '性格',
-    // 言語
-    idioma_label: '言語',
-    idioma_desc: 'アプリの言語を選択してください。',
-    // ナビゲーション
-    nav_label: 'ナビゲーション',
-    nav_desc: '優先するナビアプリ',
-    // 音声
-    feminino: '女性',
-    masculino: '男性',
-    api_key_label: 'APIキー',
-    voice_id_label: '音声ID',
-    // スマートホーム
-    smart_home_label: 'スマートホーム',
-    smart_home_desc: 'SmartThings（Samsung）でデバイスを操作。',
-    conectar_smart: 'SmartThingsを接続',
-    smart_conectado: 'SmartThings接続済み！',
-    smart_dispositivos: 'デバイス',
-    // Spotify
-    conectar_spotify: 'Spotifyを接続',
-    spotify_conectado: 'Spotify接続済み！ ✓',
-    spotify_ja_vinculado: 'アカウントは既にリンクされています。',
-    spotify_reconectar: '再接続',
-    // アカウント
-    conta_label: 'アカウント',
-    plano_label: 'プラン',
-    // エラー
-    erro_conexao: 'サーバーに接続できません。',
-    erro_email: 'メールアドレスが無効です。',
-    erro_senha: 'パスワードを入力してください。',
-    erro_spotify: 'Spotifyに接続できませんでした。',
-    erro_smart: 'SmartThingsに接続できませんでした。',
-    // メール認証
-    verificar_email_titulo: 'メールを確認してください',
-    verificar_email_msg: '6桁のコードを送信しました：',
-    verificar_email_sub: '以下に入力してアカウントを有効化してください。',
-    confirmar: '確認',
-    // チャット
-    balao_eu: '私',
-    msgs_restantes_trial: '回残り（トライアル）',
-    msgs_restantes_hoje: '回残り（本日）',
-    trial: 'トライアル',
-    hoje: '本日',
-    extras: '追加',
-    // アップグレード
-    msgs_dia: '回/日',
-    mes: '月',
-    interacoes_extras: '追加回数',
+    btn_pro: '🔥 Pro — R$9.90/mo',
+    btn_pro_plus: '🚀 Pro+ — R$19.90/mo',
+    btn_avulso: '💊 50 interactions — R$9.90',
   }
 };
 
-const useStrings = (idioma) => STRINGS[idioma] || STRINGS['en-US'];
+const useStrings = (idioma) => STRINGS[idioma] || STRINGS['pt-BR'];
 
 // ── NOTIFICAÇÃO PERSISTENTE ───────────────────────────────────────────────────
 let _notifId = null;
@@ -510,8 +244,8 @@ async function testarNotificacao() {
   try {
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: 'Teste Margo',
-        body: 'Notificação funcionando!',
+        title: '🔔 Teste Margo',
+        body: 'Notificação funcionando! ✅',
         sound: true,
       },
       trigger: { type: "timeInterval", seconds: 5, repeats: false },
@@ -570,13 +304,10 @@ function TelaIdioma({ onSelecionar }) {
       <Text style={[s.welcomeDesc, { marginBottom: 48 }]}>Choose your language / Escolha seu idioma</Text>
       <View style={{ width: '100%', gap: 16 }}>
         <TouchableOpacity style={s.btnP} onPress={() => onSelecionar('pt-BR')}>
-          <Text style={s.btnPTxt}>PT  Português</Text>
+          <Text style={s.btnPTxt}>🇧🇷  Português</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.btnP} onPress={() => onSelecionar('en-US')}>
-          <Text style={s.btnPTxt}>EN  English</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={s.btnP} onPress={() => onSelecionar('ja-JP')}>
-          <Text style={s.btnPTxt}>JA  日本語</Text>
+          <Text style={s.btnPTxt}>🇺🇸  English</Text>
         </TouchableOpacity>
       </View>
       <Text style={{ color: C.text3, fontSize: 11, marginTop: 48 }}>by Orbiby</Text>
@@ -624,7 +355,7 @@ function TelaCadastro({ onSuccess, onVoltar, backendUrl, idioma }) {
   const [deviceIdSalvo, setDeviceIdSalvo] = useState('');
 
   async function cadastrar() {
-    if (!email.includes('@'))   { setErro(s_['erro_email']); return; }
+    if (!email.includes('@'))   { setErro('Email inválido.'); return; }
     if (senha.length < 6)       { setErro('Senha deve ter pelo menos 6 caracteres.'); return; }
     if (senha !== confirma)     { setErro('As senhas não coincidem.'); return; }
     setLoading(true); setErro('');
@@ -655,7 +386,7 @@ function TelaCadastro({ onSuccess, onVoltar, backendUrl, idioma }) {
         await AsyncStorage.setItem('margo_email', d.email);
         onSuccess(d);
       } else setErro(d.erro || 'Erro ao criar conta.');
-    } catch(e) { setErro(s_['erro_conexao']); }
+    } catch(e) { setErro('Sem conexão com o servidor.'); }
     setLoading(false);
   }
 
@@ -681,14 +412,14 @@ function TelaCadastro({ onSuccess, onVoltar, backendUrl, idioma }) {
     return (
       <KeyboardAvoidingView style={s.authWrap} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-        <Text style={s.authTitle}>{s_['verificar_email_titulo']}</Text>
-        <Text style={s.authSub}>{s_['verificar_email_msg']} {email}. {s_['verificar_email_sub']}</Text>
+        <Text style={s.authTitle}>✉️ Verifique seu email</Text>
+        <Text style={s.authSub}>Enviamos um código de 6 dígitos para {email}. Digite abaixo para ativar sua conta.</Text>
         <TextInput style={[s.authInput, { fontSize: 28, letterSpacing: 8, textAlign: 'center' }]}
           placeholder="000000" placeholderTextColor={C.text3}
           value={codigo} onChangeText={setCodigo} keyboardType="number-pad" maxLength={6} />
         {!!erro && <Text style={s.authErro}>{erro}</Text>}
         <TouchableOpacity style={s.btnP} onPress={verificar} disabled={loading}>
-          {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPTxt}>{s_['confirmar']}</Text>}
+          {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPTxt}>Confirmar</Text>}
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setEtapa('cadastro')}>
           <Text style={[s.voltarTxt, { marginTop: 16 }]}>← Voltar</Text>
@@ -709,14 +440,14 @@ function TelaCadastro({ onSuccess, onVoltar, backendUrl, idioma }) {
         <TextInput style={[s.authInput, { flex: 1, marginBottom: 0 }]} placeholder={s_['placeholder_senha']}
           placeholderTextColor={C.text3} value={senha} onChangeText={setSenha} secureTextEntry={!verSenha} />
         <TouchableOpacity style={s.olho} onPress={() => setVerSenha(v => !v)}>
-          <Ionicons name={verSenha ? "eye-off" : "eye"} size={18} color={C.text2} />
+          <Text style={{ fontSize: 18 }}>{verSenha ? '🙈' : '👁️'}</Text>
         </TouchableOpacity>
       </View>
       <View style={s.senhaWrap}>
         <TextInput style={[s.authInput, { flex: 1, marginBottom: 0 }]} placeholder={s_['placeholder_confirmar']}
           placeholderTextColor={C.text3} value={confirma} onChangeText={setConfirma} secureTextEntry={!verConf} />
         <TouchableOpacity style={s.olho} onPress={() => setVerConf(v => !v)}>
-          <Ionicons name={verConf ? "eye-off" : "eye"} size={18} color={C.text2} />
+          <Text style={{ fontSize: 18 }}>{verConf ? '🙈' : '👁️'}</Text>
         </TouchableOpacity>
       </View>
       {!!erro && <Text style={s.authErro}>{erro}</Text>}
@@ -735,17 +466,10 @@ function TelaLogin({ onSuccess, onVoltar, backendUrl, idioma }) {
   const [erro, setErro]         = useState('');
   const [loading, setLoading]   = useState(false);
   const [verSenha, setVerSenha] = useState(false);
-  const [etapa, setEtapa]       = useState('login');       // login | recuperar | redefinir
-  const [codigo, setCodigo]     = useState('');
-  const [novaSenha, setNovaSenha]       = useState('');
-  const [confirma, setConfirma]         = useState('');
-  const [verNova, setVerNova]           = useState(false);
-  const [verConf, setVerConf]           = useState(false);
-  const [sucesso, setSucesso]           = useState('');
 
   async function entrar() {
-    if (!email.includes('@')) { setErro(s_['erro_email']); return; }
-    if (!senha)               { setErro(s_['erro_senha']); return; }
+    if (!email.includes('@')) { setErro('Email inválido.'); return; }
+    if (!senha)               { setErro('Digite sua senha.'); return; }
     setLoading(true); setErro('');
     try {
       const r = await fetch(`${backendUrl}/login`, {
@@ -758,100 +482,10 @@ function TelaLogin({ onSuccess, onVoltar, backendUrl, idioma }) {
         await AsyncStorage.setItem('margo_email', d.email);
         onSuccess(d);
       } else setErro(d.erro || 'Erro ao entrar.');
-    } catch(e) { setErro(s_['erro_conexao']); }
+    } catch(e) { setErro('Sem conexão com o servidor.'); }
     setLoading(false);
   }
 
-  async function enviarCodigo() {
-    if (!email.includes('@')) { setErro(s_['erro_email']); return; }
-    setLoading(true); setErro('');
-    try {
-      const r = await fetch(`${backendUrl}/recuperar_senha`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.toLowerCase().trim() })
-      });
-      const d = await r.json();
-      if (d.ok) { setEtapa('redefinir'); setErro(''); }
-      else setErro(d.erro || 'Erro ao enviar código.');
-    } catch(e) { setErro(s_['erro_conexao']); }
-    setLoading(false);
-  }
-
-  async function redefinir() {
-    if (codigo.length !== 6) { setErro(s_['codigo_obrigatorio']); return; }
-    if (novaSenha.length < 6) { setErro('Mínimo 6 caracteres.'); return; }
-    if (novaSenha !== confirma) { setErro(s_['senhas_nao_coincidem']); return; }
-    setLoading(true); setErro('');
-    try {
-      const r = await fetch(`${backendUrl}/redefinir_senha`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.toLowerCase().trim(), code: codigo, nova_senha: novaSenha })
-      });
-      const d = await r.json();
-      if (d.ok) {
-        setSucesso(s_['senha_redefinida']);
-        setEtapa('login'); setSenha(''); setCodigo(''); setNovaSenha(''); setConfirma('');
-      } else setErro(d.erro || 'Erro ao redefinir.');
-    } catch(e) { setErro(s_['erro_conexao']); }
-    setLoading(false);
-  }
-
-  // ── Tela: digitar código + nova senha ──
-  if (etapa === 'redefinir') {
-    return (
-      <KeyboardAvoidingView style={s.authWrap} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-        <TouchableOpacity onPress={() => { setEtapa('recuperar'); setErro(''); }}>
-          <Text style={s.voltarTxt}>{s_['voltar']}</Text>
-        </TouchableOpacity>
-        <Text style={s.authTitle}>{s_['titulo_redefinir']}</Text>
-        <Text style={s.authSub}>{s_['sub_redefinir']} {email}</Text>
-        <TextInput style={[s.authInput, { fontSize: 28, letterSpacing: 8, textAlign: 'center' }]}
-          placeholder={s_['placeholder_codigo']} placeholderTextColor={C.text3}
-          value={codigo} onChangeText={setCodigo} keyboardType="number-pad" maxLength={6} />
-        <View style={s.senhaWrap}>
-          <TextInput style={[s.authInput, { flex: 1, marginBottom: 0 }]} placeholder={s_['placeholder_nova_senha']}
-            placeholderTextColor={C.text3} value={novaSenha} onChangeText={setNovaSenha} secureTextEntry={!verNova} />
-          <TouchableOpacity style={s.olho} onPress={() => setVerNova(v => !v)}>
-            <Ionicons name={verNova ? "eye-off" : "eye"} size={18} color={C.text2} />
-          </TouchableOpacity>
-        </View>
-        <View style={s.senhaWrap}>
-          <TextInput style={[s.authInput, { flex: 1, marginBottom: 0 }]} placeholder={s_['placeholder_confirmar_nova']}
-            placeholderTextColor={C.text3} value={confirma} onChangeText={setConfirma} secureTextEntry={!verConf} />
-          <TouchableOpacity style={s.olho} onPress={() => setVerConf(v => !v)}>
-            <Ionicons name={verConf ? "eye-off" : "eye"} size={18} color={C.text2} />
-          </TouchableOpacity>
-        </View>
-        {!!erro && <Text style={s.authErro}>{erro}</Text>}
-        <TouchableOpacity style={s.btnP} onPress={redefinir} disabled={loading}>
-          {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPTxt}>{s_['btn_redefinir']}</Text>}
-        </TouchableOpacity>
-      </KeyboardAvoidingView>
-    );
-  }
-
-  // ── Tela: pedir email para recuperação ──
-  if (etapa === 'recuperar') {
-    return (
-      <KeyboardAvoidingView style={s.authWrap} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-        <TouchableOpacity onPress={() => { setEtapa('login'); setErro(''); setSucesso(''); }}>
-          <Text style={s.voltarTxt}>{s_['voltar']}</Text>
-        </TouchableOpacity>
-        <Text style={s.authTitle}>{s_['titulo_recuperar']}</Text>
-        <Text style={s.authSub}>{s_['sub_recuperar']}</Text>
-        <TextInput style={s.authInput} placeholder={s_['placeholder_email']} placeholderTextColor={C.text3}
-          value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
-        {!!erro && <Text style={s.authErro}>{erro}</Text>}
-        <TouchableOpacity style={s.btnP} onPress={enviarCodigo} disabled={loading}>
-          {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPTxt}>{s_['btn_enviar_codigo']}</Text>}
-        </TouchableOpacity>
-      </KeyboardAvoidingView>
-    );
-  }
-
-  // ── Tela: login normal ──
   return (
     <KeyboardAvoidingView style={s.authWrap} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
@@ -864,23 +498,19 @@ function TelaLogin({ onSuccess, onVoltar, backendUrl, idioma }) {
         <TextInput style={[s.authInput, { flex: 1, marginBottom: 0 }]} placeholder={s_['placeholder_senha_login']}
           placeholderTextColor={C.text3} value={senha} onChangeText={setSenha} secureTextEntry={!verSenha} />
         <TouchableOpacity style={s.olho} onPress={() => setVerSenha(v => !v)}>
-          <Ionicons name={verSenha ? "eye-off" : "eye"} size={18} color={C.text2} />
+          <Text style={{ fontSize: 18 }}>{verSenha ? '🙈' : '👁️'}</Text>
         </TouchableOpacity>
       </View>
       {!!erro && <Text style={s.authErro}>{erro}</Text>}
-      {!!sucesso && <Text style={[s.authErro, { color: '#4CAF50' }]}>{sucesso}</Text>}
       <TouchableOpacity style={s.btnP} onPress={entrar} disabled={loading}>
         {loading ? <ActivityIndicator color="#000" /> : <Text style={s.btnPTxt}>{s_['btn_entrar']}</Text>}
-      </TouchableOpacity>
-      <TouchableOpacity onPress={() => { setEtapa('recuperar'); setErro(''); setSucesso(''); }} style={{ marginTop: 16 }}>
-        <Text style={{ color: C.cyan, textAlign: 'center', fontSize: 14 }}>{s_['esqueci_senha']}</Text>
       </TouchableOpacity>
     </KeyboardAvoidingView>
   );
 }
 
 // ── PAINEL CONFIGURAÇÕES ──────────────────────────────────────────────────────
-function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, email, plano, userId, idioma, billing }) {
+function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, email, plano, userId, idioma }) {
   const s_ = useStrings(idioma);
   const [cfg, setCfg]             = useState(config);
   const [verApiKey, setVerApiKey] = useState(false);
@@ -893,7 +523,7 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
         <View style={s.modalHead}>
           <Text style={s.modalTitle}>{s_['titulo_config']}</Text>
           <TouchableOpacity onPress={onFechar} style={s.iconBtn}>
-            <Ionicons name="close" size={20} color={C.text2} />
+            <Text style={{ color: C.text2, fontSize: 20 }}>✕</Text>
           </TouchableOpacity>
         </View>
         <ScrollView contentContainerStyle={{ padding: 16, gap: 24 }}
@@ -903,10 +533,10 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
           <View style={s.secao}>
             <Text style={s.secLabel}>{s_['sobre_voce']}</Text>
             {[
-              ['perfilNome', s_['nome_label']],['perfilNascimento', s_['nascimento_label']],
-              ['perfilProfissao', s_['profissao_label']],['perfilMusica', s_['musica_label']],
-              ['perfilComida', s_['comida_label']],['perfilHobbies', s_['hobbies_label']],
-              ['perfilExtra', s_['extra_label']],
+              ['perfilNome','Seu nome'],['perfilNascimento','Data de nascimento (DD/MM/AAAA)'],
+              ['perfilProfissao','Sua profissão'],['perfilMusica','Música favorita'],
+              ['perfilComida','Comida favorita'],['perfilHobbies','Hobbies e interesses'],
+              ['perfilExtra','Algo mais sobre você (opcional)'],
             ].map(([k, ph]) => (
               <View key={k}>
                 <Text style={{ color: C.text3, fontSize: 12, marginBottom: 3, marginLeft: 4 }}>{ph}</Text>
@@ -926,9 +556,9 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
               placeholderTextColor={C.text3} value={cfg.assistantName}
               onChangeText={v => set('assistantName', v)}
               autoComplete="off" autoCorrect={false} autoCapitalize="words" />
-            <Text style={{ color: C.text3, fontSize: 12, marginBottom: 3, marginLeft: 4 }}>{s_['personalidade_label']}</Text>
+            <Text style={{ color: C.text3, fontSize: 12, marginBottom: 3, marginLeft: 4 }}>Personalidade</Text>
             <TextInput style={[s.cfgInput, { height: 110, textAlignVertical: 'top' }]}
-              placeholder={s_['placeholder_personalidade']}
+              placeholder="Personalidade — ex: divertida, fala gírias, adora música, sempre bem-humorada, usa emojis, fala como amiga próxima..."
               placeholderTextColor={C.text3} value={cfg.personalidade || ''}
               onChangeText={v => set('personalidade', v.slice(0, 300))} multiline
               maxLength={300} />
@@ -941,7 +571,7 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border }}>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: C.text, fontSize: 14, fontWeight: '600' }}>
-                  {idioma === 'en-US' ? 'Wake Word "Ok Migoo"' : 'Wake Word "Ok Migoo"'}
+                  {idioma === 'en-US' ? '🔔 Wake Word "Ok Migoo"' : '🔔 Wake Word "Ok Migoo"'}
                 </Text>
                 <Text style={{ color: C.text3, fontSize: 12, marginTop: 2 }}>
                   {idioma === 'en-US' ? 'Open app hands-free by voice (uses battery)' : 'Abre o app por voz sem tocar na tela (consome bateria)'}
@@ -959,10 +589,10 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
 
           {/* IDIOMA */}
           <View style={s.secao}>
-            <Text style={s.secLabel}>{s_['idioma_label']}</Text>
-            <Text style={s.secSub}>{s_['idioma_desc']}</Text>
+            <Text style={s.secLabel}>{idioma === 'en-US' ? 'LANGUAGE' : 'IDIOMA'}</Text>
+            <Text style={s.secSub}>{idioma === 'en-US' ? 'Choose the app language.' : 'Escolha o idioma do app.'}</Text>
             <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-              {[['pt-BR','PT Português'],['en-US','EN English'],['ja-JP','JA 日本語']].map(([lang, label]) => (
+              {[['pt-BR','🇧🇷 Português'],['en-US','🇺🇸 English']].map(([lang, label]) => (
                 <TouchableOpacity key={lang} style={[s.chip, cfg.idioma === lang && s.chipOn]}
                   onPress={async () => {
                     set('idioma', lang);
@@ -977,13 +607,13 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
 
           {/* NAVEGAÇÃO */}
           <View style={s.secao}>
-            <Text style={s.secLabel}>{s_['nav_label']}</Text>
-            <Text style={s.secSub}>{s_['nav_desc']}</Text>
+            <Text style={s.secLabel}>NAVEGAÇÃO</Text>
+            <Text style={s.secSub}>App de navegação preferido</Text>
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-              {[['waze','Waze'],['gmaps','Google Maps']].map(([n, label]) => (
-                <TouchableOpacity key={n} style={[s.chip, (cfg.navApp || 'gmaps') === n && s.chipOn]}
+              {[['waze','🚗 Waze'],['gmaps','🗺️ Google Maps']].map(([n, label]) => (
+                <TouchableOpacity key={n} style={[s.chip, (cfg.navApp || 'waze') === n && s.chipOn]}
                   onPress={() => set('navApp', n)}>
-                  <Text style={[s.chipTxt, (cfg.navApp || 'gmaps') === n && s.chipTxtOn]}>{label}</Text>
+                  <Text style={[s.chipTxt, (cfg.navApp || 'waze') === n && s.chipTxtOn]}>{label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -994,7 +624,7 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
             <Text style={s.secLabel}>{s_['voz']}</Text>
             <Text style={s.secSub}>{s_['genero_voz']}</Text>
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-              {[['F', s_['feminino']],['M', s_['masculino']]].map(([g, label]) => (
+              {[['F','🙍‍♀️ Feminino'],['M','🙍‍♂️ Masculino']].map(([g, label]) => (
                 <TouchableOpacity key={g} style={[s.chip, cfg.voiceGender === g && s.chipOn]}
                   onPress={() => set('voiceGender', g)}>
                   <Text style={[s.chipTxt, cfg.voiceGender === g && s.chipTxtOn]}>{label}</Text>
@@ -1003,7 +633,7 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
             </View>
             <Text style={[s.secSub, { marginBottom: 8 }]}>{s_['provedor_voz']}</Text>
             <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-              {[['device','Migoo Voice'],['fishaudio','Fish Audio'],['elevenlabs','ElevenLabs']].map(([p, label]) => (
+              {[['device','🤖 Migoo Voice'],['fishaudio','Fish Audio'],['elevenlabs','ElevenLabs']].map(([p, label]) => (
                 <TouchableOpacity key={p} style={[s.chip, cfg.voiceProvider === p && s.chipOn]}
                   onPress={() => set('voiceProvider', p)}>
                   <Text style={[s.chipTxt, cfg.voiceProvider === p && s.chipTxtOn]}>{label}</Text>
@@ -1019,15 +649,15 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
               <Text style={[s.secSub, { color: cfg.voiceProvider === 'fishaudio' ? C.cyan : C.text2 }]}>Fish Audio</Text>
               <View style={s.senhaWrap}>
                 <TextInput style={[s.cfgInput, { flex: 1, backgroundColor: 'transparent', borderWidth: 0 }]}
-                  placeholder={s_['api_key_label']} placeholderTextColor={C.text3}
+                  placeholder="Chave de API" placeholderTextColor={C.text3}
                   value={cfg.apiKeyFish || ''} onChangeText={v => set('apiKeyFish', v)}
                   secureTextEntry={!verApiKey} />
                 <TouchableOpacity style={s.olho} onPress={() => setVerApiKey(v => !v)}>
-                  <Ionicons name={verApiKey ? "eye-off" : "eye"} size={16} color={C.text2} />
+                  <Text>{verApiKey ? '🙈' : '👁️'}</Text>
                 </TouchableOpacity>
               </View>
               <TextInput style={[s.cfgInput, { backgroundColor: 'transparent', borderWidth: 0 }]}
-                placeholder={s_['voice_id_label']} placeholderTextColor={C.text3}
+                placeholder="ID da voz" placeholderTextColor={C.text3}
                 value={cfg.voiceIdFish || ''} onChangeText={v => set('voiceIdFish', v)} />
               <TouchableOpacity onPress={() => Linking.openURL('https://fish.audio')}>
                 <Text style={{ color: C.cyan, fontSize: 11 }}>{s_['fish_link']}</Text>
@@ -1039,15 +669,15 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
               <Text style={[s.secSub, { color: cfg.voiceProvider === 'elevenlabs' ? C.cyan : C.text2 }]}>ElevenLabs</Text>
               <View style={s.senhaWrap}>
                 <TextInput style={[s.cfgInput, { flex: 1, backgroundColor: 'transparent', borderWidth: 0 }]}
-                  placeholder={s_['api_key_label']} placeholderTextColor={C.text3}
+                  placeholder="Chave de API" placeholderTextColor={C.text3}
                   value={cfg.apiKeyEleven || ''} onChangeText={v => set('apiKeyEleven', v)}
                   secureTextEntry={!verApiKey} />
                 <TouchableOpacity style={s.olho} onPress={() => setVerApiKey(v => !v)}>
-                  <Ionicons name={verApiKey ? "eye-off" : "eye"} size={16} color={C.text2} />
+                  <Text>{verApiKey ? '🙈' : '👁️'}</Text>
                 </TouchableOpacity>
               </View>
               <TextInput style={[s.cfgInput, { backgroundColor: 'transparent', borderWidth: 0 }]}
-                placeholder={s_['voice_id_label']} placeholderTextColor={C.text3}
+                placeholder="ID da voz" placeholderTextColor={C.text3}
                 value={cfg.voiceIdEleven || ''} onChangeText={v => set('voiceIdEleven', v)} />
               <TouchableOpacity onPress={() => Linking.openURL('https://elevenlabs.io')}>
                 <Text style={{ color: C.cyan, fontSize: 11 }}>{s_['eleven_link']}</Text>
@@ -1055,8 +685,8 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
             </View>
           </View>
 
-          {/* SPOTIFY — oculto: modo dev limitado a 5 usuarios */}
-          {false && <View style={s.secao}>
+          {/* SPOTIFY */}
+          <View style={s.secao}>
             <Text style={s.secLabel}>{s_['spotify_label']}</Text>
             <Text style={s.secSub}>{s_['spotify_desc']}</Text>
             <TouchableOpacity
@@ -1066,9 +696,9 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
                   const r = await fetch(`${cfg.backendUrl}/spotify/status/${userId}`);
                   const d = await r.json();
                   if (d.conectado) {
-                    Alert.alert(s_['spotify_conectado'], s_['spotify_ja_vinculado'], [
+                    Alert.alert('Spotify conectado! ✓', 'Sua conta já está vinculada.', [
                       { text: 'OK' },
-                      { text: s_['spotify_reconectar'], onPress: async () => {
+                      { text: 'Reconectar', onPress: async () => {
                         const r2 = await fetch(`${cfg.backendUrl}/spotify/auth/${userId}`);
                         const d2 = await r2.json();
                         if (d2.url) Linking.openURL(d2.url);
@@ -1080,17 +710,17 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
                     if (d2.url) Linking.openURL(d2.url);
                   }
                 } catch(e) {
-                  Alert.alert('Erro', s_['erro_spotify']);
+                  Alert.alert('Erro', 'Não foi possível conectar ao Spotify.');
                 }
               }}>
-              <Text style={[s.btnSTxt, { color: '#1DB954' }]}>{s_['conectar_spotify']}</Text>
+              <Text style={[s.btnSTxt, { color: '#1DB954' }]}>🎵 Conectar Spotify</Text>
             </TouchableOpacity>
-          </View>}
+          </View>
 
           {/* CASA INTELIGENTE */}
           <View style={s.secao}>
-            <Text style={s.secLabel}>{s_['smart_home_label']}</Text>
-            <Text style={s.secSub}>{s_['smart_home_desc']}</Text>
+            <Text style={s.secLabel}>CASA INTELIGENTE</Text>
+            <Text style={s.secSub}>Controle dispositivos via SmartThings (Samsung).</Text>
             <TouchableOpacity style={[s.btnS, { borderColor: C.cyan }]}
               onPress={async () => {
                 try {
@@ -1098,46 +728,50 @@ function PainelCfg({ visivel, onFechar, config, onSalvar, onSair, onUpgrade, ema
                   const d = await r.json();
                   if (d.conectado) {
                     const nomes = d.dispositivos.map(x => x.nome).join(', ');
-                    Alert.alert(s_['smart_conectado'], `${s_['smart_dispositivos']}: ${nomes || '-'}`);
+                    Alert.alert('SmartThings conectado!', `Dispositivos: ${nomes || 'nenhum'}`);
                   } else {
                     const r2 = await fetch(`${cfg.backendUrl}/smartthings/auth/${userId}`);
                     const d2 = await r2.json();
                     if (d2.url) Linking.openURL(d2.url);
                   }
                 } catch(e) {
-                  Alert.alert('Erro', s_['erro_smart']);
+                  Alert.alert('Erro', 'Não foi possível conectar ao SmartThings.');
                 }
               }}>
-              <Text style={[s.btnSTxt, { color: C.cyan }]}>{s_['conectar_smart']}</Text>
+              <Text style={[s.btnSTxt, { color: C.cyan }]}>🏠 Conectar SmartThings</Text>
             </TouchableOpacity>
           </View>
 
           {/* CONTA */}
           <View style={s.secao}>
-            <Text style={s.secLabel}>{s_['conta_label']}</Text>
+            <Text style={s.secLabel}>CONTA</Text>
             <View style={[s.cfgInput, { gap: 2 }]}>
               <Text style={{ color: C.text, fontSize: 13 }}>{email}</Text>
               <Text style={{ color: C.text2, fontSize: 11 }}>
-                {s_['plano_label']}: {plano === 'free' ? s_['plano_free'] : plano === 'pro' ? s_['plano_pro'] : plano === 'pro_plus' || plano === 'pro+' ? s_['plano_pro_plus'] : s_['plano_admin']}
+                Plano: {plano === 'free' ? s_['plano_free'] : plano === 'pro' ? s_['plano_pro'] : plano === 'pro_plus' || plano === 'pro+' ? s_['plano_pro_plus'] : s_['plano_admin']}
               </Text>
             </View>
-            {plano !== 'admin' && (
+            {(plano === 'free' || plano === 'pro') && (
               <View style={{ gap: 8 }}>
                 {plano === 'free' && (
                   <TouchableOpacity style={[s.btnP, { backgroundColor: '#7C3AED' }]}
                     onPress={() => onUpgrade('pro')}>
-                    <Text style={s.btnPTxt}>Pro — 20 msgs/dia</Text>
+                    <Text style={s.btnPTxt}>🔥 Pro — 20 msgs/dia{'  '}
+                      <Text style={{ textDecorationLine: 'line-through', opacity: 0.7 }}>R$14,90</Text>
+                      {' '}R$9,90/mês
+                    </Text>
                   </TouchableOpacity>
                 )}
-                {(plano === 'free' || plano === 'pro') && (
-                  <TouchableOpacity style={[s.btnP, { backgroundColor: '#059669' }]}
-                    onPress={() => onUpgrade('pro_plus')}>
-                    <Text style={s.btnPTxt}>Pro+ — 50 msgs/dia</Text>
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity style={[s.btnP, { backgroundColor: '#059669' }]}
+                  onPress={() => onUpgrade('pro_plus')}>
+                  <Text style={s.btnPTxt}>🔥 Pro+ — 50 msgs/dia{'  '}
+                    <Text style={{ textDecorationLine: 'line-through', opacity: 0.7 }}>R$29,90</Text>
+                    {' '}R$19,90/mês
+                  </Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={[s.btnP, { backgroundColor: '#2E9AAF' }]}
                   onPress={() => onUpgrade('avulso')}>
-                  <Text style={s.btnPTxt}>+50 consultas</Text>
+                  <Text style={s.btnPTxt}>💊 50 interações extras — R$9,90</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -1181,14 +815,14 @@ function TextoComLinks({ texto, estilo }) {
   );
 }
 
-function Bolha({ msg, avatarUri, idioma }) {
+function Bolha({ msg, avatarUri }) {
   if (msg.de === 'sistema') return <Text style={s.msgSys}>{msg.texto}</Text>;
   const isUser = msg.de === 'user';
   return (
     <View style={[s.row, isUser && { flexDirection: 'row-reverse' }]}>
       <View style={[s.av, isUser && { backgroundColor: C.cyan, borderColor: C.cyan }]}>
         {isUser
-          ? <Text style={{ color: C.bg, fontSize: 9, fontWeight: '700' }}>{(msg.nomeUser || (idioma === 'ja-JP' ? '私' : idioma === 'en-US' ? 'ME' : 'EU'))}</Text>
+          ? <Text style={{ color: C.bg, fontSize: 9, fontWeight: '700' }}>EU</Text>
           : <Image source={avatarUri ? { uri: avatarUri } : ICON} style={{ width: 22, height: 22, borderRadius: 11 }} />
         }
       </View>
@@ -1218,11 +852,13 @@ export default function App() {
   const [tela, setTela]           = useState('idioma');
   const [userId, setUserId]       = useState(null);
   const userIdRef                 = useRef(null);
+  const s_i = useStrings(config?.idioma || 'pt-BR');
   const [email, setEmail]         = useState('');
   const [plano, setPlano]         = useState('free');
   const [msgs, setMsgs]           = useState([]);
   const [msgExtras, setMsgExtras]  = useState(0);
   const [input, setInput]         = useState('');
+  const [imagemBase64, setImagemBase64] = useState(null);
   const [pensando, setPensando]   = useState(false);
   const [micAtivo, setMicAtivo]   = useState(false);
   const [location, setLocation]   = useState(null);
@@ -1230,51 +866,25 @@ export default function App() {
   const [cfgAberto, setCfgAberto] = useState(false);
   const [config, setConfig]       = useState(CFG_PADRAO);
   const [avatarUri, setAvatarUri] = useState(null);
-  const s_i = useStrings(config.idioma);
   const [vozAtiva, setVozAtiva]   = useState(true);
-  const billing = useBilling(userId, setPlano);
+  const [wakeDetected, setWakeDetected] = useState(false);
   const scrollRef                 = useRef(null);
   const micAtivoRef               = useRef(false);
   const ttsAtivoRef                = useRef(false);
-  const micBufferRef = useRef('');
-  const micTimerRef = useRef(null);
-  const micErroCountRef = useRef(0);
-  const micRodandoRef = useRef(false);
   const wakeWordRef               = useRef(true); // ref para usar dentro de callbacks
   const wakeWordOnRef              = useRef(false); // ref do toggle wake word
+  const micEstadoSalvoRef          = useRef(false); // mic estava ligado antes do background
   const multilingueRef             = useRef(false); // modo multilingue (Groq STT) — segue o plano
+  const gravacaoRef                = useRef(null);  // gravacao multilingue em andamento
   const ultimoIdiomaRef            = useRef('');    // idioma da ultima fala (Groq)
   // Mantém userIdRef sincronizado
   useEffect(() => { userIdRef.current = userId; }, [userId]);
-
-  // Verificar assinatura automaticamente quando app abre/volta ao foreground
-  useEffect(() => {
-    if (!userId || !['pro','pro_plus'].includes(plano)) return;
-    const checkBilling = async () => {
-      try {
-        const r = await fetch(`${config.backendUrl}/billing/verificar_status`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId })
-        });
-        const d = await r.json();
-        if (d.ok && d.changed) {
-          setPlano(d.plano);
-          console.log('[BILLING] Plano atualizado auto:', d.plano);
-        }
-      } catch(e) { console.log('[BILLING] Check auto erro:', e); }
-    };
-    checkBilling();
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') checkBilling();
-    });
-    return () => sub.remove();
-  }, [userId, plano]);
 
   const [groqResult, setGroqResult] = useState(null); // resultado do GroqSTT nativo
 
   // Multilíngue (Groq STT) é automático para admin — depois: premium e tester
   useEffect(() => {
-    const ativo = false; // GroqSTT desativado temporariamente
+    const ativo = ['admin'].includes(plano);
     multilingueRef.current = ativo;
     console.log('[Multilingue]', ativo ? 'ATIVO (Groq Nativo)' : 'inativo (STT nativo)', '— plano:', plano);
     if (ativo && micAtivoRef.current) {
@@ -1282,17 +892,16 @@ export default function App() {
       try { ExpoSpeechRecognitionModule?.stop(); } catch(e) {}
       setTimeout(() => {
         if (micAtivoRef.current && !ttsAtivoRef.current && userIdRef.current) {
-          GroqSTT.iniciar(userIdRef.current).catch(e => console.log('[GroqSTT] Erro:', e));
+          NativeModules.GroqSTTModule.iniciar(userIdRef.current).catch(e => console.log('[GroqSTT] Erro:', e));
         }
       }, 500);
     }
     if (!ativo) {
-      GroqSTT.parar().catch(() => {});
+      NativeModules.GroqSTTModule.parar().catch(() => {});
     }
   }, [plano, userId]);
   // ── Listener do GroqSTT nativo (Kotlin → JS) ──────────────────────────────
   useEffect(() => {
-    if (Platform.OS !== 'android') return;
     const subTranscricao = groqSTTEmitter.addListener('onGroqTranscricao', ({ texto, idioma }) => {
       console.log('[GroqSTT Nativo]', idioma, ':', texto);
       ultimoIdiomaRef.current = (idioma || '').toLowerCase();
@@ -1313,7 +922,7 @@ export default function App() {
     enviar(groqResult.texto, groqResult.idioma);
   }, [groqResult]);
 
-  const navAppRef                  = useRef('gmaps'); // ref do app de navegação
+  const navAppRef                  = useRef('waze'); // ref do app de navegação
 
   // ── INIT ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1358,7 +967,7 @@ export default function App() {
       } else if (nextState === 'background') {
         console.log('[WakeWord] App em background — parando tudo');
         try { ExpoSpeechRecognitionModule?.stop(); } catch(e) {}
-        GroqSTT.parar().catch(() => {});
+        NativeModules.GroqSTTModule.parar().catch(() => {});
         try { deactivateKeepAwake('mic'); } catch(e) {}
         micAtivoRef.current = false;
         setMicAtivo(false);
@@ -1433,13 +1042,13 @@ export default function App() {
   useEffect(() => {
     micAtivoRef.current = micAtivo;
     wakeWordRef.current = config.wakeWordOn;
-    navAppRef.current = config.navApp || 'gmaps';
+    navAppRef.current = config.navApp || 'waze';
     wakeWordOnRef.current = false; // DESATIVADO até lançamento — era: config.wakeWordOn
     if (!micAtivo) return;
     const interval = setInterval(() => {
-      if (micAtivoRef.current && !ttsAtivoRef.current && !micRodandoRef.current && ExpoSpeechRecognitionModule) {
+      if (micAtivoRef.current && !ttsAtivoRef.current && ExpoSpeechRecognitionModule) {
         try {
-          micRodandoRef.current = true; if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+          if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
         } catch(e) {}
       }
     }, 15000);
@@ -1466,69 +1075,49 @@ export default function App() {
     }
 
     const idiomaSalvo = await AsyncStorage.getItem('margo_idioma');
+    const locales = Localization.getLocales();
+    const idiomaSistema = locales[0]?.languageTag || 'pt-BR';
+    let idiomaDetectado;
+    if (idiomaSistema.startsWith('pt')) idiomaDetectado = 'pt-BR';
+    else if (idiomaSistema.startsWith('ja')) idiomaDetectado = 'ja-JP';
+    else idiomaDetectado = 'en-US';
+    // Usa idioma salvo só se for diferente do sistema (usuário escolheu manualmente)
+    // Na primeira vez sempre usa o sistema
+    const idiomaFinal = idiomaSalvo || idiomaDetectado;
+    setConfig(c => ({ ...c, idioma: idiomaFinal }));
+    await AsyncStorage.setItem('margo_idioma', idiomaFinal);
+    setTela('boas_vindas');
     const uid  = await AsyncStorage.getItem('margo_user_id');
     const em   = await AsyncStorage.getItem('margo_email');
     const av   = await AsyncStorage.getItem('margo_avatar');
     let cfg    = await AsyncStorage.getItem('margo_config');
     if (!cfg) cfg = await AsyncStorage.getItem('margo_settings');
     if (av) setAvatarUri(av);
-
-    // Determina idioma: salvo > sistema > default
-    let idiomaFinal = idiomaSalvo;
-    if (!idiomaFinal) {
-      const locales = Localization.getLocales();
-      const idiomaSistema = locales[0]?.languageTag || 'en-US';
-      if (idiomaSistema.startsWith('pt')) idiomaFinal = 'pt-BR';
-      else if (idiomaSistema.startsWith('ja')) idiomaFinal = 'ja-JP';
-      else idiomaFinal = 'en-US';
-    }
-
-    // Novo usuário SEM idioma salvo → mostra TelaIdioma
-    if (!uid && !idiomaSalvo) {
-      setConfig(c => ({ ...c, idioma: idiomaFinal }));
-      setTela('idioma');  // Fica na tela de seleção
-      return;
-    }
-
-    // Tem idioma salvo mas sem conta → vai pra boas-vindas
-    if (!uid) {
-      setConfig(c => ({ ...c, idioma: idiomaFinal }));
-      await AsyncStorage.setItem('margo_idioma', idiomaFinal);
-      setTela('boas_vindas');
-      return;
-    }
-
-    // Usuário existente — restaura config MAS preserva idioma
-    if (cfg) {
-      try {
-        const cfgParsed = JSON.parse(cfg);
-        delete cfgParsed.idioma;  // Não deixa config salvo sobrescrever idioma
-        setConfig(c => ({ ...c, ...cfgParsed, idioma: idiomaFinal }));
-      } catch(e) {}
-    } else {
-      setConfig(c => ({ ...c, idioma: idiomaFinal }));
-    }
-    await AsyncStorage.setItem('margo_idioma', idiomaFinal);
-    setUserId(uid); setEmail(em || ''); setTela('chat');
-    const hist = await AsyncStorage.getItem('margo_chat');
-    if (hist) { try { setMsgs(JSON.parse(hist)); } catch(e) {} }
-    contarMsgs(uid);
-    // Boas-vindas na primeira abertura
-    const jaViu = await AsyncStorage.getItem('margo_boas_vindas');
-    if (!jaViu) {
-      try {
-        const backendUrl = config.backendUrl || 'https://margo-production-98a9.up.railway.app';
-        const idiomaAtual = (await AsyncStorage.getItem('margo_idioma')) || config.idioma || 'pt-BR';
-        const rb = await fetch(`${backendUrl}/boas_vindas`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: uid, idioma: idiomaAtual })
-        });
-        const db = await rb.json();
-        if (db.mensagem) {
-          addMsg('margo', db.mensagem);
-          await AsyncStorage.setItem('margo_boas_vindas', '1');
-        }
-      } catch(e) { console.log('Boas-vindas erro:', e); }
+    if (cfg) { try { setConfig(c => ({ ...c, ...JSON.parse(cfg) })); } catch(e) {} }
+    if (uid) {
+      const idiomaLocal = await AsyncStorage.getItem('margo_idioma');
+      if (idiomaLocal) setConfig(c => ({ ...c, idioma: idiomaLocal }));
+      setUserId(uid); setEmail(em || ''); setTela('chat');
+      const hist = await AsyncStorage.getItem('margo_chat');
+      if (hist) { try { setMsgs(JSON.parse(hist)); } catch(e) {} }
+      contarMsgs(uid);
+      // Boas-vindas na primeira abertura
+      const jaViu = await AsyncStorage.getItem('margo_boas_vindas');
+      if (!jaViu) {
+        try {
+          const backendUrl = config.backendUrl || 'https://margo-production-98a9.up.railway.app';
+          const rb = await fetch(`${backendUrl}/boas_vindas`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: uid })
+          });
+          const db = await rb.json();
+          if (db.mensagem) {
+            const msgBv = { id: Date.now(), role: 'assistant', text: db.mensagem };
+            setMsgs([msgBv]);
+            await AsyncStorage.setItem('margo_boas_vindas', '1');
+          }
+        } catch(e) {}
+      }
     }
     // WakeWord Service temporariamente desativado
     // Inicia WakeWord Service com modelo baseado no nome do assistente
@@ -1615,6 +1204,7 @@ export default function App() {
       const logs = [
         `mic=${micAtivoRef.current}`,
         `tts=${ttsAtivoRef.current}`,
+        `gravando=${!!gravacaoRef.current}`,
         `multilingue=${multilingueRef.current}`,
         `userId=${!!userId}`,
         `ultimoIdioma=${ultimoIdiomaRef.current || 'nenhum'}`
@@ -1630,9 +1220,7 @@ export default function App() {
     try {
       const body = { user_id: userId, mensagem: msg };
       if (location) { body.latitude = location.lat; body.longitude = location.lng; }
-      // Envia idioma: STT detectado > idioma configurado pelo usuário
-      const _idiomaMap = { 'pt-BR': 'portuguese', 'en-US': 'english', 'ja-JP': 'japanese' };
-      body.idioma_falado = idiomaFalado || _idiomaMap[config.idioma] || '';
+      if (idiomaFalado) { body.idioma_falado = idiomaFalado; }
       // Passa hora local do dispositivo
       const _now = new Date();
       const _off = -_now.getTimezoneOffset();
@@ -1670,18 +1258,18 @@ export default function App() {
             isTrial ? s_i['paywall_trial_msg'] : s_i['paywall_limite_msg'],
             [
               {
-                text: s_i['paywall_pro'],
+                text: '🔥 Pro — 20 msgs/dia  R$14,90 ➜ R$9,90',
                 onPress: () => handleUpgrade('pro')
               },
               {
-                text: s_i['paywall_pro_plus'],
+                text: '🚀 Pro+ — 50 msgs/dia  R$29,90 ➜ R$19,90',
                 onPress: () => handleUpgrade('pro_plus')
               },
               {
                 text: s_i['btn_avulso'],
                 onPress: () => handleUpgrade('avulso')
               },
-              { text: s_i['paywall_agora_nao'], style: 'cancel' }
+              { text: 'Agora não', style: 'cancel' }
             ]
           );
         }, 2000);
@@ -1719,19 +1307,6 @@ export default function App() {
     } catch(e) { return false; }
   }
 
-  // Busca URI exato no Spotify via Client Credentials (sem OAuth, sem limite)
-  async function spotifySearchURI(query) {
-    try {
-      const r = await fetch(`${config.backendUrl}/spotify/search`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
-      });
-      const d = await r.json();
-      if (d.ok && d.deep_link) return d.deep_link;
-      return null;
-    } catch(e) { return null; }
-  }
-
   // ── FERRAMENTAS ───────────────────────────────────────────────────────────
   async function executarFerramenta(f) {
     let t = f.ferramenta;
@@ -1760,86 +1335,61 @@ export default function App() {
 
     if (t === 'maps_navigate') {
       const dest = encodeURIComponent(f.destino);
-      const modo = f.modo || '';  // driving, transit, walking, bicycling
       const origin = location ? `&origin=${location.lat},${location.lng}` : '';
-      const travelParam = modo ? `&travelmode=${modo}` : '';
       const wazeUrl = `waze://?q=${dest}&navigate=yes`;
-      const googleAppUrl = modo && modo !== 'driving'
-        ? `https://www.google.com/maps/dir/?api=1&destination=${dest}${origin}${travelParam}`
-        : `google.navigation:q=${dest}`;
-      const googleWebUrl = `https://www.google.com/maps/dir/?api=1&destination=${dest}${origin}${travelParam}`;
+      const googleAppUrl = `google.navigation:q=${dest}`;
+      const googleWebUrl = `https://www.google.com/maps/dir/?api=1&destination=${dest}${origin}`;
       // Respeita o app de navegação escolhido nas configurações
       if (navAppRef.current === 'gmaps') {
-        // Se modo especial (transit/walking/bicycling), abre URL web (Google Maps app intercepta)
-        if (modo && modo !== 'driving') {
-          try { await Linking.openURL(googleWebUrl); } catch(e) {}
-        } else {
-          // Modo carro: IntentLauncher força Google Maps app direto
-          try {
-            const IntentLauncher = require('expo-intent-launcher');
-            await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-              data: googleAppUrl,
-              packageName: 'com.google.android.apps.maps'
-            });
-          } catch(e) {
-            // Fallback: sempre Google Maps web, nunca Waze
-            try { await Linking.openURL(googleWebUrl); } catch(e2) {}
-          }
+        // IntentLauncher com packageName força SÓ o Google Maps (sem popup)
+        try {
+          const IntentLauncher = require('expo-intent-launcher');
+          await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+            data: googleAppUrl,
+            packageName: 'com.google.android.apps.maps'
+          });
+        } catch(e) {
+          // Google não abriu — tenta Waze, senão web
+          const wazeSupported = await Linking.canOpenURL(wazeUrl).catch(() => false);
+          Linking.openURL(wazeSupported ? wazeUrl : googleWebUrl).catch(() => {});
         }
       } else {
-        // Waze selecionado — tenta Waze, senão Google Maps app, senão web
-        try {
-          const wazeSupported = await Linking.canOpenURL(wazeUrl).catch(() => false);
-          if (wazeSupported) {
-            await Linking.openURL(wazeUrl);
-          } else {
-            await Linking.openURL(googleWebUrl);
-          }
-        } catch(e) {
-          try { await Linking.openURL(googleWebUrl); } catch(e2) {}
+        // Padrão: Waze, com Google como fallback
+        const wazeSupported = await Linking.canOpenURL(wazeUrl).catch(() => false);
+        if (wazeSupported) {
+          Linking.openURL(wazeUrl).catch(() => {});
+        } else {
+          const googleSupported = await Linking.canOpenURL(googleAppUrl).catch(() => false);
+          Linking.openURL(googleSupported ? googleAppUrl : googleWebUrl).catch(() => {});
         }
       }
-
-    } else if (t === 'agenda_add' && f.data_hora) {
-      // Agenda notificação local imediatamente
-      try {
-        const dataHoraUTC = f.data_hora.endsWith('Z') ? f.data_hora : f.data_hora + 'Z';
-        const dataHora = new Date(dataHoraUTC);
-        const diffSegundos = Math.floor((dataHora - Date.now()) / 1000);
-        if (diffSegundos > 0) {
-          await Notifications.scheduleNotificationAsync({
-            content: { title: `⏰ ${f.titulo || 'Lembrete'}`, body: f.descricao || f.titulo || 'Hora do lembrete!', sound: true },
-            trigger: { type: "timeInterval", seconds: diffSegundos, repeats: false },
-          });
-          console.log(`Notificação local agendada: ${f.titulo} em ${diffSegundos}s`);
-        }
-      } catch(e) { console.log('Erro agendar notificação:', e); }
 
     } else if (t === 'maps_search') {
       // Não abre app — Margo já deu as dicas e vai perguntar se quer a rota
       // A navegação só acontece quando o usuário confirmar (maps_navigate)
 
     } else if (t === 'spotify_play') {
-      // 1. Tenta OAuth (só funciona pra quem conectou)
+      // Dispara o play no backend JÁ (ele tem retry esperando o device aparecer)
+      // e abre o Spotify em paralelo — assim o fetch não congela em background
       const promessaPlay = spotifyPlayDireto(f.query);
-      // 2. Em paralelo, busca URI exato via Client Credentials
-      const uriExato = await spotifySearchURI(f.query);
-      const deepLink = uriExato || `spotify:search:${encodeURIComponent(f.query)}`;
-      const spotifyWebUrl = `https://open.spotify.com/search/${encodeURIComponent(f.query)}`;
+      try {
+        const acordou = await Linking.canOpenURL('spotify:').catch(() => false);
+        if (acordou) await Linking.openURL('spotify:');
+      } catch(e) {}
       const tocou = await promessaPlay;
       if (!tocou) {
-        // OAuth falhou — abre URI exato (track/artist/album) no Spotify
-        try {
-          const acordou = await Linking.canOpenURL('spotify:').catch(() => false);
-          if (acordou) {
-            await Linking.openURL(deepLink);
-          } else {
-            await Linking.openURL(spotifyWebUrl);
-          }
-        } catch(e) {
-          Linking.openURL(spotifyWebUrl).catch(() => {});
-        }
+        // Usa URI direto se disponível (abre música exata), senão busca
+        const uri = f.spotify_uri || f.spotify_id
+          ? `spotify:track:${f.spotify_id}`
+          : null;
+        const appUrl = uri || `spotify:search:${encodeURIComponent(f.query)}`;
+        const webUrl = f.spotify_id
+          ? `https://open.spotify.com/track/${f.spotify_id}`
+          : `https://open.spotify.com/search/${encodeURIComponent(f.query)}`;
+        const supported = await Linking.canOpenURL(appUrl).catch(() => false);
+        Linking.openURL(supported ? appUrl : webUrl).catch(() => {});
       }
+
     } else if (t === 'soundcloud_play') {
       Linking.openURL(`https://soundcloud.com/search?q=${encodeURIComponent(f.query)}`).catch(() => {});
 
@@ -1870,11 +1420,9 @@ export default function App() {
 
     } else if (t === 'hotel_search' || t === 'booking_search') {
       const destino = encodeURIComponent(f.destino || f.query || '');
-      const checkin = f.checkin || f.data_ida || '';
-      const checkout = f.checkout || f.data_volta || '';
       let url = `https://www.booking.com/searchresults.html?ss=${destino}&group_adults=2&no_rooms=1`;
-      if (checkin) url += `&checkin=${checkin}`;
-      if (checkout) url += `&checkout=${checkout}`;
+      if (f.checkin) url += `&checkin=${f.checkin}`;
+      if (f.checkout) url += `&checkout=${f.checkout}`;
       Linking.openURL(url).catch(() => {});
 
     } else if (t === 'phone_call') {
@@ -2015,16 +1563,20 @@ export default function App() {
       micAtivoRef.current = false;
       setTimeout(() => {
         iniciarMicrofone();
-      }, 2000);
+      }, 700);
     }
   }
 
   async function falar(texto) {
     if (!vozAtiva) return;
     ttsAtivoRef.current = true;
+    if (gravacaoRef.current) {
+      try { await gravacaoRef.current.recording.stopAndUnloadAsync(); } catch(e) {}
+      gravacaoRef.current = null;
+    }
     try { await NativeModules.WakeWordModule.requestTTS(); } catch(e) {}
     // Para o GroqSTT nativo durante TTS (evita captar a propria voz)
-    try { await GroqSTT.parar(); } catch(e) {}
+    try { await NativeModules.GroqSTTModule.parar(); } catch(e) {}
     if (micAtivoRef.current && ExpoSpeechRecognitionModule) {
       try { ExpoSpeechRecognitionModule.stop(); } catch(e) {}
     }
@@ -2111,23 +1663,15 @@ export default function App() {
 
     // Tenta Kokoro no servidor (PT-BR e EN)
     const temJapones = /[\u3040-\u30FF\u4E00-\u9FFF]/.test(texto);
-    // Detecção por % de palavras — não depende de 1 acento
-    const palavras = texto.toLowerCase().split(/\s+/);
-    const totalP = palavras.length || 1;
-    const ptWords = palavras.filter(w => /^(você|não|sim|olá|obrigado|obrigada|para|com|uma|isso|aqui|está|minha|meu|seu|sua|como|porque|quando|onde|muito|mais|também|ainda|pode|posso|quero|tenho|fazer|esse|essa|dele|dela|pela|pelo|nos|nas|dos|das|tudo|nada|bem|bom|boa|dia|noite|agora|então|depois|sempre|nunca|gente|coisa|todo|toda|falar|saber|achar|ficar|deixar|pedir|dizer|ver|dar|ter|ser|foi|fui|são|tem|tá|né|pra|pro)$/.test(w)).length;
-    const enWords = palavras.filter(w => /^(the|and|is|are|was|were|have|has|had|will|would|can|could|should|this|that|with|for|not|but|you|your|from|they|them|their|been|being|about|just|like|know|think|want|need|make|going|here|there|when|where|what|which|who|how|very|much|more|also|still|well|good|now|then|after|before|always|never|thing|every|some|into|over|said|let|get|got|come|came|take|took|give|gave|tell|told|ask|keep|really|because|actually|right|already)$/.test(w)).length;
-    const pctPT = ptWords / totalP;
-    const pctEN = enWords / totalP;
-    const temPortugues = pctPT > pctEN && pctPT > 0.08;
-    {
+    const temPortugues = /[ãõáéíóúâêîôûàèìòùç]/i.test(texto) ||
+      /\b(você|não|sim|olá|obrigado|para|com|uma|isso|aqui|está|minha|seu|sua)\b/i.test(texto);
+    if (!temJapones) {
       try {
-        // Prioridade: idioma detectado pelo Groq > acentos/caracteres > config
+        // Prioridade: idioma detectado pelo Groq > acentos > config
         const idi = ultimoIdiomaRef.current;
-        const idiomaKokoro = temJapones ? 'ja-jp'
-          : (idi === 'english' || idi === 'en') ? 'en-us'
+        const idiomaKokoro = (idi === 'english' || idi === 'en') ? 'en-us'
           : (idi === 'portuguese' || idi === 'pt') ? 'pt-br'
-          : (idi === 'japanese' || idi === 'ja') ? 'ja-jp'
-          : temPortugues ? 'pt-br' : (config.idioma || 'en-us').toLowerCase();
+          : temPortugues ? 'pt-br' : (config.idioma || 'pt-br').toLowerCase();
         const r = await fetch(`${config.backendUrl}/kokoro_tts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2145,7 +1689,7 @@ export default function App() {
       } catch(e) { console.log('Kokoro erro:', e); }
     }
     // Fallback: voz do dispositivo
-    const idiomaBase = config.idioma || 'pt-BR';
+    const idiomaBase = config.idioma || 'en-US';
     const langTTS = temJapones ? 'ja-JP' : temPortugues ? 'pt-BR' : idiomaBase;
     Speech.speak(texto, {
       language: langTTS,
@@ -2157,24 +1701,10 @@ export default function App() {
 
   // ── MICROFONE ─────────────────────────────────────────────────────────────
   useSpeechRecognitionEvent('result', (e) => {
-    if (multilingueRef.current) return;
+    if (multilingueRef.current) return; // ouvido e o Groq — nativo mudo
     const transcript = e.results?.[0]?.transcript;
     if (!transcript || !e.isFinal) return;
-    micErroCountRef.current = 0; // Funcionou — reseta contador
-    micRodandoRef.current = true;
-    // Acumula fragmentos em vez de enviar cada um separado
-    micBufferRef.current = micBufferRef.current
-      ? micBufferRef.current + ' ' + transcript
-      : transcript;
-    // Reseta timer — só envia após 1.5s sem novo fragmento
-    if (micTimerRef.current) clearTimeout(micTimerRef.current);
-    micTimerRef.current = setTimeout(() => {
-      if (micBufferRef.current.trim()) {
-        enviar(micBufferRef.current.trim());
-        micBufferRef.current = '';
-      }
-      micTimerRef.current = null;
-    }, 3000);
+    enviar(transcript);
   });
 
   useSpeechRecognitionEvent('error', (e) => {
@@ -2183,31 +1713,31 @@ export default function App() {
       setMicAtivo(false);
       micAtivoRef.current = false;
     }
-    micRodandoRef.current = false;
-    if (e.error === 'network' || e.error === 'client') {
-      micErroCountRef.current += 1;
-    }
   });
 
   useSpeechRecognitionEvent('end', () => {
-    micRodandoRef.current = false;
+    // Reinício RÁPIDO no ocioso (300ms) — fecha o vão que cortava o início das frases.
+    // O delay longo (4,5s) fica só no religarMic pós-TTS, onde é necessário.
     if (micAtivoRef.current && !ttsAtivoRef.current && !multilingueRef.current) {
-      const erros = micErroCountRef.current;
-      if (erros >= 3) {
-        console.log('Mic: 3 erros seguidos, aguardando polling');
-        micErroCountRef.current = 0;
-        return;
-      }
-      const delay = erros > 0 ? 3000 : 300;
       setTimeout(() => {
         if (micAtivoRef.current && !ttsAtivoRef.current && !multilingueRef.current && ExpoSpeechRecognitionModule) {
           try {
-            micRodandoRef.current = true; if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+            if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
           } catch(e) { console.log('Reinicio mic erro:', e); }
         }
-      }, delay);
+      }, 300);
     }
   });
+
+  // Eventos do módulo nativo
+  useEffect(() => {
+    if (!micEmitter) return;
+    const sub = micEmitter.addListener('onSpeechDetected', (e) => {
+      if (!e.text || !e.isFinal) return;
+      if (e.hasWakeWord || !wakeWordRef.current) enviar(e.text);
+    });
+    return () => sub.remove();
+  }, []);
 
   // ══ MULTILINGUE v2 (Groq STT Nativo) ══════════════════════════════════════
   // cicloMultilingue agora apenas inicia o módulo Kotlin — todo o loop de
@@ -2216,15 +1746,18 @@ export default function App() {
     if (!micAtivoRef.current || ttsAtivoRef.current) return;
     if (!userIdRef.current) { setTimeout(cicloMultilingue, 1000); return; }
     try { ExpoSpeechRecognitionModule?.stop(); } catch(e) {}
-    GroqSTT.iniciar(userIdRef.current).catch(e => console.log('[GroqSTT] Erro:', e));
+    NativeModules.GroqSTTModule.iniciar(userIdRef.current).catch(e => console.log('[GroqSTT] Erro:', e));
   }
 
+  async function finalizarCicloMultilingue() {
+    // Noop — ciclo nativo é contínuo, para via GroqSTTModule.parar()
+  }
 
   // Watchdog: garante que o Groq nativo está rodando quando deveria
   useEffect(() => {
     const wd = setInterval(() => {
       if (multilingueRef.current && micAtivoRef.current && !ttsAtivoRef.current && userIdRef.current) {
-        GroqSTT.iniciar(userIdRef.current).catch(() => {});
+        NativeModules.GroqSTTModule.iniciar(userIdRef.current).catch(() => {});
       }
     }, 15000);
     return () => clearInterval(wd);
@@ -2240,7 +1773,7 @@ export default function App() {
       if (multilingueRef.current) {
         cicloMultilingue(); // ouvido Groq (admin/premium/tester)
       } else {
-        micRodandoRef.current = true; if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+        if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
       }
       iniciarNotificacaoPersistente(config.assistantName);
       try { activateKeepAwakeAsync('mic'); } catch(e) {}
@@ -2251,20 +1784,23 @@ export default function App() {
     micAtivoRef.current = false;
     setMicAtivo(false);
     pararNotificacaoPersistente();
-    if (ExpoSpeechRecognitionModule) {
+    if (ExpoMicrophoneModule) {
+      try { await ExpoMicrophoneModule.stopListening(); } catch(e) {}
+    } else if (ExpoSpeechRecognitionModule) {
       try { ExpoSpeechRecognitionModule.stop(); } catch(e) {}
     }
     // Para o GroqSTT nativo se estiver rodando
-    GroqSTT.parar().catch(() => {});
+    NativeModules.GroqSTTModule.parar().catch(() => {});
     try { deactivateKeepAwake('mic'); } catch(e) {}
     // Nao para o WakeWordService — apenas garante que vai retomar quando app for pro background
     console.log('[WakeWord] Microfone desligado pelo usuario — servico continua ativo');
   }
 
   async function selecionarImagem() {
+    Alert.alert('Debug2', 'selecionarImagem chamado!');
     Alert.alert('Enviar imagem', 'Escolha a origem:', [
       {
-        text: 'Câmera',
+        text: '📷 Câmera',
         onPress: async () => {
           const perm = await ImagePicker.requestCameraPermissionsAsync();
           if (!perm.granted) { Alert.alert('Permissão negada', 'Permite acesso à câmera nas configurações.'); return; }
@@ -2272,13 +1808,13 @@ export default function App() {
             allowsEditing: true, quality: 0.5, base64: true,
           });
           if (!result.canceled && result.assets[0]) {
-            addMsg('user', 'Imagem enviada');
+            addMsg('user', '📷 Imagem enviada');
             await enviarImagem(result.assets[0].base64);
           }
         }
       },
       {
-        text: 'Galeria',
+        text: '🖼️ Galeria',
         onPress: async () => {
           const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (!perm.granted) { Alert.alert('Permissão negada', 'Permite acesso à galeria nas configurações.'); return; }
@@ -2287,7 +1823,7 @@ export default function App() {
             allowsEditing: true, quality: 0.5, base64: true,
           });
           if (!result.canceled && result.assets[0]) {
-            addMsg('user', 'Imagem enviada');
+            addMsg('user', '📷 Imagem enviada');
             await enviarImagem(result.assets[0].base64);
           }
         }
@@ -2298,6 +1834,7 @@ export default function App() {
 
   async function enviarImagem(base64) {
     if (!userId) return;
+    Alert.alert('Debug', `Enviando imagem... base64 length: ${base64?.length || 0}`);
     setPensando(true);
     try {
       const body = { user_id: userId, mensagem: 'O que você vê nessa imagem?', imagem_base64: base64 };
@@ -2331,18 +1868,6 @@ export default function App() {
   // ── AUTH ──────────────────────────────────────────────────────────────────
   async function onAuthSuccess(data) {
     setUserId(data.user_id); setEmail(data.email); setPlano(data.plano || 'free'); setTela('chat');
-    // Verificar se assinatura Google Play ainda está ativa
-    try {
-      const br = await fetch(`${config.backendUrl}/billing/verificar_status`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: data.user_id })
-      });
-      const bd = await br.json();
-      if (bd.ok && bd.changed) {
-        setPlano(bd.plano);
-        console.log('[BILLING] Plano atualizado:', bd.plano, 'motivo:', bd.reason);
-      }
-    } catch(e) { console.log('[BILLING] Check erro:', e); }
     contarMsgs(data.user_id);
     // Envia FCM token para o servidor
     try {
@@ -2356,32 +1881,14 @@ export default function App() {
       }
     } catch(e) { console.log('FCM envio erro:', e); }
     if (data.novo) {
-      setTimeout(async () => {
-        try {
-          const idiomaAtual = (await AsyncStorage.getItem('margo_idioma')) || 'en-US';
-          const rb = await fetch(`${config.backendUrl}/boas_vindas`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: data.user_id, idioma: idiomaAtual })
-          });
-          const db = await rb.json();
-          if (db.mensagem) {
-            addMsg('margo', db.mensagem);
-            await AsyncStorage.setItem('margo_boas_vindas', '1');
-          }
-        } catch(e) {
-          addMsg('margo', config.idioma === 'ja-JP'
-            ? `こんにちは！${config.assistantName}です。右上の設定アイコンをタップして設定してください。`
-            : config.idioma === 'en-US'
-            ? `Hi! I'm ${config.assistantName}. Tap the settings icon above to set up your profile.`
-            : `Olá! Sou a ${config.assistantName}. Toque no ícone de configuração acima para configurar seu perfil.`);
-        }
+      setTimeout(() => {
+        addMsg('margo', `Olá! Sou a ${config.assistantName} 👋 Antes de começar, configure seu perfil tocando em ⚙ acima.\n\nO que consigo fazer:\n🎙️ Voz e chat • 🌐 Busca na web • 📍 Maps • 🎵 Spotify/SoundCloud • ▶️ YouTube • ✈️ Passagens aéreas • 🏨 Hotéis • 🏠 Casa inteligente • 📞 Ligações e WhatsApp\n\nVamos lá? 😊`);
         setCfgAberto(true);
       }, 500);
     } else {
       try {
         const r = await fetch(`${config.backendUrl}/usuario/${data.user_id}`);
         const u = await r.json();
-        const idiomaPreservado = (await AsyncStorage.getItem('margo_idioma')) || 'en-US';
         const novoConfig = { ...config };
         // Lê chaves salvas localmente primeiro (não vêm do servidor)
         const cfgLocal = await AsyncStorage.getItem('margo_config');
@@ -2410,26 +1917,14 @@ export default function App() {
             voiceIdEleven: cfgLocalParsed.voiceIdEleven || '',
           });
         }
-        novoConfig.idioma = idiomaPreservado;  // Garante que idioma não se perde no merge
         setConfig(novoConfig);
         await AsyncStorage.setItem('margo_config', JSON.stringify(novoConfig));
         const hist = await AsyncStorage.getItem('margo_chat');
         const nome = u.perfil?.nome || '';
-        if (!hist) {
-          const _nome = nome ? ', ' + nome : '';
-          addMsg('margo', idiomaPreservado === 'ja-JP'
-            ? `こんにちは${_nome}！お手伝いできますか？`
-            : idiomaPreservado === 'en-US'
-            ? `Hi${_nome}! How can I help you today?`
-            : `Olá${_nome}! Tô aqui e pronta pra te ajudar. O que vamos fazer?`);
-        }
+        if (!hist) addMsg('margo', `Olá${nome ? ', ' + nome : ''}! Tô aqui e pronta pra te ajudar. O que vamos fazer?`);
         else { try { setMsgs(JSON.parse(hist)); } catch(e) {} }
       } catch(e) {
-        addMsg('margo', config.idioma === 'ja-JP'
-          ? `こんにちは！お手伝いできますか？`
-          : config.idioma === 'en-US'
-          ? `Hi! How can I help you today?`
-          : `Olá! Tô aqui e pronta pra te ajudar. O que vamos fazer?`);
+        addMsg('margo', `Olá! Tô aqui e pronta pra te ajudar. O que vamos fazer?`);
       }
     }
   }
@@ -2438,7 +1933,7 @@ export default function App() {
     const wakeWordAntes = config.wakeWordOn;
     setConfig(cfg);
     await AsyncStorage.setItem('margo_config', JSON.stringify(cfg));
-    await AsyncStorage.setItem('margo_idioma', cfg.idioma || config.idioma || 'pt-BR');
+    await AsyncStorage.setItem('margo_idioma', cfg.idioma || 'pt-BR');
     setCfgAberto(false);
     // Ativa ou desativa wake word conforme toggle
     if (cfg.wakeWordOn && !wakeWordAntes) {
@@ -2484,14 +1979,76 @@ export default function App() {
     }
   }
 
-  function handleUpgrade(planoEscolhido) {
-    if (planoEscolhido === 'pro') {
-      billing.buySub('pro_monthly');
-    } else if (planoEscolhido === 'pro_plus') {
-      billing.buySub('pro_plus_monthly');
-    } else if (planoEscolhido === 'avulso') {
-      billing.buyExtra();
-    }
+  async function handleUpgrade(planoEscolhido) {
+    const stripeLinks = {
+      'pro':      'https://buy.stripe.com/fZu00icrB57V2ba84r2oE01',
+      'pro_plus': 'https://buy.stripe.com/dRmfZgfDNfMzdTS2K72oE02',
+      'avulso':   'https://buy.stripe.com/fZu00ibnx57V032acz2oE00',
+    };
+
+    Alert.alert(
+      s_i['pagamento_titulo'],
+      s_i['pagamento_msg'],
+      [
+        {
+          text: s_i['pagamento_cartao'],
+          onPress: () => {
+            const url = `${stripeLinks[planoEscolhido]}?client_reference_id=${userId}&prefilled_email=${encodeURIComponent(email)}`;
+            setCfgAberto(false);
+            Linking.openURL(url);
+          }
+        },
+        {
+          text: s_i['pagamento_pix'],
+          onPress: async () => {
+            try {
+              const r = await fetch(`${config.backendUrl}/mp/criar_pix`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId, plano: planoEscolhido, email })
+              });
+              const d = await r.json();
+              if (d.qr_code) {
+                setCfgAberto(false);
+                // Copia o código PIX para área de transferência
+                const { Clipboard } = require('react-native');
+                Alert.alert(
+                  '💙 Pagar via PIX',
+                  `${d.titulo}\nValor: R$${d.valor.toFixed(2)}\n\nCódigo PIX copiado! Cole no seu banco para pagar.\n\n${d.qr_code}`,
+                  [
+                    { text: '📋 Copiar código', onPress: () => {
+                      Clipboard.setString(d.qr_code);
+                      Alert.alert('✅ Copiado!', 'Cole o código no app do seu banco para pagar via PIX.');
+                    }},
+                    { text: 'Fechar', style: 'cancel' }
+                  ]
+                );
+                // Polling para detectar pagamento aprovado
+                const ru0 = await fetch(`${config.backendUrl}/uso/${userId}`);
+                const du0 = await ru0.json();
+                const saldoAntes = du0.msgs_extras || 0;
+                let tentativas = 0;
+                const intervalo = setInterval(async () => {
+                  tentativas++;
+                  if (tentativas > 36) { clearInterval(intervalo); return; } // 3 min
+                  try {
+                    const ru = await fetch(`${config.backendUrl}/uso/${userId}`);
+                    const du = await ru.json();
+                    const novoExtras = du.msgs_extras || 0;
+                    console.log(`[POLLING] tentativa ${tentativas} saldoAntes=${saldoAntes} novoExtras=${novoExtras}`);
+                    if (novoExtras > saldoAntes) {
+                      clearInterval(intervalo);
+                      setMsgExtras(novoExtras);
+                      Alert.alert('✅ Pagamento confirmado!', `+50 interações adicionadas! Saldo: ${novoExtras}`);
+                    }
+                  } catch(e) { console.log('[POLLING] erro:', e); Alert.alert('POLLING ERRO', String(e)); }
+                }, 5000);
+              } else { Alert.alert('Erro', d.erro || 'Erro ao gerar PIX'); }
+            } catch(e) { console.log('MP erro:', e); Alert.alert('Erro', 'Sem conexão'); }
+          }
+        },
+        { text: 'Cancelar', style: 'cancel' }
+      ]
+    );
   }
 
   async function sair() {
@@ -2509,11 +2066,6 @@ export default function App() {
 
   // ── RENDER ────────────────────────────────────────────────────────────────
 
-  if (tela === 'idioma') return <TelaIdioma onSelecionar={async (lang) => {
-    setConfig(c => ({ ...c, idioma: lang }));
-    await AsyncStorage.setItem('margo_idioma', lang);
-    setTela('boas_vindas');
-  }} />;
   if (tela === 'boas_vindas') return <TelaBoasVindas onEntrar={() => setTela('login')} onCadastrar={() => setTela('cadastro')} idioma={config.idioma} />;
   if (tela === 'cadastro')    return <TelaCadastro onSuccess={onAuthSuccess} onVoltar={() => setTela('boas_vindas')} backendUrl={config.backendUrl} idioma={config.idioma} />;
   if (tela === 'login')       return <TelaLogin    onSuccess={onAuthSuccess} onVoltar={() => setTela('boas_vindas')} backendUrl={config.backendUrl} idioma={config.idioma} />;
@@ -2537,16 +2089,16 @@ export default function App() {
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity style={[s.iconBtn, !vozAtiva && { borderColor: C.red }]}
             onPress={() => setVozAtiva(v => !v)}>
-            <Ionicons name={vozAtiva ? "volume-high" : "volume-off"} size={16} color={vozAtiva ? C.text2 : C.red} />
+            <Text style={{ fontSize: 16 }}>{vozAtiva ? '🔊' : '🔇'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.iconBtn} onPress={() => {
             setMsgs([]); AsyncStorage.removeItem('margo_chat');
             addMsg('sistema', 'Conversa reiniciada');
           }}>
-            <Ionicons name="refresh" size={18} color={C.text2} />
+            <Text style={{ color: C.text2, fontSize: 18 }}>↺</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.iconBtn} onPress={() => setCfgAberto(true)}>
-            <Ionicons name="settings-sharp" size={18} color={C.text2} />
+            <Text style={{ color: C.text2, fontSize: 18 }}>⚙</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -2560,7 +2112,7 @@ export default function App() {
         <ScrollView ref={scrollRef} style={{ flex: 1 }}
           contentContainerStyle={{ padding: 14, gap: 10 }}
           keyboardShouldPersistTaps="handled">
-          {msgs.map(m => <Bolha key={m.id} msg={m} avatarUri={avatarUri} idioma={config.idioma} />)}
+          {msgs.map(m => <Bolha key={m.id} msg={m} avatarUri={avatarUri} />)}
           {pensando && (
             <View style={s.row}>
               <View style={s.av}>
@@ -2590,7 +2142,7 @@ export default function App() {
             <TouchableOpacity
               style={[s.micBtn, micAtivo && s.micBtnOn]}
               onPress={toggleMic}>
-              <Ionicons name={micAtivo ? "mic" : "mic-outline"} size={18} color={micAtivo ? C.cyan : C.text2} />
+              <Text style={{ fontSize: 18 }}>{micAtivo ? '🎙️' : '🎤'}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.sendBtn} onPress={() => enviar()}>
               <Text style={{ color: '#000', fontSize: 18, fontWeight: '700' }}>▶</Text>
@@ -2601,11 +2153,11 @@ export default function App() {
               faltam <= 5 && { color: C.red }]}>
               {msgExtras > 0
                 ? plano === 'free' || plano === 'trial'
-                  ? `${faltam - msgExtras} ${s_i['trial']} + ${msgExtras} ${s_i['extras']}`
-                  : `${faltam - msgExtras} ${s_i['hoje']} + ${msgExtras} ${s_i['extras']}`
+                  ? `${faltam - msgExtras} trial + ${msgExtras} extras`
+                  : `${faltam - msgExtras} hoje + ${msgExtras} extras`
                 : plano === 'free' || plano === 'trial'
-                  ? `${faltam} ${s_i['msgs_restantes_trial']}`
-                  : `${faltam} ${s_i['msgs_restantes_hoje']}`}
+                  ? `${faltam} msgs restantes (trial)`
+                  : `${faltam} msgs restantes hoje`}
             </Text>
           )}
         </View>
@@ -2620,7 +2172,6 @@ export default function App() {
         onSair={sair}
         idioma={config.idioma}
         onUpgrade={handleUpgrade}
-        billing={billing}
         email={email}
         plano={plano}
         userId={userId}
