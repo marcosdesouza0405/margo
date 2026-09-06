@@ -2895,13 +2895,12 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     system = build_system_prompt(perfil, config)
     if contexto_extra:
         system += f"\n\n{contexto_extra}"
-    # Instrução de idioma vai por ÚLTIMO no system prompt (máxima prioridade pro modelo)
+    # Instrução de idioma no INÍCIO e no FINAL do system prompt (sanduíche)
     if idioma_falado and idioma_falado.lower() not in ("portuguese", "pt", "pt-br"):
-        # STT detectou idioma específico — força esse idioma
-        system += f"\n\n=== MANDATORY LANGUAGE RULE ===\nThe user spoke in {idioma_falado}. You MUST respond ENTIRELY in {idioma_falado}. Do NOT translate their message. Do NOT respond in Portuguese. Reply naturally in {idioma_falado} as if it were your native language."
-        # [Respond in X] removido — MANDATORY LANGUAGE RULE no system prompt já cobre
+        lang_rule = f"CRITICAL: You MUST respond ENTIRELY in {idioma_falado}. Even though your personality description below may be written in Portuguese, your RESPONSE must be 100% in {idioma_falado}. NEVER respond in Portuguese."
+        system = f"=== LANGUAGE: {idioma_falado.upper()} ===\n{lang_rule}\n\n" + system
+        system += f"\n\n=== MANDATORY LANGUAGE RULE (FINAL REMINDER) ===\n{lang_rule} Do NOT translate the user's message. Reply naturally in {idioma_falado} as if it were your native language."
     else:
-        # Sem STT — manda regra genérica forte pra detectar e espelhar o idioma
         system += "\n\n=== MANDATORY LANGUAGE RULE ===\nDetect the language of the user\'s CURRENT message. You MUST respond ENTIRELY in that SAME language. If the user writes in English, respond in English. If Japanese, respond in Japanese. If Spanish, respond in Spanish. NEVER default to Portuguese unless the user wrote in Portuguese. Match the user\'s language exactly."
 
     import time as _t
@@ -3990,6 +3989,10 @@ async def teste_simular_pagamento(request: Request):
     try:
         data = await request.json()
         user_id = data.get("user_id", "")
+        # Circuit breaker
+        cb = circuit_breaker_check(user_id)
+        if cb["blocked"]:
+            return JSONResponse({"resposta": cb["msg"], "onboarding": False, "ferramenta": None})
         plano = data.get("plano", "avulso")
         plano = plano.replace("pro+", "pro_plus")  # normaliza
 
@@ -5050,6 +5053,142 @@ async def admin_atualizar_plano(request: Request):
         return JSONResponse({"erro": str(e)}, status_code=500)
 
 
+
+
+# ── Log de erros recentes (circular buffer) ──
+_ultimos_erros = []
+
+def registrar_erro(endpoint, user_id, erro):
+    """Registra erro com user_id pra diagnóstico."""
+    from datetime import datetime
+    _ultimos_erros.append({
+        "ts": datetime.now().isoformat(),
+        "endpoint": endpoint,
+        "user_id": user_id,
+        "erro": str(erro)[:200]
+    })
+    # Mantém só os últimos 50
+    while len(_ultimos_erros) > 50:
+        _ultimos_erros.pop(0)
+    log(f"ERRO [{endpoint}] user={user_id}: {str(erro)[:200]}", "erro")
+
+
+
+# ── Circuit Breaker por usuário ──────────────────────────────────────────────
+_user_errors = {}
+
+def circuit_breaker_check(user_id: str) -> dict:
+    """Verifica se o usuário tá bloqueado."""
+    entry = _user_errors.get(user_id)
+    if not entry:
+        return {"blocked": False}
+    if entry.get("blocked_until"):
+        if datetime.now() < entry["blocked_until"]:
+            return {
+                "blocked": True,
+                "msg": "Estamos com um problema técnico temporário na sua conta. "
+                       "Tente novamente em alguns minutos. Se persistir, entre em contato: "
+                       "bob.assistente.oficial@gmail.com"
+            }
+        else:
+            del _user_errors[user_id]
+            return {"blocked": False}
+    return {"blocked": False}
+
+def circuit_breaker_registrar(user_id: str, erro: str):
+    """Registra erro. Se 3 em 5 min, bloqueia."""
+    agora = datetime.now()
+    entry = _user_errors.get(user_id, {"count": 0, "first_error": agora})
+    if (agora - entry["first_error"]).total_seconds() > 300:
+        entry = {"count": 0, "first_error": agora}
+    entry["count"] += 1
+    if entry["count"] >= 3:
+        entry["blocked_until"] = agora + timedelta(minutes=5)
+        log(f"CIRCUIT BREAKER: user={user_id} bloqueado por 5 min apos {entry['count']} erros", "erro")
+        try:
+            _notificar_admin_erro(user_id, erro)
+        except Exception:
+            pass
+    _user_errors[user_id] = entry
+
+def circuit_breaker_reset(user_id: str):
+    """Reseta o circuit breaker (chamado em sucesso)."""
+    if user_id in _user_errors:
+        del _user_errors[user_id]
+
+def _notificar_admin_erro(user_id_problema: str, erro: str):
+    """Envia push pro Marcos avisando que um usuário foi bloqueado."""
+    try:
+        admin_id = "u_542742256e3743ed"
+        conn = banco._get_conn()
+        c = conn.cursor()
+        ph = "%s" if banco._pg else "?"
+        c.execute(f"SELECT email FROM usuarios WHERE user_id={ph}", (user_id_problema,))
+        row = c.fetchone()
+        email_problema = row[0] if row else "desconhecido"
+        c.execute(f"SELECT fcm_token FROM usuarios WHERE user_id={ph}", (admin_id,))
+        row_admin = c.fetchone()
+        conn.close()
+        if row_admin and row_admin[0]:
+            enviar_push(
+                row_admin[0],
+                "Alerta Margo: usuario bloqueado",
+                f"{email_problema} ({user_id_problema}) bloqueado: {str(erro)[:100]}"
+            )
+    except Exception as e:
+        log(f"Erro notificar admin: {e}", "erro")
+
+@app.get("/admin/health")
+async def admin_health(key: str = ""):
+    """Admin: status do servidor, pool e últimos erros."""
+    if key != "orbiby2026admin":
+        return JSONResponse({"erro": "Não autorizado"}, status_code=401)
+    pool_info = {}
+    if hasattr(banco, '_pool') and banco._pool:
+        p = banco._pool
+        pool_info = {
+            "minconn": p.minconn,
+            "maxconn": p.maxconn,
+            "closed": p.closed,
+        }
+    return JSONResponse({
+        "status": "online",
+        "pool": pool_info,
+        "ultimos_erros": _ultimos_erros[-10:],
+        "total_erros": len(_ultimos_erros)
+    })
+
+
+@app.post("/admin/desbloquear")
+async def admin_desbloquear(request: Request):
+    """Admin: desbloqueia um usuário."""
+    try:
+        data = await request.json()
+        if data.get("key", "") != "orbiby2026admin":
+            return JSONResponse({"erro": "Não autorizado"}, status_code=401)
+        user_id = data.get("user_id", "").strip()
+        if not user_id:
+            return JSONResponse({"erro": "user_id obrigatório"}, status_code=400)
+        circuit_breaker_reset(user_id)
+        log(f"Admin: {user_id} desbloqueado", "admin")
+        return JSONResponse({"ok": True, "msg": f"Usuario {user_id} desbloqueado"})
+    except Exception as e:
+        return JSONResponse({"erro": str(e)}, status_code=500)
+
+@app.get("/admin/bloqueados")
+async def admin_bloqueados(key: str = ""):
+    """Admin: lista usuários bloqueados."""
+    if key != "orbiby2026admin":
+        return JSONResponse({"erro": "Não autorizado"}, status_code=401)
+    bloqueados = {}
+    for uid, entry in _user_errors.items():
+        if entry.get("blocked_until") and datetime.now() < entry["blocked_until"]:
+            bloqueados[uid] = {
+                "erros": entry["count"],
+                "bloqueado_ate": entry["blocked_until"].isoformat(),
+                "primeiro_erro": entry["first_error"].isoformat()
+            }
+    return JSONResponse({"bloqueados": bloqueados, "total": len(bloqueados)})
 
 @app.post("/admin/deletar_conta")
 async def admin_deletar_conta(request: Request):
