@@ -5174,7 +5174,7 @@ async def admin_health(key: str = ""):
         "status": "online",
         "pool": pool_info,
         "ultimos_erros": _ultimos_erros[-10:],
-        "total_erros": len(_ultimos_erros)
+        "total_erros": len(_ultimos_erros), "usuarios_ativos_5min": contar_ativos(5), "usuarios_ativos_10min": contar_ativos(10)
     })
 
 
