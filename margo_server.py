@@ -3989,11 +3989,6 @@ async def teste_simular_pagamento(request: Request):
     try:
         data = await request.json()
         user_id = data.get("user_id", "")
-        # Circuit breaker
-        cb = circuit_breaker_check(user_id)
-        if cb["blocked"]:
-            return JSONResponse({"resposta": cb["msg"], "onboarding": False, "ferramenta": None})
-        registrar_ativo(user_id)
         plano = data.get("plano", "avulso")
         plano = plano.replace("pro+", "pro_plus")  # normaliza
 
@@ -4788,6 +4783,7 @@ async def mensagem(request: Request):
         if not mensagem_ and imagem_base64:
             mensagem_ = "O que voce ve nessa imagem? Descreva detalhadamente."
 
+        registrar_ativo(user_id)
             # Verifica limite diário
         uso = banco.verificar_limite(user_id)
         if not uso["pode"]:
