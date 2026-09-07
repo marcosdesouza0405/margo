@@ -3993,6 +3993,7 @@ async def teste_simular_pagamento(request: Request):
         cb = circuit_breaker_check(user_id)
         if cb["blocked"]:
             return JSONResponse({"resposta": cb["msg"], "onboarding": False, "ferramenta": None})
+        registrar_ativo(user_id)
         plano = data.get("plano", "avulso")
         plano = plano.replace("pro+", "pro_plus")  # normaliza
 
@@ -5076,6 +5077,24 @@ def registrar_erro(endpoint, user_id, erro):
 
 # ── Circuit Breaker por usuário ──────────────────────────────────────────────
 _user_errors = {}
+
+
+# ── Tracker de usuários ativos ──
+_usuarios_ativos = {}  # {user_id: datetime do último uso}
+
+def registrar_ativo(user_id: str):
+    """Marca usuário como ativo (chamado em cada /mensagem)."""
+    _usuarios_ativos[user_id] = datetime.now()
+    # Limpa inativos (+10 min)
+    limite = datetime.now() - timedelta(minutes=10)
+    mortos = [uid for uid, ts in _usuarios_ativos.items() if ts < limite]
+    for uid in mortos:
+        del _usuarios_ativos[uid]
+
+def contar_ativos(minutos=5) -> int:
+    """Conta usuários ativos nos últimos N minutos."""
+    limite = datetime.now() - timedelta(minutes=minutos)
+    return sum(1 for ts in _usuarios_ativos.values() if ts >= limite)
 
 def circuit_breaker_check(user_id: str) -> dict:
     """Verifica se o usuário tá bloqueado."""
