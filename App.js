@@ -10,7 +10,7 @@ import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import * as Contacts from 'expo-contacts';
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
@@ -1440,7 +1440,7 @@ export default function App() {
     const interval = setInterval(() => {
       if (micAtivoRef.current && !ttsAtivoRef.current && !micRodandoRef.current && ExpoSpeechRecognitionModule) {
         try {
-          micRodandoRef.current = true; if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+          micRodandoRef.current = true; if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: Platform.OS === 'ios', addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
         } catch(e) {}
       }
     }, 15000);
@@ -2007,7 +2007,7 @@ export default function App() {
       let audioSource;
       if (Platform.OS === 'ios') {
         const tmpFile = FileSystem.cacheDirectory + 'margo_tts_' + Date.now() + '.mp3';
-        await FileSystem.writeAsStringAsync(tmpFile, base64, { encoding: FileSystem.EncodingType.Base64 });
+        await FileSystem.writeAsStringAsync(tmpFile, base64, { encoding: "base64" });
         audioSource = { uri: tmpFile };
         console.log("[MARGO-DEBUG] TTS iOS arquivo:", tmpFile);
         console.log("[TTS iOS] arquivo:", tmpFile);
@@ -2188,6 +2188,7 @@ export default function App() {
     const transcript = e.results?.[0]?.transcript;
     if (!transcript) return;
     // Android: espera isFinal. iOS: aceita parciais (Speech Framework envia texto completo a cada update)
+    console.log("[MIC-DEBUG] result:", e.results?.[0]?.transcript, "isFinal:", e.isFinal, "segmentos:", e.results?.length);
     if (Platform.OS === 'android' && !e.isFinal) return;
     micErroCountRef.current = 0;
     micRodandoRef.current = true;
@@ -2236,7 +2237,7 @@ export default function App() {
       setTimeout(() => {
         if (micAtivoRef.current && !ttsAtivoRef.current && !multilingueRef.current && ExpoSpeechRecognitionModule) {
           try {
-            micRodandoRef.current = true; if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+            micRodandoRef.current = true; if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: Platform.OS === 'ios', addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
           } catch(e) { console.log('Reinicio mic erro:', e); }
         }
       }, delay);
@@ -2274,7 +2275,7 @@ export default function App() {
       if (multilingueRef.current) {
         cicloMultilingue(); // ouvido Groq (admin/premium/tester)
       } else {
-        micRodandoRef.current = true; if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: false, addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
+        micRodandoRef.current = true; if (!multilingueRef.current) ExpoSpeechRecognitionModule.start({ lang: config.idioma || 'pt-BR', interimResults: Platform.OS === 'ios', addsPunctuation: true, contextualStrings: [config.assistantName], continuous: true });
       }
       iniciarNotificacaoPersistente(config.assistantName);
       try { activateKeepAwakeAsync('mic'); } catch(e) {}
