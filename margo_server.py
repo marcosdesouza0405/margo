@@ -1764,6 +1764,7 @@ MÚSICA — "toca", "coloca uma música", "coloca no spotify", "quero ouvir":
 {{"ferramenta": "spotify_play", "query": "artista ou música ou playlist"}}
 {{"ferramenta": "soundcloud_play", "query": "artista ou música"}}
 → Prefira Spotify. Use SoundCloud só se o usuário pedir explicitamente.
+→ IMPORTANTE: Se o usuário pedir pra VOCÊ escolher uma música, SEMPRE inclua o JSON {{"ferramenta": "spotify_play", "query": "nome da música artista"}} na resposta. Escolher e tocar é a MESMA ação — nunca sugira sem tocar.
 
 BUSCA LOCAL — "tem restaurante", "onde posso", "procura um lugar", "farmácia perto":
 {{"ferramenta": "maps_search", "query": "tipo de lugar"}}
