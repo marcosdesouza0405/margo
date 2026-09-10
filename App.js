@@ -10,6 +10,7 @@ import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import * as Contacts from 'expo-contacts';
 import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
@@ -2003,8 +2004,18 @@ export default function App() {
   async function tocarAudioBase64(base64, onFim) {
     try {
       await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
+      let audioSource;
+      if (Platform.OS === 'ios') {
+        const tmpFile = FileSystem.cacheDirectory + 'margo_tts_' + Date.now() + '.mp3';
+        await FileSystem.writeAsStringAsync(tmpFile, base64, { encoding: FileSystem.EncodingType.Base64 });
+        audioSource = { uri: tmpFile };
+        console.log("[MARGO-DEBUG] TTS iOS arquivo:", tmpFile);
+        console.log("[TTS iOS] arquivo:", tmpFile);
+      } else {
+        audioSource = { uri: `data:audio/mpeg;base64,${base64}` };
+      }
       const { sound } = await Audio.Sound.createAsync(
-        { uri: `data:audio/mpeg;base64,${base64}` },
+        audioSource,
         { shouldPlay: true, volume: 1.0 }
       );
       sound.setOnPlaybackStatusUpdate(st => {
@@ -2015,14 +2026,14 @@ export default function App() {
       });
       return true;
     } catch(e) {
-      console.log('Áudio erro:', e);
+      console.log('[MARGO-DEBUG] Áudio erro:', e);
       return false;
     }
   }
 
   function religarMic() {
     ttsAtivoRef.current = false;
-    try { NativeModules.WakeWordModule.releaseTTS(); } catch(e) {}
+    if (Platform.OS === 'android') { try { NativeModules.WakeWordModule.releaseTTS(); } catch(e) {} }
     if (micAtivoRef.current && ExpoSpeechRecognitionModule) {
       // Religamento = MESMO caminho da abertura (ideia do Marcos, versao final):
       // marca como desligado e refaz o setup completo via iniciarMicrofone()
@@ -2035,6 +2046,7 @@ export default function App() {
   }
 
   async function falar(texto) {
+    console.log("[MARGO-DEBUG] vozAtiva:", vozAtiva);
     if (!vozAtiva) return;
     ttsAtivoRef.current = true;
     try { await NativeModules.WakeWordModule.requestTTS(); } catch(e) {}
@@ -2174,14 +2186,21 @@ export default function App() {
   useSpeechRecognitionEvent('result', (e) => {
     if (multilingueRef.current) return;
     const transcript = e.results?.[0]?.transcript;
-    if (!transcript || !e.isFinal) return;
-    micErroCountRef.current = 0; // Funcionou — reseta contador
+    if (!transcript) return;
+    // Android: espera isFinal. iOS: aceita parciais (Speech Framework envia texto completo a cada update)
+    if (Platform.OS === 'android' && !e.isFinal) return;
+    micErroCountRef.current = 0;
     micRodandoRef.current = true;
-    // Acumula fragmentos em vez de enviar cada um separado
-    micBufferRef.current = micBufferRef.current
-      ? micBufferRef.current + ' ' + transcript
-      : transcript;
-    // Reseta timer — só envia após 1.5s sem novo fragmento
+    if (Platform.OS === 'ios') {
+      // iOS: substitui buffer com transcript mais recente (não acumula, pois cada resultado já é o texto completo)
+      micBufferRef.current = transcript;
+    } else {
+      // Android: acumula fragmentos finais
+      micBufferRef.current = micBufferRef.current
+        ? micBufferRef.current + ' ' + transcript
+        : transcript;
+    }
+    // Reseta timer — envia após silêncio (iOS: 2s, Android: 3s)
     if (micTimerRef.current) clearTimeout(micTimerRef.current);
     micTimerRef.current = setTimeout(() => {
       if (micBufferRef.current.trim()) {
@@ -2189,7 +2208,7 @@ export default function App() {
         micBufferRef.current = '';
       }
       micTimerRef.current = null;
-    }, 3000);
+    }, Platform.OS === 'ios' ? 2000 : 3000);
   });
 
   useSpeechRecognitionEvent('error', (e) => {
