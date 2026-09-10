@@ -51,7 +51,7 @@
       <true/>
     </dict>
     <key>NSCameraUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your camera</string>
+    <string>A Margo precisa da câmera para enviar imagens.</string>
     <key>NSContactsUsageDescription</key>
     <string>A Margo acessa seus contatos para fazer ligações pelo seu nome.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
@@ -63,7 +63,7 @@
     <key>NSMicrophoneUsageDescription</key>
     <string>A Margo precisa do microfone para ouvir você.</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your photos</string>
+    <string>A Margo acessa suas fotos para enviar imagens.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>A Margo usa reconhecimento de voz para entender seus comandos.</string>
     <key>RCTNewArchEnabled</key>
