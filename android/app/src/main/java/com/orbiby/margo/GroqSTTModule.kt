@@ -1,0 +1,321 @@
+package com.orbiby.margo
+
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import android.util.Base64
+import android.util.Log
+import com.facebook.react.bridge.*
+import com.facebook.react.modules.core.DeviceEventManagerModule
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.thread
+
+class GroqSTTModule(private val reactContext: ReactApplicationContext) :
+    ReactContextBaseJavaModule(reactContext) {
+
+    companion object {
+        const val TAG = "GroqSTT"
+        const val SAMPLE_RATE = 16000
+        const val CHANNEL = AudioFormat.CHANNEL_IN_MONO
+        const val FORMAT = AudioFormat.ENCODING_PCM_16BIT
+        const val CHUNK_MS = 30
+        const val CHUNK_SAMPLES = SAMPLE_RATE * CHUNK_MS / 1000  // 480 samples
+        const val RMS_THRESHOLD = 500.0
+        const val CALIBRATION_CHUNKS = 30
+        const val THRESHOLD_MULTIPLIER = 3.0
+        const val SPEECH_MIN_MS = 500L
+        const val SILENCE_AFTER_SPEECH_MS = 1200L
+        const val MAX_RECORDING_MS = 30000L
+        const val BACKEND_URL = "https://margo-production-98a9.up.railway.app/stt"
+    }
+
+    private val isListening = AtomicBoolean(false)
+    private var audioRecord: AudioRecord? = null
+    private var recordThread: Thread? = null
+    private var userId: String = ""
+
+    override fun getName() = "GroqSTTModule"
+
+    // ── JS INTERFACE ──────────────────────────────────────────────────────────
+
+    @ReactMethod
+    fun iniciar(userId: String, promise: Promise) {
+        // Se já está rodando E a thread está viva, não interrompe
+        if (isListening.get() && recordThread?.isAlive == true) {
+            Log.d(TAG, "Já rodando — ignorando chamada duplicada")
+            promise.resolve("ALREADY_RUNNING")
+            return
+        }
+        // Se isListening mas thread morta, reseta tudo
+        if (isListening.get()) {
+            Log.d(TAG, "Loop morto detectado — resetando")
+            isListening.set(false)
+            try { audioRecord?.stop() } catch (_: Exception) {}
+            try { audioRecord?.release() } catch (_: Exception) {}
+            audioRecord = null
+            try { recordThread?.join(1000) } catch (_: Exception) {}
+            recordThread = null
+        }
+        this.userId = userId
+        isListening.set(true)
+
+        recordThread = thread(name = "GroqSTTLoop") {
+            try {
+                loopGravacao()
+            } catch (e: Exception) {
+                Log.e(TAG, "Erro no loop: ${e.message}")
+                emitirEvento("onGroqErro", mapOf("erro" to (e.message ?: "unknown")))
+            } finally {
+                liberarAudio()
+            }
+        }
+        promise.resolve("OK")
+    }
+
+    @ReactMethod
+    fun parar(promise: Promise) {
+        isListening.set(false)
+        promise.resolve("OK")
+    }
+
+    // Obrigatórios para NativeEventEmitter no JS
+    @ReactMethod
+    fun addListener(eventName: String) {}
+
+    @ReactMethod
+    fun removeListeners(count: Int) {}
+
+    // ── LOOP PRINCIPAL ────────────────────────────────────────────────────────
+
+    private fun loopGravacao() {
+        val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL, FORMAT)
+        audioRecord = AudioRecord(
+            MediaRecorder.AudioSource.MIC, SAMPLE_RATE, CHANNEL, FORMAT,
+            minBuf.coerceAtLeast(CHUNK_SAMPLES * 4)
+        )
+        audioRecord?.startRecording()
+        Log.d(TAG, "AudioRecord iniciado — aguardando fala")
+        emitirEvento("onGroqEstado", mapOf("estado" to "ouvindo"))
+
+        while (isListening.get()) {
+            val pcmData = gravarAtesilencio() ?: continue
+            if (!isListening.get()) break
+
+            // Envia para o backend
+            emitirEvento("onGroqEstado", mapOf("estado" to "processando"))
+            try {
+                val wavBytes = codificarWAV(pcmData)
+                val base64Audio = Base64.encodeToString(wavBytes, Base64.NO_WRAP)
+                val resultado = enviarParaBackend(base64Audio)
+                if (resultado != null) {
+                    Log.d(TAG, "Transcricao: ${resultado.first} | Idioma: ${resultado.second}")
+                    emitirEvento("onGroqTranscricao", mapOf(
+                        "texto" to resultado.first,
+                        "idioma" to resultado.second
+                    ))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Erro ao processar: ${e.message}")
+                emitirEvento("onGroqErro", mapOf("erro" to (e.message ?: "unknown")))
+            }
+
+            // Reinicia ciclo
+            if (isListening.get()) {
+                emitirEvento("onGroqEstado", mapOf("estado" to "ouvindo"))
+            }
+        }
+    }
+
+    // ── VAD: DETECTA FALA E SILÊNCIO ──────────────────────────────────────────
+
+    private fun gravarAtesilencio(): ByteArray? {
+        val speechBuffer = ByteArrayOutputStream()
+        var speechStartTime = 0L
+        var isSpeaking = false
+        var silenceStartTime = 0L
+        val chunk = ShortArray(CHUNK_SAMPLES)
+
+        // Calibração: mede ruído ambiente por ~1 segundo
+        var ambientSum = 0.0
+        var ambientCount = 0
+        while (isListening.get() && ambientCount < CALIBRATION_CHUNKS) {
+            val read = audioRecord?.read(chunk, 0, CHUNK_SAMPLES) ?: 0
+            if (read <= 0) { Thread.sleep(10); continue }
+            ambientSum += calcularRMS(chunk, read)
+            ambientCount++
+        }
+        val ambientRMS = if (ambientCount > 0) ambientSum / ambientCount else 100.0
+        val dynamicThreshold = maxOf(ambientRMS * THRESHOLD_MULTIPLIER, 300.0)
+        Log.d(TAG, "Calibrado: ambiente RMS=${"%.0f".format(ambientRMS)} threshold=${"%.0f".format(dynamicThreshold)}")
+
+        while (isListening.get()) {
+            val read = audioRecord?.read(chunk, 0, CHUNK_SAMPLES) ?: 0
+            if (read <= 0) { Thread.sleep(10); continue }
+
+            val rms = calcularRMS(chunk, read)
+            val now = System.currentTimeMillis()
+
+            if (rms >= dynamicThreshold) {
+                // Fala detectada
+                if (!isSpeaking) {
+                    isSpeaking = true
+                    speechStartTime = now
+                    Log.d(TAG, "Fala detectada (RMS=${"%.0f".format(rms)} > ${"%.0f".format(dynamicThreshold)})")
+                    emitirEvento("onGroqEstado", mapOf("estado" to "gravando"))
+                }
+                silenceStartTime = 0L
+                escreverPCM(speechBuffer, chunk, read)
+
+            } else if (isSpeaking) {
+                // Silêncio durante fala — continua gravando (pausas naturais)
+                escreverPCM(speechBuffer, chunk, read)
+
+                if (silenceStartTime == 0L) silenceStartTime = now
+                val silenceDuration = now - silenceStartTime
+
+                if (silenceDuration >= SILENCE_AFTER_SPEECH_MS) {
+                    val speechDuration = now - speechStartTime
+                    if (speechDuration >= SPEECH_MIN_MS) {
+                        Log.d(TAG, "Fim da fala — ${speechDuration}ms gravados")
+                        return speechBuffer.toByteArray()
+                    } else {
+                        // Muito curto, descarta e recomeça
+                        Log.d(TAG, "Fala muito curta (${speechDuration}ms), descartando")
+                        speechBuffer.reset()
+                        isSpeaking = false
+                        silenceStartTime = 0L
+                        emitirEvento("onGroqEstado", mapOf("estado" to "ouvindo"))
+                    }
+                }
+            }
+
+            // Tempo máximo de gravação
+            if (isSpeaking && (now - speechStartTime) >= MAX_RECORDING_MS) {
+                Log.d(TAG, "Tempo maximo atingido (${MAX_RECORDING_MS}ms)")
+                return speechBuffer.toByteArray()
+            }
+        }
+        return null
+    }
+
+    private fun escreverPCM(output: ByteArrayOutputStream, chunk: ShortArray, length: Int) {
+        for (i in 0 until length) {
+            val v = chunk[i].toInt()
+            output.write(v and 0xFF)
+            output.write((v shr 8) and 0xFF)
+        }
+    }
+
+    // ── CÁLCULOS ──────────────────────────────────────────────────────────────
+
+    private fun calcularRMS(buffer: ShortArray, length: Int): Double {
+        var sum = 0.0
+        for (i in 0 until length) {
+            sum += buffer[i].toDouble() * buffer[i].toDouble()
+        }
+        return Math.sqrt(sum / length)
+    }
+
+    // ── WAV ENCODING ──────────────────────────────────────────────────────────
+
+    private fun codificarWAV(pcmData: ByteArray): ByteArray {
+        val output = ByteArrayOutputStream()
+        val dataSize = pcmData.size
+        val fileSize = 36 + dataSize
+
+        output.write("RIFF".toByteArray())
+        output.write(intToLE(fileSize))
+        output.write("WAVE".toByteArray())
+
+        output.write("fmt ".toByteArray())
+        output.write(intToLE(16))
+        output.write(shortToLE(1))        // PCM
+        output.write(shortToLE(1))        // mono
+        output.write(intToLE(SAMPLE_RATE))
+        output.write(intToLE(SAMPLE_RATE * 2)) // byte rate
+        output.write(shortToLE(2))        // block align
+        output.write(shortToLE(16))       // bits per sample
+
+        output.write("data".toByteArray())
+        output.write(intToLE(dataSize))
+        output.write(pcmData)
+
+        return output.toByteArray()
+    }
+
+    private fun intToLE(value: Int) = byteArrayOf(
+        (value and 0xFF).toByte(),
+        ((value shr 8) and 0xFF).toByte(),
+        ((value shr 16) and 0xFF).toByte(),
+        ((value shr 24) and 0xFF).toByte()
+    )
+
+    private fun shortToLE(value: Int) = byteArrayOf(
+        (value and 0xFF).toByte(),
+        ((value shr 8) and 0xFF).toByte()
+    )
+
+    // ── HTTP POST PARA /stt ───────────────────────────────────────────────────
+
+    private fun enviarParaBackend(audioBase64: String): Pair<String, String>? {
+        val url = URL(BACKEND_URL)
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.connectTimeout = 30000
+        conn.readTimeout = 60000
+        conn.doOutput = true
+
+        val body = JSONObject().apply {
+            put("user_id", userId)
+            put("audio_base64", audioBase64)
+            put("formato", "wav")
+        }
+
+        conn.outputStream.use { it.write(body.toString().toByteArray()) }
+
+        val responseCode = conn.responseCode
+        if (responseCode != 200) {
+            val error = conn.errorStream?.bufferedReader()?.readText() ?: "HTTP $responseCode"
+            Log.e(TAG, "Backend erro: $error")
+            emitirEvento("onGroqErro", mapOf("erro" to "Backend HTTP $responseCode"))
+            return null
+        }
+
+        val response = conn.inputStream.bufferedReader().readText()
+        val json = JSONObject(response)
+        val texto = json.optString("texto", "")
+        val idioma = json.optString("idioma", "pt-br")
+
+        if (texto.isBlank()) return null
+        return Pair(texto, idioma)
+    }
+
+    // ── EVENTOS PARA JS ───────────────────────────────────────────────────────
+
+    private fun emitirEvento(nome: String, dados: Map<String, String>) {
+        try {
+            val params = Arguments.createMap().apply {
+                dados.forEach { (k, v) -> putString(k, v) }
+            }
+            reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit(nome, params)
+        } catch (e: Exception) {
+            Log.e(TAG, "Erro ao emitir evento '$nome': ${e.message}")
+        }
+    }
+
+    // ── CLEANUP ───────────────────────────────────────────────────────────────
+
+    private fun liberarAudio() {
+        try { audioRecord?.stop() } catch (_: Exception) {}
+        try { audioRecord?.release() } catch (_: Exception) {}
+        audioRecord = null
+        isListening.set(false)
+        Log.d(TAG, "Audio liberado")
+    }
+}

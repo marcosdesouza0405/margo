@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "914954240116",
+    "project_id": "margo-bdf5a",
+    "storage_bucket": "margo-bdf5a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:914954240116:android:c5e88e429636dfaa7a5121",
+        "android_client_info": {
+          "package_name": "com.orbiby.margo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDQeAhqgI5ff3cQeKBNz3FroTBokQAuQJA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
