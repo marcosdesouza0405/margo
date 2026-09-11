@@ -2468,7 +2468,7 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
 
     # ── PASSAGEM AÉREA e HOTEL — v4-pro parseia melhor (antes de maps_search!)
     # MAS: se tem "perto de mim" / "nearby", é busca local, não reserva
-    flight_kw = ["passagem", "passagens", "voo ", "voar ", "flight", "aérea", "aerea", "avião", "aviao"]
+    flight_kw = ["passagem", "passagens", "voo ", "voos", "voar ", "voando", "flight", "flights", "aérea", "aerea", "avião", "aviao", "aviões", "avioes", "bilhete aéreo", "bilhete aereo", "ida e volta", "só ida", "フライト", "飛行機", "航空券"]
     hotel_kw = ["hotel ", "hotéis", "hoteis", "hospedagem", "pousada", "hostel", "onde ficar", "reservar quarto"]
     local_indicadores = ["perto", "próximo", "proximo", "nearby", "near me", "aqui", "perto de mim", "por perto"]
     eh_busca_local = any(k in msg for k in local_indicadores)
