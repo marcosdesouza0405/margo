@@ -9,7 +9,7 @@ import * as Speech from 'expo-speech';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import * as Contacts from 'expo-contacts';
-import { Audio } from 'expo-av';
+import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Ionicons } from '@expo/vector-icons';
@@ -1320,7 +1320,7 @@ export default function App() {
   useEffect(() => {
     iniciar();
     pedirLocalizacao();
-    Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
+    Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false, shouldDuckAndroid: false, playThroughEarpieceAndroid: false, staysActiveInBackground: true, interruptionModeIOS: InterruptionModeIOS.DoNotMix, interruptionModeAndroid: InterruptionModeAndroid.DoNotMix });
   }, []);
 
   // WakeWord — listener unificado
@@ -2003,7 +2003,17 @@ export default function App() {
   // ── TTS ───────────────────────────────────────────────────────────────────
   async function tocarAudioBase64(base64, onFim) {
     try {
-      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
+      // iOS: para o mic e espera a sessão de áudio resetar pro alto-falante principal
+      if (Platform.OS === 'ios') {
+        if (ExpoSpeechRecognitionModule) {
+          try { ExpoSpeechRecognitionModule.stop(); } catch(e) {}
+        }
+        await new Promise(r => setTimeout(r, 300));
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false, shouldDuckAndroid: false, playThroughEarpieceAndroid: false, staysActiveInBackground: true, interruptionModeIOS: InterruptionModeIOS.DoNotMix, interruptionModeAndroid: InterruptionModeAndroid.DoNotMix });
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false, shouldDuckAndroid: false, playThroughEarpieceAndroid: false, staysActiveInBackground: true, interruptionModeIOS: InterruptionModeIOS.DoNotMix, interruptionModeAndroid: InterruptionModeAndroid.DoNotMix });
+      } else {
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false, shouldDuckAndroid: false, playThroughEarpieceAndroid: false, staysActiveInBackground: true, interruptionModeIOS: InterruptionModeIOS.DoNotMix, interruptionModeAndroid: InterruptionModeAndroid.DoNotMix });
+      }
       let audioSource;
       if (Platform.OS === 'ios') {
         const tmpFile = FileSystem.cacheDirectory + 'margo_tts_' + Date.now() + '.mp3';
