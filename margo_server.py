@@ -1786,8 +1786,9 @@ Usuário: "quero passagem de São Paulo para Tokyo em junho"
 Você: {{"ferramenta": "flight_search", "origem": "São Paulo", "destino": "Tokyo", "origem_iata": "GRU", "destino_iata": "NRT", "data_ida": "2025-06-01", "data_volta": ""}}
 Abrindo a busca de passagens pra você!
 
-CHAMADA — "liga para", "chama o/a":
-{{"ferramenta": "phone_call", "contato": "nome COMPLETO exatamente como foi dito ou número com código do país"}}
+WHATSAPP — "manda mensagem pra", "chama no whatsapp", "fala com":
+{{"ferramenta": "phone_call", "contato": "nome COMPLETO exatamente como foi dito"}}
+→ Abre a conversa no WhatsApp com o contato. NÃO faz ligação telefônica.
 
 AGENDA — "me lembra de", "agenda isso", "quais meus compromissos":
 {{"ferramenta": "agenda_add", "titulo": "...", "descricao": "...", "data_hora": "ISO8601"}}
@@ -2621,7 +2622,7 @@ Retorne APENAS um JSON válido se a mensagem pede:
 - Tocar música: {{"ferramenta":"spotify_play","query":"APENAS gênero, artista ou música específica"}}
 - Tocar no SoundCloud: {{"ferramenta":"soundcloud_play","query":"artista ou gênero"}}
 - Buscar vídeo: {{"ferramenta":"youtube_search","query":"tema do vídeo"}}
-- Ligar/WhatsApp: {{"ferramenta":"phone_call","contato":"nome COMPLETO ou número"}}
+- WhatsApp: {{"ferramenta":"phone_call","contato":"nome COMPLETO"}} (abre conversa no WhatsApp)
 - Clima/tempo/previsão: {{"ferramenta":"weather"}}
 → Use para QUALQUER pergunta sobre clima, tempo, chuva, temperatura, previsão, calor, frio
 - Pesquisa na internet: {{"ferramenta":"web_search","query":"termo de busca"}}
