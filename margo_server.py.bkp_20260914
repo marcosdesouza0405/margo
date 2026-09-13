@@ -1767,10 +1767,8 @@ MÚSICA — "toca", "coloca uma música", "coloca no spotify", "quero ouvir":
 → IMPORTANTE: Se o usuário pedir pra VOCÊ escolher uma música, SEMPRE inclua o JSON {{"ferramenta": "spotify_play", "query": "nome da música artista"}} na resposta. Escolher e tocar é a MESMA ação — nunca sugira sem tocar.
 
 BUSCA LOCAL — "tem restaurante", "onde posso", "procura um lugar", "farmácia perto":
-{{"ferramenta": "maps_search", "query": "nome correto do lugar"}}
+{{"ferramenta": "maps_search", "query": "tipo de lugar"}}
 → Use APENAS para lugares físicos próximos. NUNCA para hotéis ou passagens.
-→ IMPORTANTE: No query, coloque o nome CORRETO do lugar, não o que o usuário escreveu literalmente. Se o usuário escrever errado ou usar apelido, use o que VOCÊ sabe que é o nome real.
-→ Exemplos: "mega donki" → query: "Don Quijote", "macdonaldis" → query: "McDonald's", "starbaquis" → query: "Starbucks"
 
 PASSAGENS AÉREAS — "passagem para", "voo para", "quero ir de X para Y", "quanto custa voar":
 {{"ferramenta": "flight_search", "origem": "cidade origem", "destino": "cidade destino", "origem_iata": "código IATA 3 letras", "destino_iata": "código IATA 3 letras", "data_ida": "YYYY-MM-DD ou vazio", "data_volta": "YYYY-MM-DD ou vazio"}}
@@ -2620,11 +2618,7 @@ Mensagem atual: "{mensagem}"
 Retorne APENAS um JSON válido se a mensagem pede:
 - Navegar/ir para algum lugar: {{"ferramenta":"maps_navigate","destino":"nome do lugar","modo":"driving|transit|walking|bicycling"}}
   → modo é opcional. Use "transit" se o usuário mencionar ônibus/metrô/trem, "walking" se a pé, "bicycling" se bicicleta. Se não mencionar, omita o campo.
-- Buscar lugar próximo: {{"ferramenta":"maps_search","query":"nome correto do lugar"}}
-  "acha um mega donki" → {{"ferramenta":"maps_search","query":"Don Quijote"}}
-  "tem macdonaldis perto" → {{"ferramenta":"maps_search","query":"McDonald's"}}
-  "farmácia mais perto" → {{"ferramenta":"maps_search","query":"farmácia"}}
-  Use o nome REAL do lugar no query, não o que o usuário digitou/falou literalmente.
+- Buscar lugar próximo: {{"ferramenta":"maps_search","query":"mercado mais próximo"}}
 - Tocar música: {{"ferramenta":"spotify_play","query":"APENAS gênero, artista ou música específica"}}
 - Tocar no SoundCloud: {{"ferramenta":"soundcloud_play","query":"artista ou gênero"}}
 - Buscar vídeo: {{"ferramenta":"youtube_search","query":"tema do vídeo"}}
