@@ -1756,6 +1756,7 @@ O JSON deve estar sozinho numa linha, sem markdown, sem backticks.
 FORMATO EXATO (copie e use):
 
 NAVEGAÇÃO — "quero ir para", "rota para", "me leva até", "traça a rota":
+→ IMPORTANTE: Se estiver traçando rota para um resultado de busca anterior, use o ENDEREÇO COMPLETO no destino, NUNCA apenas o nome do lugar. Ex: "Saizeriya, 123 Torinose, Iwata" e não apenas "Saizeriya".
 {{"ferramenta": "maps_navigate", "destino": "endereço ou lugar"}}
 {{"ferramenta": "maps_navigate", "destino": "endereço ou lugar", "modo": "transit"}}
 → Campo "modo" é opcional: "driving" (padrão), "transit" (ônibus/metrô/trem), "walking" (a pé), "bicycling" (bicicleta). Inclua só se o usuário mencionar.
