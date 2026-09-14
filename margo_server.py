@@ -2524,13 +2524,15 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
         query_raw = msg
         for kw in local_kw:
             query_raw = query_raw.replace(kw, '')
-        # Remove palavras soltas comuns
-        for w in ["tem","tem ","acha","ache","encontra","encontre","busca","busque","procura","procure",
-                   "onde","qual","cadê","cade","um","uma","o","a","de","do","da","me","eu","quero",
-                   "por","aqui","favor","find","search","look","for","the","a","an","i","want","need",
-                   "can","you","is","there","any","some","good","best","onde fica","where is"]:
-            query_raw = query_raw.replace(w, '')
-        query_raw = ' '.join(query_raw.split()).strip()
+        # Remove palavras soltas comuns (apenas palavras inteiras, não partes)
+        import re as _re2
+        _stopwords = {"tem","acha","ache","encontra","encontre","busca","busque","procura","procure",
+                      "onde","qual","cade","um","uma","me","eu","quero","por","favor",
+                      "find","search","look","for","the","an","want","need",
+                      "can","you","is","there","any","some","good","best"}
+        palavras = query_raw.split()
+        palavras = [p for p in palavras if p.lower() not in _stopwords]
+        query_raw = ' '.join(palavras).strip()
         if query_raw:
             return {"ferramenta": "maps_search", "query": query_raw, "query_en": query_raw}
 
