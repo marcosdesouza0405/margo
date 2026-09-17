@@ -2307,17 +2307,12 @@ def _detectar_modo_transporte(msg: str) -> str:
 
 
 def _detectar_musica_na_resposta(resposta: str, mensagem_usuario: str, ferramenta: dict) -> dict:
-    """Se o LLM mencionou uma música mas não acionou spotify_play, cria automaticamente."""
-    if ferramenta and ferramenta.get("ferramenta"):
-        # Se é spotify_play, SEMPRE extrai música da resposta (LLM é inconsistente)
-        if ferramenta.get("ferramenta") == "spotify_play":
-            pass  # Continua pra detecção — resposta é a verdade
-        else:
-            return ferramenta  # Outra ferramenta, não mexe
-    
-    import re as _re_mus
+    """Extrai música da resposta do LLM e cria/corrige spotify_play."""
+    # Se tem outra ferramenta (não spotify), não mexe
+    if ferramenta and ferramenta.get("ferramenta") and ferramenta.get("ferramenta") != "spotify_play":
+        return ferramenta
+
     msg_lower = mensagem_usuario.lower()
-    
     # Verifica se o pedido era sobre música
     musica_pedido = any(w in msg_lower for w in [
         "música", "musica", "som ", "tocar", "toca ", "coloca ", "play ",
@@ -2326,39 +2321,35 @@ def _detectar_musica_na_resposta(resposta: str, mensagem_usuario: str, ferrament
         "e a música", "coloca outra", "outra música", "choose ", "pick ",
         "song", "music"
     ])
-    
     if not musica_pedido:
         return ferramenta
-    
-    # Tenta extrair "música do artista" da resposta
-    # Padrões: "Coloquei X do Y", "Escolhi X do Y", "X da Y", "X de Y"
+
+    # Extrai música por split simples
     resp = resposta
-    
-    patterns = [
-        _re_mus.compile(r'(?:coloquei|escolhi|separei|preparei|vou colocar|toca(?:ndo)?|botei)\s+(.+?)\s+(?:do|da|de|dos|das)\s+(.+?)(?:\s*[—\-\.!,]|\s+pra\s|\s+porque|\s+é\s|\s+que\s|$)', _re_mus.IGNORECASE),
-        _re_mus.compile(r'(?:coloquei|escolhi|separei|preparei|vou colocar|toca(?:ndo)?|botei)\s+"?(.+?)"?\s+(?:do|da|de|dos|das)\s+"?(.+?)"?(?:\s*[—\-\.!,]|\s+pra\s|\s+porque|\s+é\s|$)', _re_mus.IGNORECASE),
-        _re_mus.compile(r'(?:I chose|I picked|playing|I put on|let me play)\s+"?(.+?)"?\s+(?:by|from)\s+"?(.+?)"?(?:\s*[—\-\.!,]|\s+for\s|\s+because|$)', _re_mus.IGNORECASE),
-    ]
-    
-    for p in patterns:
-        m = p.search(resp)
-        if m:
-            musica = m.group(1).strip().strip('"').strip("'")
-            artista = m.group(2).strip().strip('"').strip("'")
-            if musica and artista and len(musica) > 1 and len(artista) > 1:
-                query = f"{musica} {artista}"
-                log(f"Auto-detectou música na resposta: {query}", "spotify")
-                return {"ferramenta": "spotify_play", "query": query}
-    
-    # Padrão sem "do/da": "Coloquei Imagine"
-    p2 = _re_mus.compile(r'(?:coloquei|escolhi|separei|preparei|vou colocar|botei)\s+"?([A-Z].+?)"?(?:\s*[—\-\.!,]|\s+pra\s|\s+porque|\s+é\s|\s+que\s|$)', _re_mus.IGNORECASE)
-    m2 = p2.search(resp)
-    if m2:
-        musica = m2.group(1).strip().strip('"').strip("'")
-        if musica and len(musica) > 2:
-            log(f"Auto-detectou música na resposta (sem artista): {musica}", "spotify")
-            return {"ferramenta": "spotify_play", "query": musica}
-    
+    gatilhos = ["coloquei ", "escolhi ", "separei ", "preparei ", "botei ", "tocando ", "playing "]
+    musica_extraida = ""
+
+    for g in gatilhos:
+        pos = resp.lower().find(g)
+        if pos >= 0:
+            trecho = resp[pos + len(g):]
+            # Corta no primeiro separador
+            for sep in [" — ", " - ", ". ", "! ", ", é ", ", uma ", ", essa ", ", que ", ", bem ", ", pra "]:
+                idx = trecho.find(sep)
+                if idx > 0:
+                    trecho = trecho[:idx]
+                    break
+            musica_extraida = trecho.strip().strip('"').strip("'")
+            break
+
+    if musica_extraida and len(musica_extraida) > 2:
+        log(f"Spotify auto-detect: '{musica_extraida}'", "spotify")
+        return {"ferramenta": "spotify_play", "query": musica_extraida}
+
+    # Se não encontrou mas era pedido de música e LLM retornou spotify_play, mantém
+    if ferramenta and ferramenta.get("ferramenta") == "spotify_play":
+        return ferramenta
+
     return ferramenta
 
 def _limpar_titulo(texto: str) -> str:
