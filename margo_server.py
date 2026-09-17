@@ -2309,7 +2309,17 @@ def _detectar_modo_transporte(msg: str) -> str:
 def _detectar_musica_na_resposta(resposta: str, mensagem_usuario: str, ferramenta: dict) -> dict:
     """Se o LLM mencionou uma música mas não acionou spotify_play, cria automaticamente."""
     if ferramenta and ferramenta.get("ferramenta"):
-        return ferramenta  # Já tem ferramenta, não mexe
+        # Se tem spotify_play mas query é placeholder/lixo, corrige
+        if ferramenta.get("ferramenta") == "spotify_play":
+            q = ferramenta.get("query", "")
+            eh_placeholder = not q or "[" in q or "específic" in q.lower() or "artista" in q.lower() and "música" in q.lower() or len(q) < 3
+            if eh_placeholder:
+                # Tenta extrair música real da resposta
+                pass  # Continua pra detecção abaixo
+            else:
+                return ferramenta
+        else:
+            return ferramenta  # Outra ferramenta, não mexe
     
     import re as _re_mus
     msg_lower = mensagem_usuario.lower()
