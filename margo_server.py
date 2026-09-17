@@ -2455,7 +2455,7 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
             disp = _re_sh.sub(r'(hoje|amanhã|amanha|daqui|depois de|às |as ).*', '', disp).strip()
             disp = _re_sh.sub(r'\d{1,2}[:\.]?\d{2}.*', '', disp).strip()
             disp = _re_sh.sub(r'\b\d{1,2}h\d{0,2}\b', '', disp).strip()
-            disp = disp.rstrip(' ,.')
+            disp = _limpar_titulo(disp)
             return {"ferramenta": "smart_home_agendado", "acao": acao, "dispositivo": disp, "valor": "",
                     "data_hora": tempo.get("data_hora_iso", ""),
                     "minutos_relativos": tempo.get("minutos_relativos", 0)}
