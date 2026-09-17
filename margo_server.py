@@ -1756,7 +1756,6 @@ O JSON deve estar sozinho numa linha, sem markdown, sem backticks.
 FORMATO EXATO (copie e use):
 
 NAVEGAÇÃO — "quero ir para", "rota para", "me leva até", "traça a rota":
-→ IMPORTANTE: Se estiver traçando rota para um resultado de busca anterior, use o ENDEREÇO COMPLETO no destino, NUNCA apenas o nome do lugar. Ex: "Saizeriya, 123 Torinose, Iwata" e não apenas "Saizeriya".
 {{"ferramenta": "maps_navigate", "destino": "endereço ou lugar"}}
 {{"ferramenta": "maps_navigate", "destino": "endereço ou lugar", "modo": "transit"}}
 → Campo "modo" é opcional: "driving" (padrão), "transit" (ônibus/metrô/trem), "walking" (a pé), "bicycling" (bicicleta). Inclua só se o usuário mencionar.
@@ -1776,7 +1775,7 @@ MÚSICA — qualquer pedido relacionado a música, som, tocar, escolher, colocar
 
 BUSCA LOCAL — "tem restaurante", "onde posso", "procura um lugar", "farmácia perto":
 {{"ferramenta": "maps_search", "query": "nome correto do lugar"}}
-→ Use para QUALQUER lugar físico próximo: tipos genéricos (restaurante, farmácia) OU nomes/marcas específicas de lojas, redes e estabelecimentos. Se o usuário quer ENCONTRAR um lugar perto, use maps_search. NUNCA para hotéis ou passagens.
+→ Use APENAS para lugares físicos próximos. NUNCA para hotéis ou passagens.
 → IMPORTANTE: No query, coloque o nome CORRETO do lugar, não o que o usuário escreveu literalmente. Se o usuário escrever errado ou usar apelido, use o que VOCÊ sabe que é o nome real.
 → Exemplos: "mega donki" → query: "Don Quijote", "macdonaldis" → query: "McDonald's", "starbaquis" → query: "Starbucks"
 
@@ -2307,6 +2306,57 @@ def _detectar_modo_transporte(msg: str) -> str:
     return ""
 
 
+def _detectar_musica_na_resposta(resposta: str, mensagem_usuario: str, ferramenta: dict) -> dict:
+    """Se o LLM mencionou uma música mas não acionou spotify_play, cria automaticamente."""
+    if ferramenta and ferramenta.get("ferramenta"):
+        return ferramenta  # Já tem ferramenta, não mexe
+    
+    import re as _re_mus
+    msg_lower = mensagem_usuario.lower()
+    
+    # Verifica se o pedido era sobre música
+    musica_pedido = any(w in msg_lower for w in [
+        "música", "musica", "som ", "tocar", "toca ", "coloca ", "play ",
+        "escolhe ", "escolha ", "bota ", "põe ", "ouvir", "escuta",
+        "sugere ", "sugira ", "recomenda ", "cadê a música", "cade a musica",
+        "e a música", "coloca outra", "outra música", "choose ", "pick ",
+        "song", "music"
+    ])
+    
+    if not musica_pedido:
+        return ferramenta
+    
+    # Tenta extrair "música do artista" da resposta
+    # Padrões: "Coloquei X do Y", "Escolhi X do Y", "X da Y", "X de Y"
+    resp = resposta
+    
+    patterns = [
+        _re_mus.compile(r'(?:coloquei|escolhi|separei|preparei|vou colocar|toca(?:ndo)?|botei)\s+(.+?)\s+(?:do|da|de|dos|das)\s+(.+?)(?:\s*[—\-\.!,]|\s+pra\s|\s+porque|\s+é\s|\s+que\s|$)', _re_mus.IGNORECASE),
+        _re_mus.compile(r'(?:coloquei|escolhi|separei|preparei|vou colocar|toca(?:ndo)?|botei)\s+"?(.+?)"?\s+(?:do|da|de|dos|das)\s+"?(.+?)"?(?:\s*[—\-\.!,]|\s+pra\s|\s+porque|\s+é\s|$)', _re_mus.IGNORECASE),
+        _re_mus.compile(r'(?:I chose|I picked|playing|I put on|let me play)\s+"?(.+?)"?\s+(?:by|from)\s+"?(.+?)"?(?:\s*[—\-\.!,]|\s+for\s|\s+because|$)', _re_mus.IGNORECASE),
+    ]
+    
+    for p in patterns:
+        m = p.search(resp)
+        if m:
+            musica = m.group(1).strip().strip('"').strip("'")
+            artista = m.group(2).strip().strip('"').strip("'")
+            if musica and artista and len(musica) > 1 and len(artista) > 1:
+                query = f"{musica} {artista}"
+                log(f"Auto-detectou música na resposta: {query}", "spotify")
+                return {"ferramenta": "spotify_play", "query": query}
+    
+    # Padrão sem "do/da": "Coloquei Imagine"
+    p2 = _re_mus.compile(r'(?:coloquei|escolhi|separei|preparei|vou colocar|botei)\s+"?([A-Z].+?)"?(?:\s*[—\-\.!,]|\s+pra\s|\s+porque|\s+é\s|\s+que\s|$)', _re_mus.IGNORECASE)
+    m2 = p2.search(resp)
+    if m2:
+        musica = m2.group(1).strip().strip('"').strip("'")
+        if musica and len(musica) > 2:
+            log(f"Auto-detectou música na resposta (sem artista): {musica}", "spotify")
+            return {"ferramenta": "spotify_play", "query": musica}
+    
+    return ferramenta
+
 def _limpar_titulo(texto: str) -> str:
     """Remove toda a gordura de um título de agenda ou nome de dispositivo.
     Cortesia, filler, auto-referência, contexto de comando, refs de tempo/data.
@@ -2523,26 +2573,6 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
             found_type = pt
             found_en = en
             break
-    # FALLBACK: se não achou tipo conhecido MAS tem indicador de localização,
-    # manda pro maps_search com o texto bruto — Brave resolve nomes/marcas/erros
-    if not found_type and any(k in msg for k in local_kw):
-        import re as _re
-        # Remove indicadores de local pra ficar só o nome do lugar
-        query_raw = msg
-        for kw in local_kw:
-            query_raw = query_raw.replace(kw, '')
-        # Remove palavras soltas comuns (apenas palavras inteiras, não partes)
-        import re as _re2
-        _stopwords = {"tem","acha","ache","encontra","encontre","busca","busque","procura","procure",
-                      "onde","qual","cade","um","uma","me","eu","quero","por","favor",
-                      "find","search","look","for","the","an","want","need",
-                      "can","you","is","there","any","some","good","best"}
-        palavras = query_raw.split()
-        palavras = [p for p in palavras if p.lower() not in _stopwords]
-        query_raw = ' '.join(palavras).strip()
-        if query_raw:
-            return {"ferramenta": "maps_search", "query": query_raw, "query_en": query_raw}
-
     if found_type and (any(k in msg for k in local_kw) or any(k in msg for k in ["acha","ache","encontra","encontre","busca","busque","procura","procure","tem ","onde","qual","cadê","cade"])):
         import re as _re
         _ignore = ["aqui","perto","de","do","da","em","no","na","um","uma","mim","me","mais",
@@ -3342,6 +3372,10 @@ INSTRUÇÕES OBRIGATÓRIAS:
         encerrar = len(msg_low) <= 40 and any(p in msg_low for p in padroes_despedida)
     except:
         encerrar = False
+
+    # Auto-detecta música na resposta se LLM esqueceu de acionar spotify
+    if not ferramenta or not ferramenta.get("ferramenta"):
+        ferramenta = _detectar_musica_na_resposta(resposta_limpa, mensagem_, ferramenta)
 
     return {
         "resposta":        limpar_resposta(resposta_limpa),
