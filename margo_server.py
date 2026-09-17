@@ -3369,8 +3369,8 @@ INSTRUÇÕES OBRIGATÓRIAS:
         encerrar = False
 
     # Auto-detecta música na resposta se LLM esqueceu de acionar spotify
-    if not ferramenta or not ferramenta.get("ferramenta"):
-        ferramenta = _detectar_musica_na_resposta(resposta_limpa, mensagem_, ferramenta)
+    if True:  # Sempre verifica — corrige query errado do LLM
+        ferramenta = _detectar_musica_na_resposta(resposta_limpa, mensagem, ferramenta)
 
     return {
         "resposta":        limpar_resposta(resposta_limpa),
