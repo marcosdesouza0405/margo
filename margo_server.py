@@ -2333,12 +2333,14 @@ def _detectar_musica_na_resposta(resposta: str, mensagem_usuario: str, ferrament
         pos = resp.lower().find(g)
         if pos >= 0:
             trecho = resp[pos + len(g):]
-            # Corta no primeiro separador
-            for sep in [" — ", " - ", ". ", "! ", ", é ", ", uma ", ", essa ", ", que ", ", bem ", ", pra "]:
+            # Corta no separador mais PRÓXIMO no texto
+            menor = len(trecho)
+            for sep in [" — ", " - ", ". ", "! ", ", é ", ", uma ", ", essa ", ", que ", ", bem ", ", pra ", ", e ", ", porque"]:
                 idx = trecho.find(sep)
-                if idx > 0:
-                    trecho = trecho[:idx]
-                    break
+                if 0 < idx < menor:
+                    menor = idx
+            if menor < len(trecho):
+                trecho = trecho[:menor]
             musica_extraida = trecho.strip().strip('"').strip("'")
             break
 
