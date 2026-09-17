@@ -1827,9 +1827,9 @@ Você: {{"ferramenta": "spotify_play", "query": "sertanejo"}}
 Colocando sertanejo pra você!
 
 Usuário: "coloca uma música que você goste" ou "escolhe uma música pra mim"
-Você: {{"ferramenta": "spotify_play", "query": "Bohemian Rhapsody Queen"}}
-Escolhi Bohemian Rhapsody do Queen — é uma obra-prima!
-IMPORTANTE: Quando o usuário pedir pra VOCÊ escolher, use o query com nome da MÚSICA + ARTISTA específico, nunca um gênero genérico.
+Você: {{"ferramenta": "spotify_play", "query": "[MESMA música que você mencionou na resposta]"}}
+[sua resposta mencionando a música escolhida]
+IMPORTANTE: O "query" DEVE ser EXATAMENTE a música que você mencionou na sua resposta. Se respondeu "coloquei Wave do Tom Jobim", o query é "Wave Tom Jobim". NUNCA copie nomes de músicas destes exemplos.
 
 Usuário: "traça a rota pra casa"
 Você: {{"ferramenta": "maps_navigate", "destino": "casa"}}
@@ -2693,9 +2693,10 @@ REGRAS para música:
 - NUNCA use apenas um gênero genérico como "sertanejo" ou "rock" no query. Sempre inclua artista ou música específica.
 
 Exemplos:
-"toca Bohemian Rhapsody" → {{"ferramenta":"spotify_play","query":"Bohemian Rhapsody Queen"}}
-"toca uma música" → {{"ferramenta":"spotify_play","query":"[preferência musical do perfil] top hits"}}
-"escolhe uma música pra mim" → {{"ferramenta":"spotify_play","query":"Yesterday Beatles"}}
+"toca [nome da música]" → {{"ferramenta":"spotify_play","query":"[nome exato que o usuário pediu]"}}
+"toca uma música" → {{"ferramenta":"spotify_play","query":"[música específica baseada na preferência do perfil]"}}
+"escolhe uma música pra mim" → {{"ferramenta":"spotify_play","query":"[música que VOCÊ escolheu e mencionou na resposta]"}}
+NUNCA copie nomes de músicas destes exemplos. Use a música que VOCÊ escolheu ou que o USUÁRIO pediu.
 "liga o ar" → {{"ferramenta":"smart_home","acao":"ligar","dispositivo":"ar"}}
 "vai chover hoje?" → {{"ferramenta":"weather"}}
 "que calor é esse?" → {{"ferramenta":"weather"}}
