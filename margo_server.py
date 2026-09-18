@@ -2451,7 +2451,7 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
         tem_hora = bool(_re_sh.search(r'(\d{1,2}[:\.]?\d{2}|daqui|depois de|às |as |\d+\s*(min|hora|hour|h\b))', msg))
         if tem_hora:
             tempo = _parsear_tempo(msg, hora_local)
-            # Remove tempo do nome do dispositivo
+            disp = _limpar_titulo(disp)            # Remove tempo do nome do dispositivo
             disp = _re_sh.sub(r'(hoje|amanhã|amanha|daqui|depois de|às |as ).*', '', disp).strip()
             disp = _re_sh.sub(r'\d{1,2}[:\.]?\d{2}.*', '', disp).strip()
             disp = _re_sh.sub(r'\b\d{1,2}h\d{0,2}\b', '', disp).strip()
@@ -4854,7 +4854,7 @@ async def mensagem(request: Request):
         latitude  = data.get("latitude")
         longitude = data.get("longitude")
         hora_local = data.get("hora_local", "")
-        idioma_falado = data.get("idioma_falado", "")
+        if hora_local: log(f"hora_local recebido: {hora_local}", "debug")        idioma_falado = data.get("idioma_falado", "")
         if idioma_falado:
             log(f"idioma_falado recebido: {idioma_falado}", "stt")
         imagem_base64 = data.get("imagem_base64", "")
