@@ -2213,7 +2213,7 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
         m_extra = _re_t.search(r'(?:meio[- ]?dia|meia[- ]?noite)\s+e\s+(\w+)', msg)
         if m_extra:
             extra = m_extra.group(1).lower()
-            nums = {"cinco":5,"dez":10,"quinze":15,"vinte":20,"trinta":30,"meia":30,"quarenta":40}
+            nums = {"cinco":5,"dez":10,"quinze":15,"vinte":20,"trinta":30,"meia":30,"meio":30,"quarenta":40,"cinquenta":50}
             mi = nums.get(extra, 0)
             if not mi:
                 try: mi = int(extra)
