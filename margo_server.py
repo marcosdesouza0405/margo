@@ -2203,6 +2203,26 @@ def _parsear_tempo(msg: str, hora_local_str: str = "") -> dict:
             except ValueError:
                 pass
 
+    # "meio-dia" / "meia-noite" / "meio-dia e vinte"
+    m_meiodia = _re_t.search(r'meio[- ]?dia', msg)
+    m_meianoite = _re_t.search(r'meia[- ]?noite', msg)
+    if m_meiodia or m_meianoite:
+        h = 12 if m_meiodia else 0
+        mi = 0
+        # "meio-dia e vinte", "meio-dia e meia"
+        m_extra = _re_t.search(r'(?:meio[- ]?dia|meia[- ]?noite)\s+e\s+(\w+)', msg)
+        if m_extra:
+            extra = m_extra.group(1).lower()
+            nums = {"cinco":5,"dez":10,"quinze":15,"vinte":20,"trinta":30,"meia":30,"quarenta":40}
+            mi = nums.get(extra, 0)
+            if not mi:
+                try: mi = int(extra)
+                except: mi = 0
+        dt = hora_base_dt.replace(hour=h, minute=mi, second=0, microsecond=0)
+        if dt <= hora_base_dt:
+            dt += timedelta(days=1)
+        return {"minutos_relativos": 0, "data_hora_iso": _to_utc(dt)}
+
     # "amanhã às Xh" / "amanhã às X:XX" / "tomorrow at X"
     m = _re_t.search(r'(?:amanh[aã]|tomorrow)', msg)
     if m:
@@ -2448,7 +2468,7 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
         disp = _limpar_titulo(disp)
         # Se tem horário, é agendado
         import re as _re_sh
-        tem_hora = bool(_re_sh.search(r'(\d{1,2}[:\.]?\d{2}|daqui|depois de|às |as |\d+\s*(min|hora|hour|h\b))', msg))
+        tem_hora = bool(_re_sh.search(r'(\d{1,2}[:\.]?\d{2}|daqui|depois de|às |as |\d+\s*(min|hora|hour|h\b)|meio.?dia|meia.?noite|noon|midnight|amanh[aã]|tomorrow)', msg))
         if tem_hora:
             tempo = _parsear_tempo(msg, hora_local)
             disp = _limpar_titulo(disp)            # Remove tempo do nome do dispositivo
