@@ -4854,7 +4854,8 @@ async def mensagem(request: Request):
         latitude  = data.get("latitude")
         longitude = data.get("longitude")
         hora_local = data.get("hora_local", "")
-        if hora_local: log(f"hora_local recebido: {hora_local}", "debug")        idioma_falado = data.get("idioma_falado", "")
+        if hora_local: log(f"hora_local recebido: {hora_local}", "debug")
+        idioma_falado = data.get("idioma_falado", "")
         if idioma_falado:
             log(f"idioma_falado recebido: {idioma_falado}", "stt")
         imagem_base64 = data.get("imagem_base64", "")
