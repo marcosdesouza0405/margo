@@ -2547,7 +2547,9 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
                  "nesse", "nessa", "aquele", "aquela", "esse lugar", "essa lugar",
                  "esse restaurante", "esse local", "nele", "nela", "pra lá", "pra la",
                  "pro lugar", "pro local", "pro restaurante"}
-        if dest.lower() in vagos or len(dest) < 3:
+        # Referências contextuais — destino depende do histórico, LLM resolve
+        _tem_ref = bool(_re_dest.search(r'(mais pr[oó]xim|mais perto|nearest|closest|primeiro|segundo|terceiro|the first|the second|the third|that one|一番近い|最寄り)', dest, _re_dest.IGNORECASE))
+        if dest.lower() in vagos or len(dest) < 3 or _tem_ref:
             return None  # LLM resolve com contexto da conversa
         modo = _detectar_modo_transporte(msg)
         # Remove texto de transporte do destino
