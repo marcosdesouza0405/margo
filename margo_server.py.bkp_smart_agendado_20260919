@@ -2476,25 +2476,9 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
             disp = _re_sh.sub(r'\d{1,2}[:\.]?\d{2}.*', '', disp).strip()
             disp = _re_sh.sub(r'\b\d{1,2}h\d{0,2}\b', '', disp).strip()
             disp = _limpar_titulo(disp)
-            # ── Delta minutos: tempo relativo pro agendamento (imune a timezone) ──
-            _delta_min = tempo.get("minutos_relativos", 0)
-            if not _delta_min and hora_local and tempo.get("data_hora_iso"):
-                try:
-                    _hl = hora_local.replace("Z", "+00:00")
-                    if len(_hl) > 5 and _hl[-5] in '+-' and ':' not in _hl[-5:]:
-                        _hl = _hl[:-2] + ':' + _hl[-2:]
-                    _hora_local_dt = datetime.fromisoformat(_hl)
-                    _utc_offset = _hora_local_dt.utcoffset()
-                    _dt_utc = datetime.fromisoformat(tempo["data_hora_iso"])
-                    _dt_local_alvo = (_dt_utc + _utc_offset) if _utc_offset else _dt_utc
-                    _agora_local = _hora_local_dt.replace(tzinfo=None)
-                    _delta_min = max(1, int((_dt_local_alvo - _agora_local).total_seconds() / 60))
-                except Exception:
-                    _delta_min = 0
             return {"ferramenta": "smart_home_agendado", "acao": acao, "dispositivo": disp, "valor": "",
                     "data_hora": tempo.get("data_hora_iso", ""),
-                    "minutos_relativos": tempo.get("minutos_relativos", 0),
-                    "delta_minutos": _delta_min}
+                    "minutos_relativos": tempo.get("minutos_relativos", 0)}
         return {"ferramenta": "smart_home", "acao": acao, "dispositivo": disp}
 
     # ── SPOTIFY ──
@@ -3321,39 +3305,40 @@ INSTRUÇÕES OBRIGATÓRIAS:
             if not resposta_limpa or len(resposta_limpa) < 5:
                 resposta_limpa = f"Não consegui entender o horário do lembrete. Pode repetir? Ex: 'me lembra de {titulo_agenda} daqui 30 minutos' ou 'me lembra às 18h'"
 
-    # ── SMART HOME AGENDADO (tempo relativo — imune a timezone) ────────────────
+    # ── SMART HOME AGENDADO ────────────────────────────────────────────────────
     if ferramenta and ferramenta.get("ferramenta") == "smart_home_agendado":
-        delta = ferramenta.get("delta_minutos", 0) or ferramenta.get("minutos_relativos", 0)
-        # Fallback: se veio do LLM sem delta_minutos, recalcula
-        if not delta and hora_local:
+        data_hora_sh = ferramenta.get("data_hora", "")
+        minutos_rel_sh = ferramenta.get("minutos_relativos", 0)
+        if hora_local:
             try:
-                _tempo_re = _parsear_tempo(mensagem.lower().strip(), hora_local)
-                delta = _tempo_re.get("minutos_relativos", 0)
-                if not delta and _tempo_re.get("data_hora_iso"):
-                    _hl2 = hora_local.replace("Z", "+00:00")
-                    if len(_hl2) > 5 and _hl2[-5] in '+-' and ':' not in _hl2[-5:]:
-                        _hl2 = _hl2[:-2] + ':' + _hl2[-2:]
-                    _hl2_dt = datetime.fromisoformat(_hl2)
-                    _off2 = _hl2_dt.utcoffset()
-                    _dt2 = datetime.fromisoformat(_tempo_re["data_hora_iso"])
-                    _alvo2 = (_dt2 + _off2) if _off2 else _dt2
-                    delta = max(1, int((_alvo2 - _hl2_dt.replace(tzinfo=None)).total_seconds() / 60))
+                hl = hora_local.replace("Z", "+00:00")
+                if len(hl) > 5 and hl[-5] in '+-' and ':' not in hl[-5:]:
+                    hl = hl[:-2] + ':' + hl[-2:]
+                hora_local_dt = datetime.fromisoformat(hl)
+                offset = hora_local_dt.utcoffset()
+                if minutos_rel_sh and int(minutos_rel_sh) > 0:
+                    dt_exato = hora_local_dt + timedelta(minutes=int(minutos_rel_sh))
+                    if offset:
+                        dt_exato = dt_exato - offset
+                    data_hora_sh = dt_exato.strftime("%Y-%m-%dT%H:%M:%S")
+                elif data_hora_sh:
+                    dt_sh = datetime.fromisoformat(data_hora_sh.replace("Z", ""))
+                    if dt_sh.tzinfo is None and offset:
+                        dt_sh = dt_sh - offset
+                    data_hora_sh = dt_sh.strftime("%Y-%m-%dT%H:%M:%S")
             except Exception as e:
-                log(f"Erro recalculando delta smart: {e}", "smart")
-                delta = 0
-        if delta and int(delta) > 0:
-            # Agenda por tempo relativo: now() + delta — sem conversão de timezone
-            data_hora_sh = (datetime.now() + timedelta(minutes=int(delta))).strftime("%Y-%m-%dT%H:%M:%S")
-            acao_json = json.dumps({
-                "acao": ferramenta.get("acao", "ligar"),
-                "dispositivo": ferramenta.get("dispositivo", ""),
-                "valor": ferramenta.get("valor")
-            })
-            titulo_sh = f"{ferramenta.get('acao','ligar')} {ferramenta.get('dispositivo','')}"
+                log(f"Erro fuso smart agendado: {e}", "smart")
+        acao_json = json.dumps({
+            "acao": ferramenta.get("acao", "ligar"),
+            "dispositivo": ferramenta.get("dispositivo", ""),
+            "valor": ferramenta.get("valor")
+        })
+        titulo_sh = f"{ferramenta.get('acao','ligar')} {ferramenta.get('dispositivo','')}"
+        if data_hora_sh:
             banco.salvar_lembrete_smart(user_id, titulo_sh, acao_json, data_hora_sh)
-            log(f"Smart agendado (delta {delta}min): {titulo_sh} @ {data_hora_sh} (server time)", "smart")
+            log(f"Smart agendado: {titulo_sh} @ {data_hora_sh} UTC", "smart")
         else:
-            log(f"Smart agendado DESCARTADO (delta=0): {ferramenta}", "smart")
+            log(f"Smart agendado DESCARTADO (sem data_hora): {titulo_sh}", "smart")
             resposta_limpa = f"Não consegui entender o horário. Pode repetir? Ex: 'liga o {ferramenta.get('dispositivo','')} às 18h' ou 'daqui 30 minutos'"
 
     # ── SMART HOME (SmartThings) ───────────────────────────────────────────────
