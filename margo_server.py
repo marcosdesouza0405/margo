@@ -5420,47 +5420,49 @@ async def recompensa_ad(request: Request):
         if not user_id:
             return JSONResponse({"ok": False, "erro": "user_id obrigatório"}, 400)
 
-        ph = banco.placeholder
+        ph = "%s" if banco._pg else "?"
         hoje = datetime.now().strftime("%Y-%m-%d")
         MAX_ADS_DIA = 5
 
-        with banco._get_conn() as conn:
-            c = conn.cursor()
+        conn = banco._get_conn()
+        c = conn.cursor()
 
-            # Garante coluna ads_assistidos existe em uso_diario
-            try:
-                c.execute(f"ALTER TABLE uso_diario ADD COLUMN ads_assistidos INTEGER DEFAULT 0")
-                conn.commit()
-            except Exception:
-                conn.rollback()  # coluna já existe
-
-            # Verifica quantos ads assistiu hoje
-            c.execute(f"SELECT ads_assistidos FROM uso_diario WHERE user_id={ph} AND data={ph}", (user_id, hoje))
-            row = c.fetchone()
-            ads_hoje = row[0] if row and row[0] else 0
-
-            if ads_hoje >= MAX_ADS_DIA:
-                return JSONResponse({"ok": False, "erro": "limite_diario", "ads_restantes": 0})
-
-            # Incrementa ads_assistidos
-            if row:
-                c.execute(f"UPDATE uso_diario SET ads_assistidos = COALESCE(ads_assistidos,0) + 1 WHERE user_id={ph} AND data={ph}", (user_id, hoje))
-            else:
-                c.execute(f"INSERT INTO uso_diario (user_id, data, msgs, ads_assistidos) VALUES ({ph},{ph},0,1)", (user_id, hoje))
-
-            # Adiciona +5 msgs_extras
-            c.execute(f"UPDATE usuarios SET msgs_extras = COALESCE(msgs_extras,0) + 5 WHERE user_id={ph}", (user_id,))
+        # Garante coluna ads_assistidos existe em uso_diario
+        try:
+            c.execute("ALTER TABLE uso_diario ADD COLUMN ads_assistidos INTEGER DEFAULT 0")
             conn.commit()
+        except Exception:
+            conn.rollback()  # coluna já existe
 
-            # Busca novo total
-            c.execute(f"SELECT msgs_extras FROM usuarios WHERE user_id={ph}", (user_id,))
-            row2 = c.fetchone()
-            novo_total = row2[0] if row2 else 5
+        # Verifica quantos ads assistiu hoje
+        c.execute(f"SELECT ads_assistidos FROM uso_diario WHERE user_id={ph} AND data={ph}", (user_id, hoje))
+        row = c.fetchone()
+        ads_hoje = row[0] if row and row[0] else 0
 
-            ads_restantes = MAX_ADS_DIA - (ads_hoje + 1)
-            log(f"Recompensa ad: {user_id} +5 msgs (total extras: {novo_total}, ads hoje: {ads_hoje+1}/{MAX_ADS_DIA})", "billing")
+        if ads_hoje >= MAX_ADS_DIA:
+            if banco._pg: conn.close()
+            return JSONResponse({"ok": False, "erro": "limite_diario", "ads_restantes": 0})
 
-            return JSONResponse({"ok": True, "msgs_extras": novo_total, "ads_restantes": ads_restantes})
+        # Incrementa ads_assistidos
+        if row:
+            c.execute(f"UPDATE uso_diario SET ads_assistidos = COALESCE(ads_assistidos,0) + 1 WHERE user_id={ph} AND data={ph}", (user_id, hoje))
+        else:
+            c.execute(f"INSERT INTO uso_diario (user_id, data, msgs, ads_assistidos) VALUES ({ph},{ph},0,1)", (user_id, hoje))
+
+        # Adiciona +5 msgs_extras
+        c.execute(f"UPDATE usuarios SET msgs_extras = COALESCE(msgs_extras,0) + 5 WHERE user_id={ph}", (user_id,))
+        conn.commit()
+
+        # Busca novo total
+        c.execute(f"SELECT msgs_extras FROM usuarios WHERE user_id={ph}", (user_id,))
+        row2 = c.fetchone()
+        novo_total = row2[0] if row2 else 5
+        if banco._pg: conn.close()
+
+        ads_restantes = MAX_ADS_DIA - (ads_hoje + 1)
+        log(f"Recompensa ad: {user_id} +5 msgs (total extras: {novo_total}, ads hoje: {ads_hoje+1}/{MAX_ADS_DIA})", "billing")
+
+        return JSONResponse({"ok": True, "msgs_extras": novo_total, "ads_restantes": ads_restantes})
 
     except Exception as e:
         log(f"Erro recompensa_ad: {e}", "erro")
