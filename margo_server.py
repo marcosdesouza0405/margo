@@ -5292,6 +5292,22 @@ async def admin_health(key: str = ""):
     })
 
 
+@app.post("/admin/extras")
+async def admin_extras(request: Request):
+    """Ajusta msgs_extras de um usuário (admin)."""
+    dados = await request.json()
+    if dados.get("key") != "orbiby2026admin":
+        return JSONResponse({"ok": False}, 403)
+    user_id = dados.get("user_id", "")
+    valor = dados.get("valor", 0)
+    ph = banco.placeholder
+    with banco._get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"UPDATE usuarios SET msgs_extras = {ph} WHERE user_id={ph}", (valor, user_id))
+        conn.commit()
+    return JSONResponse({"ok": True, "msg": f"msgs_extras = {valor}"})
+
+
 @app.post("/admin/desbloquear")
 async def admin_desbloquear(request: Request):
     """Admin: desbloqueia um usuário."""
