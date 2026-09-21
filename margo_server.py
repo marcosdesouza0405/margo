@@ -2344,26 +2344,20 @@ def _detectar_musica_na_resposta(resposta: str, mensagem_usuario: str, ferrament
     if not musica_pedido:
         return ferramenta
 
-    # Extrai música por split simples
-    resp = resposta
-    gatilhos = ["coloquei ", "escolhi ", "separei ", "preparei ", "botei ", "tocando ", "playing "]
+    # Extrai música via DeepSeek Flash (rápido e preciso)
     musica_extraida = ""
+    try:
+        prompt_extracao = f"""Extraia SOMENTE o nome da música e artista mencionados neste texto.
+Responda APENAS com: nome da música - artista
+Se não houver música mencionada, responda: NENHUMA
 
-    for g in gatilhos:
-        pos = resp.lower().find(g)
-        if pos >= 0:
-            trecho = resp[pos + len(g):]
-            # Corta no separador mais PRÓXIMO no texto
-            menor = len(trecho)
-            for sep in [" — ", " - ", ". ", "! ", ", é ", ", uma ", ", essa ", ", que ", ", bem ", ", pra ", ", e ", ", porque"]:
-                idx = trecho.find(sep)
-                if 0 < idx < menor:
-                    menor = idx
-            if menor < len(trecho):
-                trecho = trecho[:menor]
-            musica_extraida = trecho.strip().strip('"').strip("'")
-            break
-
+Texto: {resp}"""
+        resultado = chamar_deepseek_simples(prompt_extracao, max_tokens=50)
+        if resultado and "NENHUMA" not in resultado.upper():
+            musica_extraida = resultado.strip().strip('"').strip("'").strip(".")
+            log(f"Spotify auto-detect (DeepSeek): '{musica_extraida}'", "spotify")
+    except Exception as e:
+        log(f"Erro extração música DeepSeek: {e}", "spotify")
     if musica_extraida and len(musica_extraida) > 2:
         log(f"Spotify auto-detect: '{musica_extraida}'", "spotify")
         return {"ferramenta": "spotify_play", "query": musica_extraida}
