@@ -2351,7 +2351,7 @@ def _detectar_musica_na_resposta(resposta: str, mensagem_usuario: str, ferrament
 Responda APENAS com: nome da música - artista
 Se não houver música mencionada, responda: NENHUMA
 
-Texto: {resp}"""
+Texto: {resposta}"""
         resultado = chamar_deepseek_simples(prompt_extracao, max_tokens=50)
         if resultado and "NENHUMA" not in resultado.upper():
             musica_extraida = resultado.strip().strip('"').strip("'").strip(".")
