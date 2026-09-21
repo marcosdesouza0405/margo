@@ -2328,8 +2328,10 @@ def _detectar_modo_transporte(msg: str) -> str:
 
 def _detectar_musica_na_resposta(resposta: str, mensagem_usuario: str, ferramenta: dict) -> dict:
     """Extrai música da resposta do LLM e cria/corrige spotify_play."""
+    log(f"[MUSIC-DEBUG] entrada: ferramenta={ferramenta}, msg='{mensagem_usuario[:60]}', resp='{resposta[:80]}'", "spotify")
     # Se tem outra ferramenta (não spotify), não mexe
     if ferramenta and ferramenta.get("ferramenta") and ferramenta.get("ferramenta") != "spotify_play":
+        log(f"[MUSIC-DEBUG] saiu: outra ferramenta ({ferramenta.get('ferramenta')})", "spotify")
         return ferramenta
 
     msg_lower = mensagem_usuario.lower()
@@ -2345,7 +2347,9 @@ def _detectar_musica_na_resposta(resposta: str, mensagem_usuario: str, ferrament
         "song", "music", "manda ", "bota outra"
     ])
     if not musica_pedido and not ja_tem_spotify:
+        log(f"[MUSIC-DEBUG] saiu: musica_pedido=False, ja_tem_spotify=False", "spotify")
         return ferramenta
+    log(f"[MUSIC-DEBUG] continua: musica_pedido={musica_pedido}, ja_tem_spotify={ja_tem_spotify}", "spotify")
 
     # Extrai música via DeepSeek Flash (rápido e preciso)
     musica_extraida = ""
