@@ -2360,11 +2360,12 @@ Se não houver música mencionada, responda: NENHUMA
 
 Texto: {resposta}"""
         resultado = chamar_deepseek_simples(prompt_extracao, max_tokens=50)
+        log(f"[MUSIC-DEBUG] DeepSeek retornou: '{resultado}'", "spotify")
         if resultado and "NENHUMA" not in resultado.upper():
             musica_extraida = resultado.strip().strip('"').strip("'").strip(".")
-            log(f"Spotify auto-detect (DeepSeek): '{musica_extraida}'", "spotify")
+            log(f"[MUSIC-DEBUG] musica_extraida: '{musica_extraida}'", "spotify")
     except Exception as e:
-        log(f"Erro extração música DeepSeek: {e}", "spotify")
+        log(f"[MUSIC-DEBUG] ERRO DeepSeek: {e}", "spotify")
     if musica_extraida and len(musica_extraida) > 2:
         log(f"Spotify auto-detect: '{musica_extraida}'", "spotify")
         return {"ferramenta": "spotify_play", "query": musica_extraida}
