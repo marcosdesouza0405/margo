@@ -2333,15 +2333,18 @@ def _detectar_musica_na_resposta(resposta: str, mensagem_usuario: str, ferrament
         return ferramenta
 
     msg_lower = mensagem_usuario.lower()
+    # Se LLM já retornou spotify_play, sempre tenta corrigir a query
+    ja_tem_spotify = ferramenta and ferramenta.get("ferramenta") == "spotify_play"
     # Verifica se o pedido era sobre música
     musica_pedido = any(w in msg_lower for w in [
         "música", "musica", "som ", "tocar", "toca ", "coloca ", "play ",
         "escolhe ", "escolha ", "bota ", "põe ", "ouvir", "escuta",
         "sugere ", "sugira ", "recomenda ", "cadê a música", "cade a musica",
-        "e a música", "coloca outra", "outra música", "choose ", "pick ",
-        "song", "music"
+        "e a música", "coloca outra", "outra música", "outra ai", "outra aí",
+        "mais uma", "manda outra", "choose ", "pick ", "surpreenda",
+        "song", "music", "manda ", "bota outra"
     ])
-    if not musica_pedido:
+    if not musica_pedido and not ja_tem_spotify:
         return ferramenta
 
     # Extrai música via DeepSeek Flash (rápido e preciso)
