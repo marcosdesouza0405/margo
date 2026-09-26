@@ -15,6 +15,13 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
 import * as Localization from 'expo-localization';
+
+// Remove emojis de texto no iOS (Hermes não renderiza)
+function limparEmojis(texto) {
+  if (Platform.OS !== 'ios' || !texto) return texto;
+  return texto.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{FE0F}\u{200D}\u{20E3}\u{1F1E0}-\u{1F1FF}\u{E0020}-\u{E007F}\u{0031}-\u{0039}\u{2716}\u{2714}\u{2022}\u{25CF}\u{25B6}\u{2B07}\u{2934}\u{2935}\u{3030}\u{00A9}\u{00AE}\u{2122}\u{23F0}-\u{23FA}\u{231A}\u{231B}\u{2328}\u{23CF}\u{2702}-\u{27B0}\u{2639}\u{263A}\u{0023}\u{002A}]/gu, '').replace(/  +/g, ' ').trim();
+}
+
 // WakeWordService importado via NativeModules diretamente
 const groqSTTEmitter = Platform.OS === 'android' ? new NativeEventEmitter(NativeModules.GroqSTTModule) : null;
 const GroqSTT = NativeModules.GroqSTTModule || { iniciar: () => Promise.resolve(), parar: () => Promise.resolve() };
@@ -169,6 +176,8 @@ const STRINGS = {
     btn_pro: 'Pro — R$14,90/mês',
     btn_pro_plus: 'Pro+ — R$29,90/mês',
     btn_avulso: '50 interações — R$12,90',
+    btn_assistir_ad: 'Assistir vídeo (+5 msgs)',
+    ads_limite_diario: 'Limite diário de vídeos atingido',
     paywall_pro: 'Pro — 20 msgs/dia  R$14,90/mês',
     paywall_pro_plus: 'Pro+ — 50 msgs/dia  R$29,90/mês',
     paywall_agora_nao: 'Agora não',
@@ -298,6 +307,8 @@ const STRINGS = {
     btn_pro: 'Pro — R$14.90/mo',
     btn_pro_plus: 'Pro+ — R$29.90/mo',
     btn_avulso: '50 interactions — R$12.90',
+    btn_assistir_ad: 'Watch video (+5 msgs)',
+    ads_limite_diario: 'Daily video limit reached',
     paywall_pro: 'Pro — 20 msgs/day  R$14.90/mo',
     paywall_pro_plus: 'Pro+ — 50 msgs/day  R$29.90/mo',
     paywall_agora_nao: 'Not now',
@@ -427,6 +438,8 @@ const STRINGS = {
     btn_pro: 'Pro — R$14.90/月',
     btn_pro_plus: 'Pro+ — R$29.90/月',
     btn_avulso: '50回追加 — R$12.90',
+    btn_assistir_ad: '動画を見る (+5回)',
+    ads_limite_diario: '本日の動画上限に達しました',
     paywall_pro: 'Pro — 1日20回  R$14.90/月',
     paywall_pro_plus: 'Pro+ — 1日50回  R$29.90/月',
     paywall_agora_nao: '今はしない',
@@ -1183,7 +1196,7 @@ function TextoComLinks({ texto, estilo }) {
 }
 
 function Bolha({ msg, avatarUri, idioma }) {
-  if (msg.de === 'sistema') return <Text style={s.msgSys}>{msg.texto}</Text>;
+  if (msg.de === 'sistema') return <Text style={s.msgSys}>{Platform.OS === 'ios' ? limparEmojis(msg.texto) : msg.texto}</Text>;
   const isUser = msg.de === 'user';
   return (
     <View style={[s.row, isUser && { flexDirection: 'row-reverse' }]}>
@@ -1194,7 +1207,7 @@ function Bolha({ msg, avatarUri, idioma }) {
         }
       </View>
       <View style={[s.bubble, isUser ? s.bubbleU : s.bubbleM]}>
-        <TextoComLinks texto={msg.texto}
+        <TextoComLinks texto={Platform.OS === 'ios' ? limparEmojis(msg.texto) : msg.texto}
           estilo={[{ fontSize: 14, lineHeight: 22, color: C.text }, isUser && { color: '#000', fontWeight: '500' }]} />
         <Text style={{ fontSize: 10, color: isUser ? 'rgba(0,0,0,0.5)' : C.text3, marginTop: 4 }}>{msg.hora}</Text>
       </View>
@@ -1658,7 +1671,7 @@ export default function App() {
           micAtivoRef.current = false;
           try { ExpoSpeechRecognitionModule?.stop(); } catch(e) {}
           try { await NativeModules.WakeWordModule.iniciar('migoo'); } catch(e) {}
-          setTimeout(() => { BackHandler.exitApp(); }, 4000);
+          if (Platform.OS === 'android') { setTimeout(() => { BackHandler.exitApp(); }, 4000); }
         }, 500);
       }
 
@@ -1682,6 +1695,7 @@ export default function App() {
                 text: s_i['btn_avulso'],
                 onPress: () => handleUpgrade('avulso')
               },
+
               { text: s_i['paywall_agora_nao'], style: 'cancel' }
             ]
           );
@@ -1836,25 +1850,19 @@ export default function App() {
       // A navegação só acontece quando o usuário confirmar (maps_navigate)
 
     } else if (t === 'spotify_play') {
-      // 1. Tenta OAuth (só funciona pra quem conectou)
-      const promessaPlay = spotifyPlayDireto(f.query);
-      // 2. Em paralelo, busca URI exato via Client Credentials
+      // Busca URI exato via Client Credentials (sem OAuth)
       const uriExato = await spotifySearchURI(f.query);
       const deepLink = uriExato || `spotify:search:${encodeURIComponent(f.query)}`;
       const spotifyWebUrl = `https://open.spotify.com/search/${encodeURIComponent(f.query)}`;
-      const tocou = await promessaPlay;
-      if (!tocou) {
-        // OAuth falhou — abre URI exato (track/artist/album) no Spotify
-        try {
-          const acordou = await Linking.canOpenURL('spotify:').catch(() => false);
-          if (acordou) {
-            await Linking.openURL(deepLink);
-          } else {
-            await Linking.openURL(spotifyWebUrl);
-          }
-        } catch(e) {
-          Linking.openURL(spotifyWebUrl).catch(() => {});
+      try {
+        const temSpotify = await Linking.canOpenURL('spotify:').catch(() => false);
+        if (temSpotify) {
+          await Linking.openURL(deepLink);
+        } else {
+          await Linking.openURL(spotifyWebUrl);
         }
+      } catch(e) {
+        Linking.openURL(spotifyWebUrl).catch(() => {});
       }
     } else if (t === 'soundcloud_play') {
       Linking.openURL(`https://soundcloud.com/search?q=${encodeURIComponent(f.query)}`).catch(() => {});
@@ -2652,6 +2660,40 @@ export default function App() {
                   ? `${faltam} ${s_i['msgs_restantes_trial']}`
                   : `${faltam} ${s_i['msgs_restantes_hoje']}`}
             </Text>
+          )}
+          {faltam !== null && faltam <= 0 && (
+            <TouchableOpacity
+              style={{ backgroundColor: '#2A6B3C', paddingVertical: 8, paddingHorizontal: 16,
+                       borderRadius: 20, marginTop: 6, alignSelf: 'center' }}
+              onPress={async () => {
+                try {
+                  const { RewardedAdModule } = NativeModules;
+                  await RewardedAdModule.showRewardedAd('ca-app-pub-3940256099942544/5224354917');
+                  const uid = await AsyncStorage.getItem('margo_user_id');
+                  const r = await fetch(`${BACKEND}/recompensa_ad`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({user_id: uid})
+                  });
+                  const d = await r.json();
+                  if (d.ok) {
+                    setFaltam(d.msgs_extras);
+                    setMsgExtras(d.msgs_extras);
+                    Alert.alert('✅', `+5 msgs! (${d.ads_restantes} restantes hoje)`);
+                  } else {
+                    Alert.alert('⚠️', s_i['ads_limite_diario']);
+                  }
+                } catch(e) {
+                  console.log('Erro ad:', e);
+                  if (e.code !== 'DISMISSED') {
+                    Alert.alert('⚠️', 'Erro ao carregar vídeo. Tente novamente.');
+                  }
+                }
+              }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>
+                🎬 {s_i['btn_assistir_ad']}
+              </Text>
+            </TouchableOpacity>
           )}
         </View>
       </KeyboardAvoidingView>

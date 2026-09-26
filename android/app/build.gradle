@@ -93,7 +93,7 @@ android {
         applicationId 'com.orbiby.margo'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 345
+        versionCode 347
         versionName "1.0.4"
 
         missingDimensionStrategy "store", "play"
@@ -162,6 +162,7 @@ android {
 
 dependencies {
     implementation "com.android.billingclient:billing:6.0.1"
+    implementation "com.google.android.gms:play-services-ads:23.6.0"
     compileOnly("org.tensorflow:tensorflow-lite:2.14.0")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.0")
 

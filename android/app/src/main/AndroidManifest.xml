@@ -71,6 +71,10 @@
         <data android:scheme="exp+margo"/>
       </intent-filter>
     </activity>
+
+    <meta-data
+        android:name="com.google.android.gms.ads.APPLICATION_ID"
+        android:value="ca-app-pub-6590282485171010~8229852496"/>
     
 </application>
 </manifest>

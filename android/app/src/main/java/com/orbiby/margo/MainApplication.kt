@@ -28,6 +28,7 @@ class MainApplication : Application(), ReactApplication {
               add(WakeWordPackage())
               add(GroqSTTPackage())
               add(SpotifyIntentPackage())
+              add(RewardedAdPackage())
             }
 
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"

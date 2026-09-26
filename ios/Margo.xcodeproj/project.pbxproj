@@ -11,6 +11,7 @@
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		308852E4E1234B0AA8AF9DEA /* libPods-Margo.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A542E7DFE2864DFFBE26310C /* libPods-Margo.a */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
+		62A4F5CA30680F38004DCEFD /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 62A4F5C930680F38004DCEFD /* StoreKit.framework */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 		F15BB89DED52BE640762DF32 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D8A08CB570374F1E8B60759 /* ExpoModulesProvider.swift */; };
@@ -21,6 +22,7 @@
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Margo/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Margo/Info.plist; sourceTree = "<group>"; };
 		5C93F56F70D581B0DE589688 /* Pods-Margo.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Margo.debug.xcconfig"; path = "Target Support Files/Pods-Margo/Pods-Margo.debug.xcconfig"; sourceTree = "<group>"; };
+		62A4F5C930680F38004DCEFD /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		6D8A08CB570374F1E8B60759 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Margo/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		A542E7DFE2864DFFBE26310C /* libPods-Margo.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Margo.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Margo/SplashScreen.storyboard; sourceTree = "<group>"; };
@@ -38,6 +40,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				308852E4E1234B0AA8AF9DEA /* libPods-Margo.a in Frameworks */,
+				62A4F5CA30680F38004DCEFD /* StoreKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -61,6 +64,7 @@
 		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				62A4F5C930680F38004DCEFD /* StoreKit.framework */,
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
 				A542E7DFE2864DFFBE26310C /* libPods-Margo.a */,
 			);
@@ -375,7 +379,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbiby.margo.dev;
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbiby.margo;
 				PRODUCT_NAME = Margo;
 				SWIFT_OBJC_BRIDGING_HEADER = "Margo/Margo-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -407,7 +411,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbiby.margo.dev;
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbiby.margo;
 				PRODUCT_NAME = Margo;
 				SWIFT_OBJC_BRIDGING_HEADER = "Margo/Margo-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;

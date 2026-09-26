@@ -1,4 +1,7 @@
 {
+  "react-native-google-mobile-ads": {
+    "android_app_id": "ca-app-pub-6590282485171010~8229852496"
+  },
   "expo": {
     "name": "Margo",
     "slug": "margo",
