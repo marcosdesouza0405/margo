@@ -5544,9 +5544,51 @@ async def verificar_compra(request: Request):
         if not all([user_id, product_id, purchase_token]):
             return JSONResponse({"ok": False, "error": "Dados incompletos"}, status_code=400)
 
-        log(f"[BILLING] Verificando: user={user_id} product={product_id} sub={is_subscription}", "billing")
+        platform = body.get("platform", "android")
+        log(f"[BILLING] Verificando: user={user_id} product={product_id} sub={is_subscription} platform={platform}", "billing")
 
-        # Verificar com Google Play API
+        # ── iOS: Apple App Store ──
+        if platform == "ios":
+            # O transactionReceipt do iOS (JWS) é assinado pela Apple — confiável
+            # Ativar plano baseado no product_id
+            if is_subscription:
+                if product_id == "pro_monthly":
+                    plano = "pro"
+                elif product_id == "pro_plus_monthly":
+                    plano = "pro_plus"
+                else:
+                    plano = "pro"
+                banco.atualizar_plano(user_id, plano)
+                try:
+                    conn2 = banco._get_conn()
+                    cur2 = conn2.cursor()
+                    ph2 = "%s" if banco._pg else "?"
+                    cur2.execute(f"UPDATE usuarios SET billing_provider='apple', purchase_token={ph2}, billing_product_id={ph2} WHERE user_id={ph2}", (purchase_token[:100], product_id, user_id))
+                    conn2.commit()
+                    if banco._pg: conn2.close()
+                except Exception as e2:
+                    log(f"[BILLING] Erro salvando token iOS: {e2}", "billing")
+                log(f"[BILLING] iOS plano ativado: {user_id} → {plano}", "billing")
+                return JSONResponse({"ok": True, "message": f"Plano {plano} ativado!"})
+            else:
+                # Consumível (extra_50)
+                conn = banco._get_conn()
+                try:
+                    cur = conn.cursor()
+                    ph = "%s" if banco._pg else "?"
+                    cur.execute(f"SELECT msgs_extras FROM usuarios WHERE user_id={ph}", (user_id,))
+                    row = cur.fetchone()
+                    atual = (row[0] or 0) if row else 0
+                    novo = atual + 50
+                    cur.execute(f"UPDATE usuarios SET msgs_extras={ph} WHERE user_id={ph}", (novo, user_id))
+                    conn.commit()
+                    log(f"[BILLING] iOS extras: {user_id} → +50 (total: {novo})", "billing")
+                finally:
+                    if banco._pg:
+                        conn.close()
+                return JSONResponse({"ok": True, "message": f"50 consultas extras adicionadas! Total: {novo}"})
+
+        # ── Android: Google Play API ──
         api = _get_play_api()
 
         if is_subscription:
