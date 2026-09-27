@@ -2550,6 +2550,8 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
                  "esse restaurante", "esse local", "nele", "nela", "pra lá", "pra la",
                  "pro lugar", "pro local", "pro restaurante"}
         # Referências contextuais — destino depende do histórico, LLM resolve
+        # Limpa cortesia/filler do destino
+        dest = _re_dest.sub(r'\s*(por favor|please|お願い(します)?|pfv|pf|fazendo favor|se puder)\.?$', '', dest, flags=_re_dest.IGNORECASE).strip()
         _tem_ref = bool(_re_dest.search(r'(mais pr[oó]xim|mais perto|nearest|closest|primeiro|segundo|terceiro|the first|the second|the third|that one|一番近い|最寄り)', dest, _re_dest.IGNORECASE))
         if dest.lower() in vagos or len(dest) < 3 or _tem_ref:
             return None  # LLM resolve com contexto da conversa
