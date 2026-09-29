@@ -4475,6 +4475,140 @@ async def kokoro_tts_endpoint(request: Request):
         log(f"Kokoro TTS endpoint erro: {e}", "kokoro")
         return JSONResponse({"erro": str(e)}, status_code=500)
 
+def _texto_boas_vindas(idioma, nome, nome_assistente):
+    """Texto de boas-vindas sem emojis (compatível com iPhone)."""
+    n = (", " + nome) if nome else ""
+    a = nome_assistente or "Margo"
+    if idioma == "en-US":
+        return f"""Hi{n}! I'm {a}, your personal AI assistant.
+
+Here's everything I can do for you:
+
+CHAT & SEARCH - Ask me anything! I search the web, answer questions, translate languages and much more.
+
+NAVIGATION - Say "take me to..." or "find a restaurant nearby" and I'll trace the route. You can also say "by bus" or "walking"!
+
+MUSIC - "Play [song]" and I'll open it on Spotify for you. You can even ask me to pick one!
+
+REMINDERS - "Remind me to call the dentist at 3pm" or "remind me in 30 minutes to check the oven." I'll send you a notification when it's time!
+
+SMART HOME - Control your SmartThings devices: "turn on the living room light", "turn off the AC at 10pm." Connect your SmartThings account in settings.
+
+WHATSAPP - "Send a message to Maria on WhatsApp" and I'll open the conversation for you.
+
+WEATHER - "What's the weather like?" and I'll tell you the forecast for your area.
+
+TRAVEL - Search flights and hotels: "find flights to Tokyo" or "hotels near the beach."
+
+━━━━━━━━━━━━━━━━━━
+GETTING STARTED - SETTINGS
+
+Tap the gear icon in the top right corner to personalize your experience:
+
+1. About You - Tell me your name so I can greet you properly.
+
+2. Your Assistant - Give me a custom name and describe my personality! Example: "fun, talks like a close friend, loves music."
+
+3. Voice - Choose between male and female voice. You can also connect your own Fish Audio or ElevenLabs key for premium voices.
+
+4. Navigation - Choose your preferred map app (Google Maps or Waze).
+
+5. Smart Home - Connect your Samsung SmartThings account to control lights, AC, TV and more by voice.
+
+━━━━━━━━━━━━━━━━━━
+TIPS:
+- You can type or use the microphone to talk to me
+- I understand Portuguese, English, Japanese and many other languages
+- Try: "What can you do?" anytime
+
+How can I help you today?"""
+    if idioma == "ja-JP":
+        return f"""こんにちは{n}！パーソナルAIアシスタントの{a}です。
+
+私ができること：
+
+会話と検索 - 何でも聞いてください！ウェブ検索、質問への回答、翻訳などができます。
+
+ナビ - 「〜まで連れて行って」「近くのレストランを探して」と言えばルートを表示します。「バスで」「歩いて」も指定できます！
+
+音楽 - 「〔曲名〕をかけて」と言えばSpotifyで開きます。曲選びを任せることもできます！
+
+リマインダー - 「15時に歯医者に電話するのを教えて」「30分後にオーブンを確認するのを教えて」。時間になったら通知します！
+
+スマートホーム - SmartThingsのデバイスを操作：「リビングの電気をつけて」「22時にエアコンを消して」。設定でSmartThingsアカウントを連携してください。
+
+WhatsApp - 「マリアにWhatsAppでメッセージを送って」と言えば会話を開きます。
+
+天気 - 「天気はどう？」と聞けば地域の予報をお伝えします。
+
+旅行 - フライトやホテルを検索：「東京行きのフライトを探して」「ビーチ近くのホテル」。
+
+━━━━━━━━━━━━━━━━━━
+はじめに - 設定
+
+右上の歯車アイコンをタップしてカスタマイズしてください：
+
+1. あなたについて - お名前を教えてください。
+
+2. アシスタント - 名前と性格を自由に設定できます！例：「明るくて、親友みたいに話す、音楽好き」
+
+3. 声 - 男性・女性の声を選べます。Fish AudioやElevenLabsのキーでプレミアム音声も使えます。
+
+4. ナビ - 地図アプリを選択（Google MapsまたはWaze）。
+
+5. スマートホーム - Samsung SmartThingsアカウントを連携すると、照明・エアコン・テレビなどを音声で操作できます。
+
+━━━━━━━━━━━━━━━━━━
+ヒント：
+- 文字入力でもマイクでも話しかけられます
+- 日本語、ポルトガル語、英語など多くの言語がわかります
+- いつでも「何ができるの？」と聞いてみてください
+
+今日は何をお手伝いしましょうか？"""
+    return f"""Olá{n}! Sou a {a}, sua assistente pessoal com IA.
+
+Aqui está tudo que posso fazer por você:
+
+CONVERSA E PESQUISA - Me pergunte qualquer coisa! Pesquiso na web, respondo dúvidas, traduzo idiomas e muito mais.
+
+NAVEGAÇÃO - Diga "me leva até..." ou "acha um restaurante perto" e eu traço a rota. Pode pedir "de ônibus" ou "a pé" também!
+
+MÚSICA - "Toca [música]" e eu abro no Spotify pra você. Pode até pedir pra eu escolher uma!
+
+LEMBRETES - "Me lembra de ligar pro dentista às 15h" ou "me lembra daqui a 30 minutos de olhar o forno." Eu te mando uma notificação quando chegar a hora!
+
+CASA INTELIGENTE - Controle seus dispositivos SmartThings: "liga a luz da sala", "desliga o ar às 22h." Conecte sua conta SmartThings nas configurações.
+
+WHATSAPP - "Manda mensagem pra Maria no WhatsApp" e eu abro a conversa pra você.
+
+CLIMA - "Como tá o tempo?" e eu te digo a previsão da sua região.
+
+VIAGENS - Busque voos e hotéis: "procura voos pra Tóquio" ou "hotéis perto da praia."
+
+━━━━━━━━━━━━━━━━━━
+COMEÇANDO - CONFIGURAÇÕES
+
+Toque no ícone de engrenagem no canto superior direito para personalizar sua experiência:
+
+1. Sobre Você - Me diga seu nome pra eu te cumprimentar direitinho.
+
+2. Seu Assistente - Me dê um nome personalizado e descreva minha personalidade! Exemplo: "divertida, fala como amiga próxima, adora música."
+
+3. Voz - Escolha entre voz masculina e feminina. Você também pode conectar sua própria chave Fish Audio ou ElevenLabs para vozes premium.
+
+4. Navegação - Escolha seu app de mapa preferido (Google Maps ou Waze).
+
+5. Casa Inteligente - Conecte sua conta Samsung SmartThings para controlar luzes, ar, TV e mais por voz.
+
+━━━━━━━━━━━━━━━━━━
+DICAS:
+- Você pode digitar ou usar o microfone pra falar comigo
+- Eu entendo português, inglês, japonês e muitos outros idiomas
+- Experimente: "O que você pode fazer?" a qualquer momento
+
+Como posso te ajudar hoje?"""
+
+
 @app.post("/boas_vindas")
 async def boas_vindas(request: Request):
     """Retorna mensagem de boas-vindas personalizada"""
@@ -4648,6 +4782,7 @@ Toque no ícone ⚙️ no canto superior direito para personalizar sua experiên
 • Experimente: "O que você pode fazer?" a qualquer momento
 
 Como posso te ajudar hoje?"""
+        mensagem = _texto_boas_vindas(idioma, nome, nome_assistente)
         return JSONResponse({"mensagem": mensagem})
     except Exception as e:
         return JSONResponse({"mensagem": "Olá! Sou sua assistente pessoal. Como posso te ajudar?"})
