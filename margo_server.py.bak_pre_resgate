@@ -2326,42 +2326,6 @@ def _detectar_modo_transporte(msg: str) -> str:
     return ""
 
 
-def _resgatar_viagem(mensagem: str, ferramenta):
-    """Rede de seguranca: se a IA esqueceu o JSON de passagem/hotel, extrai com chamada focada."""
-    try:
-        if ferramenta and ferramenta.get("ferramenta"):
-            return ferramenta
-        import re as _rv, json as _jv
-        from datetime import date as _dv
-        msg = (mensagem or "").lower()
-        palavras = set(_rv.findall(r"\w+", msg))
-        if palavras & {"perto", "próximo", "proximo", "nearby", "aqui"} or "near me" in msg:
-            return ferramenta
-        voo = any(k in msg for k in ["passagem", "passagens", "voo", "voos", "flight", "aérea", "aerea", "avião", "aviao", "航空券", "フライト", "飛行機"])
-        hotel = any(k in msg for k in ["hotel", "hotéis", "hoteis", "hospedagem", "pousada", "hostel", "onde ficar"])
-        if not (voo or hotel):
-            return ferramenta
-        hoje = _dv.today().isoformat()
-        if voo:
-            formato = '{"ferramenta":"flight_search","origem":"","destino":"","origem_iata":"","destino_iata":"","data_ida":"","data_volta":""}'
-        else:
-            formato = '{"ferramenta":"hotel_search","destino":"","checkin":"","checkout":""}'
-        prompt = (f"Hoje é {hoje}. Extraia os dados do pedido abaixo e responda APENAS com um JSON neste formato, sem texto extra: {formato}\n"
-                  "Use códigos IATA de 3 letras quando for voo. Datas em YYYY-MM-DD; deixe vazio se não foi informado.\n"
-                  f"Pedido: {mensagem}")
-        bruto = chamar_deepseek_simples(prompt, max_tokens=200) or ""
-        m = _rv.search(r"\{.*\}", bruto, _rv.S)
-        if not m:
-            return ferramenta
-        dados = _jv.loads(m.group(0))
-        if dados.get("ferramenta") in ("flight_search", "hotel_search") and dados.get("destino"):
-            log(f"[VIAGEM-RESGATE] IA esqueceu o comando, recuperado: {dados}", "viagem")
-            return dados
-    except Exception as e:
-        print(f"[VIAGEM-RESGATE] erro: {e}")
-    return ferramenta
-
-
 def _detectar_musica_na_resposta(resposta: str, mensagem_usuario: str, ferramenta: dict) -> dict:
     """Extrai música da resposta do LLM e cria/corrige spotify_play."""
     log(f"[MUSIC-DEBUG] entrada: ferramenta={ferramenta}, msg='{mensagem_usuario[:60]}', resp='{resposta[:80]}'", "spotify")
@@ -2607,8 +2571,7 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
     flight_kw = ["passagem", "passagens", "voo ", "voos", "voar ", "voando", "flight", "flights", "aérea", "aerea", "avião", "aviao", "aviões", "avioes", "bilhete aéreo", "bilhete aereo", "ida e volta", "só ida", "フライト", "飛行機", "航空券"]
     hotel_kw = ["hotel ", "hotéis", "hoteis", "hospedagem", "pousada", "hostel", "onde ficar", "reservar quarto"]
     local_indicadores = ["perto", "próximo", "proximo", "nearby", "near me", "aqui", "perto de mim", "por perto"]
-    import re as _re_loc
-    eh_busca_local = bool(set(_re_loc.findall(r"\w+", msg)) & {"perto", "próximo", "proximo", "nearby", "aqui"}) or "near me" in msg
+    eh_busca_local = any(k in msg for k in local_indicadores)
     if not eh_busca_local and (any(k in msg for k in flight_kw) or any(k in msg for k in hotel_kw)):
         return None  # v4-pro extrai origem, destino, IATA, datas
 
@@ -3447,9 +3410,6 @@ INSTRUÇÕES OBRIGATÓRIAS:
         encerrar = len(msg_low) <= 40 and any(p in msg_low for p in padroes_despedida)
     except:
         encerrar = False
-
-    # Rede de seguranca: passagem/hotel sem comando da IA
-    ferramenta = _resgatar_viagem(mensagem, ferramenta)
 
     # Auto-detecta música na resposta se LLM esqueceu de acionar spotify
     if True:  # Sempre verifica — corrige query errado do LLM
