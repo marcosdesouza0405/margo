@@ -2336,13 +2336,11 @@ def _resgatar_viagem(mensagem: str, ferramenta):
         msg = (mensagem or "").lower()
         palavras = set(_rv.findall(r"\w+", msg))
         if palavras & {"perto", "próximo", "proximo", "nearby", "aqui"} or "near me" in msg:
-            print("[VIAGEM-RESGATE] saiu: parece busca local", flush=True)
             return ferramenta
         voo = any(k in msg for k in ["passagem", "passagens", "voo", "voos", "flight", "aérea", "aerea", "avião", "aviao", "航空券", "フライト", "飛行機"])
         hotel = any(k in msg for k in ["hotel", "hotéis", "hoteis", "hospedagem", "pousada", "hostel", "onde ficar"])
         if not (voo or hotel):
             return ferramenta
-        print("[VIAGEM-RESGATE] acionado: IA veio sem comando", flush=True)
         hoje = _dv.today().isoformat()
         if voo:
             formato = '{"ferramenta":"flight_search","origem":"","destino":"","origem_iata":"","destino_iata":"","data_ida":"","data_volta":""}'
@@ -2352,18 +2350,15 @@ def _resgatar_viagem(mensagem: str, ferramenta):
                   "Use códigos IATA de 3 letras quando for voo. Datas em YYYY-MM-DD; deixe vazio se não foi informado.\n"
                   f"Pedido: {mensagem}")
         bruto = chamar_deepseek_simples(prompt, max_tokens=200) or ""
-        print(f"[VIAGEM-RESGATE] resposta da IA: {bruto[:300]!r}", flush=True)
         m = _rv.search(r"\{.*\}", bruto, _rv.S)
         if not m:
-            print("[VIAGEM-RESGATE] saiu: resposta sem JSON", flush=True)
             return ferramenta
         dados = _jv.loads(m.group(0))
         if dados.get("ferramenta") in ("flight_search", "hotel_search") and dados.get("destino"):
-            print(f"[VIAGEM-RESGATE] recuperado: {dados}", flush=True)
+            log(f"[VIAGEM-RESGATE] IA esqueceu o comando, recuperado: {dados}", "viagem")
             return dados
-        print(f"[VIAGEM-RESGATE] saiu: dados invalidos {dados}", flush=True)
     except Exception as e:
-        print(f"[VIAGEM-RESGATE] erro: {e!r}", flush=True)
+        print(f"[VIAGEM-RESGATE] erro: {e}")
     return ferramenta
 
 
