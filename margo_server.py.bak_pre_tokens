@@ -2351,7 +2351,7 @@ def _resgatar_viagem(mensagem: str, ferramenta):
         prompt = (f"Hoje é {hoje}. Extraia os dados do pedido abaixo e responda APENAS com um JSON neste formato, sem texto extra: {formato}\n"
                   "Use códigos IATA de 3 letras quando for voo. Datas em YYYY-MM-DD; deixe vazio se não foi informado.\n"
                   f"Pedido: {mensagem}")
-        bruto = chamar_deepseek_simples(prompt, max_tokens=800) or ""
+        bruto = chamar_deepseek_simples(prompt, max_tokens=200) or ""
         print(f"[VIAGEM-RESGATE] resposta da IA: {bruto[:300]!r}", flush=True)
         m = _rv.search(r"\{.*\}", bruto, _rv.S)
         if not m:
