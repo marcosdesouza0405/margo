@@ -2330,14 +2330,7 @@ def _resgatar_viagem(mensagem: str, ferramenta):
     """Rede de seguranca: se a IA esqueceu o JSON de passagem/hotel, extrai com chamada focada."""
     try:
         if ferramenta and ferramenta.get("ferramenta"):
-            _ft = ferramenta.get("ferramenta")
-            _txt = " ".join(str(v) for v in ferramenta.values()).lower()
-            _modelo = any(k in _txt for k in ["cidade origem", "cidade destino", "código iata", "codigo iata", "yyyy-mm-dd", "cidade ou local"])
-            if _ft in ("flight_search", "hotel_search") and _modelo:
-                print(f"[VIAGEM-RESGATE] comando veio com modelo do prompt, refazendo: {ferramenta}", flush=True)
-                ferramenta = None
-            else:
-                return ferramenta
+            return ferramenta
         import re as _rv, json as _jv
         from datetime import date as _dv
         msg = (mensagem or "").lower()
