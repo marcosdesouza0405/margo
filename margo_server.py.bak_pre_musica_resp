@@ -2394,11 +2394,6 @@ def _detectar_musica_na_resposta(resposta: str, mensagem_usuario: str, ferrament
         "mais uma", "manda outra", "choose ", "pick ", "surpreenda",
         "song", "music", "manda ", "bota outra"
     ])
-    resp_lower = (resposta or "").lower()
-    acao_na_resposta = any(w in resp_lower for w in ["tocando", "vou tocar", "já vou tocar", "ja vou tocar", "colocando", "vou colocar", "dando o play", "dando play", "playing", "i'll play", "再生します", "再生中"])
-    if acao_na_resposta and not musica_pedido:
-        log("[MUSIC-DEBUG] resposta diz que vai tocar, tratando como pedido de musica", "spotify")
-        musica_pedido = True
     if not musica_pedido and not ja_tem_spotify:
         log(f"[MUSIC-DEBUG] saiu: musica_pedido=False, ja_tem_spotify=False", "spotify")
         return ferramenta
@@ -2412,7 +2407,7 @@ Responda APENAS com: nome da música - artista
 Se não houver música mencionada, responda: NENHUMA
 
 Texto: {resposta}"""
-        resultado = chamar_deepseek_simples(prompt_extracao, max_tokens=300)
+        resultado = chamar_deepseek_simples(prompt_extracao, max_tokens=50)
         log(f"[MUSIC-DEBUG] DeepSeek retornou: '{resultado}'", "spotify")
         if resultado and "NENHUMA" not in resultado.upper():
             musica_extraida = resultado.strip().strip('"').strip("'").strip(".")
