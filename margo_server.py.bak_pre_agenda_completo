@@ -2706,9 +2706,7 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
         return {"ferramenta": "phone_call", "contato": contato.rstrip('.!? ')}
 
     # ── AGENDA / LEMBRETE ──
-    agenda_kw = ["me lembra", "me lembre", "lembre-me", "lembre me", "lembre de ", "me lembrar", "lembrar de ",
-                 "não me deixa esquecer", "nao me deixa esquecer", "não deixa eu esquecer", "nao deixa eu esquecer",
-                 "lembra de ", "lembrete", "agenda ", "agendar",
+    agenda_kw = ["me lembra", "lembra de ", "lembrete", "agenda ", "agendar",
                  "remind me", "reminder", "depois de ", "after ",
                  "リマインド", "思い出させて"]
     time_ctx = ["hora", "horas", "minuto", "minutos", "min", "amanhã", "amanha",
@@ -2724,8 +2722,7 @@ def _pre_detectar(msg: str, hora_local: str = "") -> dict:
         tempo = _parsear_tempo(msg, hora_local)
         # Limpa titulo — remove prefixos de comando e referências de tempo
         titulo = msg
-        for k in ["me lembra de ", "me lembra ", "me lembre de ", "me lembre ", "lembre-me de ", "lembre-me ",
-                   "lembre me de ", "me lembrar de ", "lembrar de ", "lembre de ", "lembra de ", "remind me to ", "remind me ",
+        for k in ["me lembra de ", "me lembra ", "lembra de ", "remind me to ", "remind me ",
                    "depois de ", "lembrete ", "agenda ", "agendar "]:
             if k in titulo:
                 titulo = titulo.split(k, 1)[-1].strip()
@@ -3304,22 +3301,6 @@ INSTRUÇÕES OBRIGATÓRIAS:
             resposta_limpa = "Desculpe, não entendi bem. Pode reformular?"
 
     # ── AGENDA ────────────────────────────────────────────────────────────────
-    # Rede de seguranca: Margo disse que vai lembrar mas nao mandou o comando
-    if not (ferramenta and ferramenta.get("ferramenta")):
-        try:
-            _rl = (resposta_limpa or "").lower()
-            _diz_lembrar = any(k in _rl for k in ["te lembro", "vou te lembrar", "vou lembrar você", "vou lembrar voce", "lembrete criado", "i'll remind you", "reminder set", "リマインドします", "お知らせします"])
-            if _diz_lembrar:
-                _tp = _parsear_tempo(mensagem.lower().strip(), hora_local)
-                if _tp.get("data_hora_iso"):
-                    log("[AGENDA-RESGATE] Margo disse que ia lembrar sem comando, criando lembrete", "agenda")
-                    ferramenta = {"ferramenta": "agenda_add", "titulo": mensagem, "descricao": "",
-                                  "data_hora": _tp.get("data_hora_iso", ""), "minutos_relativos": _tp.get("minutos_relativos", 0)}
-                else:
-                    log("[AGENDA-RESGATE] Margo disse que ia lembrar, mas sem horario reconhecido na mensagem", "agenda")
-        except Exception as _e_ag:
-            log(f"[AGENDA-RESGATE] erro: {_e_ag}", "agenda")
-
     if ferramenta and ferramenta.get("ferramenta") == "agenda_add":
         data_hora_agenda = ferramenta.get("data_hora", "")
         minutos_relativos = ferramenta.get("minutos_relativos", 0)
