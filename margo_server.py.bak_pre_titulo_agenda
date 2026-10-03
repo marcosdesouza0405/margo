@@ -3307,28 +3307,6 @@ INSTRUÇÕES OBRIGATÓRIAS:
         titulo_agenda = _limpar_titulo(ferramenta.get("titulo", "Compromisso"))
         if not titulo_agenda:
             titulo_agenda = "Compromisso"
-        # Titulo limpo a partir da resposta da Margo (fallback: titulo atual)
-        try:
-            _resp_tit = resposta_limpa or ""
-            if _resp_tit:
-                _p_tit = (
-                    "Extraia o TITULO de um lembrete a partir da frase abaixo. "
-                    "Responda APENAS o titulo: curto (2 a 6 palavras), sem horario, sem data, sem pontuacao final, "
-                    "no MESMO idioma da frase. Exemplos: Votar | Ligar pro dentista | Call mom | 薬を飲む. "
-                    "Se nao houver lembrete na frase, responda: NENHUM\n"
-                    f"Frase: {_resp_tit}"
-                )
-                _t = (chamar_deepseek_simples(_p_tit, max_tokens=300) or "").strip().strip('"').strip("'").strip(".").strip()
-                _t = _t.splitlines()[0].strip() if _t else ""
-                if _t and "NENHUM" not in _t.upper() and 1 < len(_t) <= 60:
-                    log(f"Titulo agenda via resposta: '{titulo_agenda}' -> '{_t}'", "agenda")
-                    titulo_agenda = _t
-                    ferramenta = dict(ferramenta)
-                    ferramenta["titulo"] = _t
-                else:
-                    log(f"Titulo agenda via resposta vazio, mantendo: '{titulo_agenda}'", "agenda")
-        except Exception as _e_tit:
-            log(f"Titulo agenda via resposta falhou, mantendo atual: {_e_tit}", "agenda")
         descricao_agenda = ferramenta.get("descricao", "")
 
         # _parsear_tempo já retorna em UTC — só loga
