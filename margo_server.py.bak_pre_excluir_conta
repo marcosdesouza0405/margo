@@ -338,14 +338,6 @@ class BancoMargo:
             PRIMARY KEY (user_id, data)
         )''')
 
-        # ── CONTAS EXCLUIDAS (anti-abuso do trial, apenas hashes) ──
-        c.execute('''CREATE TABLE IF NOT EXISTS contas_excluidas (
-            email_hash TEXT,
-            device_hash TEXT,
-            msgs_usadas INTEGER DEFAULT 0,
-            excluido_em TEXT
-        )''')
-
         # ── SPOTIFY TOKENS ────────────────────────────────────────────────────
         c.execute('''CREATE TABLE IF NOT EXISTS spotify_tokens (
             user_id TEXT PRIMARY KEY,
@@ -4965,26 +4957,6 @@ async def verificar_email(request: Request):
         c2.execute(f"DELETE FROM email_verificacao WHERE email={ph}", (email,))
         conn2.commit()
         conn2.close()
-        # Anti-abuso: conta excluida antes com mesmo email/aparelho herda o uso do trial
-        try:
-            _eh = _hash_anon(email)
-            _dh = _hash_anon(device_id)
-            conn3 = banco._get_conn()
-            c3 = conn3.cursor()
-            ph3 = "%s" if banco._pg else "?"
-            if _dh:
-                c3.execute(f"SELECT COALESCE(MAX(msgs_usadas),0) FROM contas_excluidas WHERE email_hash={ph3} OR device_hash={ph3}", (_eh, _dh))
-            else:
-                c3.execute(f"SELECT COALESCE(MAX(msgs_usadas),0) FROM contas_excluidas WHERE email_hash={ph3}", (_eh,))
-            _r = c3.fetchone()
-            _herdado = int(_r[0]) if _r and _r[0] else 0
-            if _herdado > 0:
-                c3.execute(f"INSERT INTO uso_diario (user_id, data, msgs) VALUES ({ph3},{ph3},{ph3})", (user_id, "herdado", _herdado))
-                conn3.commit()
-                log(f"Anti-abuso: {user_id} herdou {_herdado} msgs de conta excluida", "usuarios")
-            conn3.close()
-        except Exception as e_ab:
-            log(f"Anti-abuso erro (cadastro segue normal): {e_ab}", "usuarios")
         log(f"Cadastro verificado: {email} → {user_id}", "usuarios")
         return JSONResponse({"ok": True, "user_id": user_id, "email": email, "plano": "free", "tem_perfil": False})
     except Exception as e:
@@ -5607,62 +5579,6 @@ async def admin_bloqueados(key: str = ""):
                 "primeiro_erro": entry["first_error"].isoformat()
             }
     return JSONResponse({"bloqueados": bloqueados, "total": len(bloqueados)})
-
-def _hash_anon(valor):
-    """Hash anonimo (nao reversivel) para anti-abuso do trial."""
-    import hashlib
-    valor = (valor or "").strip().lower()
-    return hashlib.sha256(("margo_anon_" + valor).encode()).hexdigest() if valor else ""
-
-
-@app.post("/conta/excluir")
-async def conta_excluir(request: Request):
-    """Usuario exclui a propria conta. Body: { email, senha }"""
-    try:
-        import hashlib
-        data = await request.json()
-        email = data.get("email", "").strip().lower()
-        senha = data.get("senha", "").strip()
-        if not email or not senha:
-            return JSONResponse({"erro": "Email e senha obrigatórios"}, status_code=400)
-        usuario = banco.buscar_usuario_por_email(email)
-        if not usuario:
-            return JSONResponse({"erro": "Conta não encontrada"}, status_code=404)
-        senha_hash = hashlib.sha256((email + senha + "margo_orbiby_salt").encode()).hexdigest()
-        if usuario.get("senha_hash") != senha_hash:
-            return JSONResponse({"erro": "Senha incorreta."}, status_code=401)
-        user_id = usuario["user_id"]
-        device_id = usuario.get("device_id") or ""
-        conn = banco._get_conn()
-        try:
-            cur = conn.cursor()
-            ph = "%s" if banco._pg else "?"
-            cur.execute(f"SELECT COALESCE(SUM(msgs),0) FROM uso_diario WHERE user_id={ph}", (user_id,))
-            row = cur.fetchone()
-            usadas = int(row[0]) if row and row[0] else 0
-            cur.execute(f"INSERT INTO contas_excluidas (email_hash, device_hash, msgs_usadas, excluido_em) VALUES ({ph},{ph},{ph},{ph})",
-                        (_hash_anon(email), _hash_anon(device_id), usadas, datetime.now().isoformat()))
-            deletados = {}
-            for t in ["agenda", "resumos_sessao", "config_assistente", "perfil_usuario", "uso_diario",
-                      "spotify_tokens", "smartthings_tokens", "usuarios"]:
-                cur.execute(f"DELETE FROM {t} WHERE user_id={ph}", (user_id,))
-                deletados[t] = cur.rowcount
-            cur.execute(f"DELETE FROM email_verificacao WHERE email={ph}", (email,))
-            conn.commit()
-        except Exception:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-            raise
-        finally:
-            conn.close()
-        log(f"Conta excluida pelo usuario: {user_id} — {deletados}", "usuarios")
-        return JSONResponse({"ok": True})
-    except Exception as e:
-        log(f"Erro /conta/excluir: {e}", "usuarios")
-        return JSONResponse({"erro": "Não foi possível excluir a conta. Tente novamente."}, status_code=500)
-
 
 @app.post("/admin/deletar_conta")
 async def admin_deletar_conta(request: Request):
