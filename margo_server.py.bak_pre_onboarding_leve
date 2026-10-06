@@ -2953,7 +2953,7 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
     perfil = banco.buscar_perfil(user_id)
 
     # ── ONBOARDING ─────────────────────────────────────────────────────────────
-    if False and not config.get("onboarding_completo"):  # entrevista desativada: perfil agora e sugerido de leve
+    if not config.get("onboarding_completo"):
         historico = sessoes.get_historico(user_id)
         resposta = chamar_deepseek(SYSTEM_ONBOARDING, mensagem, historico, max_tokens=300)
         dados = extrair_onboarding_completo(resposta)
@@ -3076,18 +3076,6 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
             contexto_extra += f"\n[LEMBRETE AGORA] {l['titulo']} — {l['tipo']}"
 
     system = build_system_prompt(perfil, config)
-    # Perfil vazio: sugerir de leve preencher, so na primeira mensagem da sessao
-    try:
-        if not (perfil or {}).get("nome") and not sessoes.get_historico(user_id):
-            system += ("\n\n=== PERFIL DO USUARIO VAZIO ===\n"
-                       "Voce ainda nao sabe o nome nem detalhes desta pessoa. Responda normalmente ao que ela disse e, "
-                       "no final, sugira em UMA frase curta e leve que ela preencha o perfil nas configuracoes "
-                       "(icone de engrenagem no topo) para voce conhecer melhor quem ela e. "
-                       "NAO faca perguntas de cadastro (nome, idade, profissao) na conversa. "
-                       "Se ela disser que nao quer, respeite e siga a conversa normalmente.")
-            log(f"Sugestao de perfil incluida para {user_id}", "onboarding")
-    except Exception as _e_pf:
-        log(f"Sugestao de perfil falhou (segue normal): {_e_pf}", "onboarding")
     if contexto_extra:
         system += f"\n\n{contexto_extra}"
     # Instrução de idioma no INÍCIO e no FINAL do system prompt (sanduíche)
