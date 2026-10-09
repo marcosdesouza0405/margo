@@ -2415,11 +2415,16 @@ def _detectar_musica_na_resposta(resposta: str, mensagem_usuario: str, ferrament
     # Extrai música via DeepSeek Flash (rápido e preciso)
     musica_extraida = ""
     try:
-        prompt_extracao = f"""Extraia SOMENTE o nome da música e artista mencionados neste texto.
-Responda APENAS com: nome da música - artista
-Se não houver música mencionada, responda: NENHUMA
+        prompt_extracao = f"""Pedido do usuário: {mensagem_usuario}
+Resposta da assistente: {resposta}
 
-Texto: {resposta}"""
+A assistente disse que está tocando, colocou ou vai colocar uma música AGORA?
+- Se sim e citou uma música específica: responda essa música.
+- Se sim mas citou só um gênero ou estilo (ex: "colocando um sertanejo"): escolha UMA música real e conhecida desse gênero.
+- Se não está tocando música agora (só conversa sobre música): responda NENHUMA.
+
+Responda APENAS com: nome da música - artista
+Ou APENAS: NENHUMA"""
         resultado = chamar_deepseek_simples(prompt_extracao, max_tokens=800)
         log(f"[MUSIC-DEBUG] DeepSeek retornou: '{resultado}'", "spotify")
         if resultado and "NENHUMA" not in resultado.upper():
