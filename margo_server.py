@@ -4273,9 +4273,21 @@ async def salvar_fcm_token(request: Request):
 # ── SCHEDULER DE LEMBRETES ────────────────────────────────────────────────────
 import threading
 
+_pendentes_ultimo = {}  # user_id -> timestamp da última consulta real
+_pendentes_bloqueados = {}  # user_id -> quantas chamadas extras foram ignoradas
+
 @app.get("/agenda/pendentes/{user_id}")
 async def agenda_pendentes(user_id: str):
     """Retorna lembretes pendentes de notificação (12h antes, 1h antes, na hora)."""
+    # Proteção contra loop do app: no máximo 1 consulta real por minuto por usuário
+    _agora_ts = time.time()
+    if _agora_ts - _pendentes_ultimo.get(user_id, 0) < 60:
+        _n = _pendentes_bloqueados.get(user_id, 0) + 1
+        _pendentes_bloqueados[user_id] = _n
+        if _n in (10, 100, 1000):
+            log(f"Pendentes em loop: {user_id} ({_n} chamadas extras ignoradas)", "agenda")
+        return JSONResponse({"pendentes": []})
+    _pendentes_ultimo[user_id] = _agora_ts
     try:
         conn = banco._get_conn()
         c = conn.cursor()
