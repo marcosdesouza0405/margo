@@ -49,6 +49,14 @@ import urllib.request
 import urllib.parse
 import uvicorn
 
+# Edge TTS: a Microsoft trocou o endpoint (~10/out/2026). O antigo devolve 403.
+# Remover estas linhas quando a lib edge-tts receber correção oficial (issue #490).
+try:
+    import edge_tts.communicate as _ec
+    _ec.WSS_URL = "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=6A5AA1D4EAFF4E9FB37E23D68491D6F4"
+except Exception as _e_edge:
+    print(f"Edge TTS endpoint override falhou: {_e_edge}")
+
 # ── Google Play Billing ────────────────────────────────────────────────────────
 import json as _json_billing
 from google.oauth2 import service_account as _billing_sa
