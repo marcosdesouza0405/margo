@@ -5905,6 +5905,7 @@ async def verificar_compra(request: Request):
 
         # ── iOS: Apple App Store ──
         if platform == "ios":
+            product_id = product_id.replace("_v2", "")
             # O transactionReceipt do iOS (JWS) é assinado pela Apple — confiável
             # Ativar plano baseado no product_id
             if is_subscription:
