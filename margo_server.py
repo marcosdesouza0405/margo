@@ -4930,12 +4930,20 @@ Como posso te ajudar hoje?"""
     except Exception as e:
         return JSONResponse({"mensagem": "Olá! Sou sua assistente pessoal. Como posso te ajudar?"})
 
+def _limpar_device_id(d):
+    """device_id inválido (vazio, 'unknown', curto demais) vira vazio = ignorado."""
+    d = (d or "").strip()
+    if not d or d.lower() == "unknown" or len(d) < 6:
+        return ""
+    return d
+
+
 @app.post("/verificar_device")
 async def verificar_device(request: Request):
     """Verifica se device já tem conta free cadastrada"""
     try:
         data = await request.json()
-        device_id = data.get("device_id", "")
+        device_id = _limpar_device_id(data.get("device_id", ""))
         if not device_id:
             return JSONResponse({"pode_criar": True})
         conn = banco._get_conn()
@@ -4966,7 +4974,7 @@ async def verificar_email(request: Request):
         email = data.get("email", "").strip().lower()
         codigo = data.get("codigo", "").strip()
         senha_hash = data.get("senha_hash", "")
-        device_id = data.get("device_id", "")
+        device_id = _limpar_device_id(data.get("device_id", ""))
 
         conn = banco._get_conn()
         c = conn.cursor()
@@ -5040,8 +5048,8 @@ async def cadastro(request: Request):
         data  = await request.json()
         email = data.get("email", "").strip().lower()
         senha = data.get("senha", "").strip()
-        device_id = data.get("device_id", "")
-        device_id = data.get("device_id", "")
+        device_id = _limpar_device_id(data.get("device_id", ""))
+        device_id = _limpar_device_id(data.get("device_id", ""))
 
         if not email or "@" not in email:
             return JSONResponse({"erro": "Email inválido"}, status_code=400)
@@ -5124,8 +5132,8 @@ async def login(request: Request):
         data  = await request.json()
         email = data.get("email", "").strip().lower()
         senha = data.get("senha", "").strip()
-        device_id = data.get("device_id", "")
-        device_id = data.get("device_id", "")
+        device_id = _limpar_device_id(data.get("device_id", ""))
+        device_id = _limpar_device_id(data.get("device_id", ""))
 
         if not email or "@" not in email:
             return JSONResponse({"erro": "Email inválido"}, status_code=400)
@@ -5141,12 +5149,15 @@ async def login(request: Request):
         if usuario.get("senha_hash") != senha_hash:
             return JSONResponse({"erro": "Senha incorreta."}, status_code=401)
 
-        # Atualiza último acesso
+        # Atualiza último acesso (e o device_id estável, se veio)
         agora = datetime.now().isoformat()
         conn = banco._get_conn()
         c = conn.cursor()
         ph = "%s" if banco._pg else "?"
-        c.execute(f'UPDATE usuarios SET ultimo_acesso={ph} WHERE email={ph}', (agora, email))
+        if device_id:
+            c.execute(f'UPDATE usuarios SET ultimo_acesso={ph}, device_id={ph} WHERE email={ph}', (agora, device_id, email))
+        else:
+            c.execute(f'UPDATE usuarios SET ultimo_acesso={ph} WHERE email={ph}', (agora, email))
         conn.commit()
         conn.close()
 
