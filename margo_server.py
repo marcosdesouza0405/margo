@@ -1556,7 +1556,8 @@ def chamar_deepseek_simples(mensagem, max_tokens=150, modelo="deepseek-v4-flash"
             "model": modelo,
             "messages": [{"role": "user", "content": mensagem}],
             "temperature": 0.4,
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens,
+            "thinking": {"type": "disabled"}
         }).encode("utf-8")
         req = urllib.request.Request(
             "https://api.deepseek.com/v1/chat/completions",
