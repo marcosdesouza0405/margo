@@ -1901,6 +1901,13 @@ def limpar_resposta(texto):
     return texto.strip()
 
 # ── BUSCA DE LUGARES REAIS (OpenStreetMap / Overpass, gratuito) ─────────────
+_OSM_SERVIDORES = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+]
+
 _OSM_TIPOS = [
     (["gasolina", "posto", "combustivel", "combustível", "gas station", "petrol", "fuel", "ガソリン"],
      ['["amenity"="fuel"]']),
@@ -2025,12 +2032,23 @@ def _buscar_lugares_osm(texto, lat, lon, cidade="", max_res=5, usar_ia=False):
     lugares = []
     for raio in (5000, 15000):
         partes = "".join(f'nwr{f}(around:{raio},{lat},{lon});' for f in filtros)
-        q = f'[out:json][timeout:10];({partes});out center 40;'
+        q = f'[out:json][timeout:6];({partes});out center 40;'
         dados = urllib.parse.urlencode({"data": q}).encode()
-        req = urllib.request.Request(
-            "https://overpass-api.de/api/interpreter", data=dados,
-            headers={"User-Agent": "MargoApp/1.0 (orbiby.com)"})
-        resp = json.loads(urllib.request.urlopen(req, timeout=12).read())
+        resp = None
+        for _srv in list(_OSM_SERVIDORES):
+            try:
+                req = urllib.request.Request(
+                    _srv, data=dados,
+                    headers={"User-Agent": "MargoApp/1.0 (orbiby.com)"})
+                resp = json.loads(urllib.request.urlopen(req, timeout=6).read())
+                if _OSM_SERVIDORES[0] != _srv:
+                    _OSM_SERVIDORES.remove(_srv)
+                    _OSM_SERVIDORES.insert(0, _srv)
+                break
+            except Exception as e_srv:
+                log(f"OSM servidor falhou ({_srv}): {e_srv}", "busca")
+        if resp is None:
+            return ""
         for el in resp.get("elements", []):
             tags = el.get("tags", {})
             nome = tags.get("name")
