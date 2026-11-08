@@ -1901,6 +1901,69 @@ def limpar_resposta(texto):
     return texto.strip()
 
 # ── BUSCA DE LUGARES REAIS (OpenStreetMap / Overpass, gratuito) ─────────────
+_OSM_ULTIMA_LISTA = []
+_LUGARES_RECENTES = {}
+
+
+def _casar_destino_recente(user_id, destino, mensagem=""):
+    """Compara o destino falado com os lugares da ultima busca (30 min). Retorna 'lat,lng' ou ''."""
+    import difflib
+    import time as _t_d
+    import unicodedata
+    import re as _re_d
+    reg = _LUGARES_RECENTES.get(user_id)
+    if not reg or _t_d.time() - reg[0] > 1800 or not reg[1]:
+        return ""
+    lugares = reg[1]
+
+    def norm(s):
+        s = unicodedata.normalize("NFKD", (s or "").lower())
+        s = "".join(c for c in s if not unicodedata.combining(c))
+        return _re_d.sub(r"[^\w\s]", " ", s)
+
+    def coord(l):
+        return f"{l['lat']:.6f},{l['lon']:.6f}"
+
+    # "o primeiro", "o segundo"...
+    ordinais = {"primeiro": 0, "primeira": 0, "first": 0, "segundo": 1, "segunda": 1,
+                "second": 1, "terceiro": 2, "terceira": 2, "third": 2}
+    for t in norm(f"{destino} {mensagem}").split():
+        if t in ordinais and ordinais[t] < len(lugares):
+            return coord(lugares[ordinais[t]])
+
+    ruido = {"para", "pra", "pro", "o", "a", "os", "as", "ao", "no", "na", "de", "do", "da",
+             "entao", "rota", "traca", "tracar", "trace", "tracando", "me", "leva", "levar", "vai",
+             "vamos", "ir", "ate", "posto", "restaurante", "loja", "quero", "por", "favor", "margo",
+             "navegar", "navega", "ali", "esse", "essa", "aquele", "aquela", "go", "to", "the",
+             "take", "please", "let", "s", "e", "um", "uma", "agora", "pode", "faz", "fazer"}
+    toks = [t for t in norm(f"{destino} {mensagem}").split() if t not in ruido and len(t) > 1]
+    if not toks:
+        return ""
+    falados = set()
+    for k in (1, 2, 3):
+        for i in range(len(toks) - k + 1):
+            falados.add("".join(toks[i:i + k]))
+
+    melhor, melhor_nota = None, 0.0
+    for l in lugares:
+        candidatos = set()
+        for n in (l.get("nome", ""), l.get("nome_alt", "")):
+            partes = [p for p in norm(n).split() if len(p) > 1]
+            candidatos.update(partes)
+            if partes:
+                candidatos.add("".join(partes))
+        for c in candidatos:
+            if len(c) < 3:
+                continue
+            for f in falados:
+                nota = 1.0 if (c == f or (len(c) >= 4 and c in f)) else difflib.SequenceMatcher(None, f, c).ratio()
+                if nota > melhor_nota:
+                    melhor, melhor_nota = l, nota
+    if melhor and melhor_nota >= 0.6:
+        return coord(melhor)
+    return ""
+
+
 _OSM_SERVIDORES = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
@@ -2068,15 +2131,16 @@ def _buscar_lugares_osm(texto, lat, lon, cidade="", max_res=5, usar_ia=False):
                 tags.get("addr:province"), tags.get("addr:city"), tags.get("addr:quarter"),
                 tags.get("addr:neighbourhood"), tags.get("addr:street"),
                 tags.get("addr:block_number"), tags.get("addr:housenumber")]))
-            lugares.append((dist, nome, nome_alt, endereco, tags.get("opening_hours", "")))
+            lugares.append((dist, nome, nome_alt, endereco, tags.get("opening_hours", ""), plat, plon))
         if lugares:
             break
     if not lugares:
         return ""
 
     lugares.sort(key=lambda x: x[0])
+    _OSM_ULTIMA_LISTA[:] = [{"nome": x[1], "nome_alt": x[2], "lat": x[5], "lon": x[6]} for x in lugares[:max_res]]
     linhas = []
-    for i, (dist, nome, nome_alt, endereco, horario) in enumerate(lugares[:max_res], 1):
+    for i, (dist, nome, nome_alt, endereco, horario, _plat, _plon) in enumerate(lugares[:max_res], 1):
         n = f"{nome} ({nome_alt})" if nome_alt and nome_alt != nome else nome
         end = endereco if endereco else (f"{nome}, {cidade}" if cidade else nome)
         linha = f"{i}. {n} — {dist:.1f} km daqui — endereço: {end}"
@@ -3354,6 +3418,16 @@ def processar_mensagem(user_id, mensagem, latitude=None, longitude=None, hora_lo
 
     # ── MAPS SEARCH: busca lugar específico antes de abrir ────────────────────
     # ── CLIMA: Open-Meteo com coordenadas do dispositivo ──────────────────────
+    # ── Corrige destino falado errado usando os lugares da ultima busca
+    if ferramenta and ferramenta.get("ferramenta") == "maps_navigate":
+        try:
+            _dest_coord = _casar_destino_recente(user_id, ferramenta.get("destino", ""), mensagem)
+            if _dest_coord:
+                log(f"Destino corrigido: '{ferramenta.get('destino')}' -> {_dest_coord}", "busca")
+                ferramenta["destino"] = _dest_coord
+        except Exception as e_dest:
+            log(f"Erro corrigindo destino: {e_dest}", "busca")
+
     if ferramenta and ferramenta.get("ferramenta") == "weather" and latitude and longitude:
         log(f"Open-Meteo: lat={latitude} lng={longitude}", "clima")
         dados_clima = buscar_open_meteo(latitude, longitude)
@@ -3449,6 +3523,7 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         log(f"Brave Maps Search: query='{query_busca}' lat={latitude} lng={longitude} cidade={cidade}", "busca")
         # ── Primeiro tenta lugares reais (OpenStreetMap); Brave vira reserva
         resultados_maps = ""
+        _OSM_ULTIMA_LISTA.clear()
         try:
             _txt_osm = f"{query_maps} {q_limpo} {ferramenta.get('query_en', '')}"
             resultados_maps = (_buscar_lugares_osm(_txt_osm, latitude, longitude, cidade)
@@ -3456,6 +3531,8 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
                                or _buscar_lugares_osm(mensagem, latitude, longitude, cidade, usar_ia=True))
             if resultados_maps:
                 log(f"OSM encontrou lugares para '{query_maps}'", "busca")
+                import time as _t_osm
+                _LUGARES_RECENTES[user_id] = (_t_osm.time(), list(_OSM_ULTIMA_LISTA))
             else:
                 log(f"OSM sem resultado para '{query_maps}' — usando Brave", "busca")
         except Exception as osm_err:
