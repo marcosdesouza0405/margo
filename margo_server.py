@@ -1900,6 +1900,174 @@ def limpar_resposta(texto):
     texto = re.sub(r'\s+', ' ', texto)                      # espaços duplos
     return texto.strip()
 
+# ── BUSCA DE LUGARES REAIS (OpenStreetMap / Overpass, gratuito) ─────────────
+_OSM_TIPOS = [
+    (["gasolina", "posto", "combustivel", "combustível", "gas station", "petrol", "fuel", "ガソリン"],
+     ['["amenity"="fuel"]']),
+    (["massa", "massas", "macarrão", "macarrao", "italiano", "italiana", "pasta", "italian", "spaghetti", "パスタ", "イタリアン"],
+     ['["amenity"="restaurant"]["cuisine"~"italian|pasta|pizza",i]']),
+    (["pizza", "pizzaria", "ピザ"],
+     ['["amenity"~"restaurant|fast_food"]["cuisine"~"pizza|italian",i]']),
+    (["sushi", "寿司"],
+     ['["amenity"="restaurant"]["cuisine"~"sushi",i]']),
+    (["ramen", "lamen", "ラーメン"],
+     ['["amenity"="restaurant"]["cuisine"~"ramen|noodle",i]']),
+    (["japonês", "japones", "japonesa", "japanese", "和食"],
+     ['["amenity"="restaurant"]["cuisine"~"japanese|sushi|ramen|udon|soba",i]']),
+    (["churrascaria", "brasileiro", "brasileira", "brazilian"],
+     ['["amenity"="restaurant"]["cuisine"~"brazilian|barbecue|steak",i]']),
+    (["chinês", "chines", "chinesa", "chinese", "中華"],
+     ['["amenity"="restaurant"]["cuisine"~"chinese",i]']),
+    (["indiano", "indiana", "indian", "curry", "カレー"],
+     ['["amenity"="restaurant"]["cuisine"~"indian|curry",i]']),
+    (["hamburguer", "hambúrguer", "burger", "lanchonete", "fast food", "mcdonald", "mcdonalds"],
+     ['["amenity"="fast_food"]']),
+    (["farmácia", "farmacia", "drogaria", "pharmacy", "drugstore", "薬局", "ドラッグストア"],
+     ['["amenity"="pharmacy"]', '["shop"="chemist"]']),
+    (["supermercado", "mercado", "supermarket", "grocery", "スーパー"],
+     ['["shop"="supermarket"]']),
+    (["conveniência", "conveniencia", "konbini", "convenience", "コンビニ"],
+     ['["shop"="convenience"]']),
+    (["padaria", "bakery", "パン屋"],
+     ['["shop"="bakery"]']),
+    (["café", "cafe", "cafeteria", "coffee", "カフェ"],
+     ['["amenity"="cafe"]']),
+    (["hospital", "病院"],
+     ['["amenity"="hospital"]']),
+    (["caixa eletrônico", "caixa eletronico", "atm"],
+     ['["amenity"="atm"]']),
+    (["banco", "bank", "銀行"],
+     ['["amenity"="bank"]']),
+    (["hotel", "ホテル"],
+     ['["tourism"="hotel"]']),
+    (["shopping", "mall"],
+     ['["shop"="mall"]']),
+    (["academia", "gym", "ジム"],
+     ['["leisure"="fitness_centre"]']),
+    (["estacionamento", "parking", "駐車場"],
+     ['["amenity"="parking"]']),
+    (["restaurante", "restaurant", "comer", "レストラン"],
+     ['["amenity"="restaurant"]']),
+]
+
+
+def _osm_filtros_ia(texto):
+    """Pede pra IA converter qualquer pedido de lugar em filtros do OpenStreetMap."""
+    import re as _re_ia
+    prompt = f"""Convert this place request into OpenStreetMap tags.
+Request: "{texto}"
+Reply ONLY with JSON in this format: {{"tags": ["key=value"], "nome": ""}}
+- "tags": OSM tags for the TYPE of place. Use | for alternatives in the value.
+- "nome": only if the user wants a specific brand/store name (include the local-language spelling too, separated by |). Otherwise "".
+Examples:
+"posto dos correios" -> {{"tags": ["amenity=post_office"], "nome": ""}}
+"prefeitura" -> {{"tags": ["amenity=townhall"], "nome": ""}}
+"delegacia" -> {{"tags": ["amenity=police"], "nome": ""}}
+"pet shop" -> {{"tags": ["shop=pet"], "nome": ""}}
+"lavanderia" -> {{"tags": ["shop=laundry|dry_cleaning"], "nome": ""}}
+"loja de 100 ienes" -> {{"tags": ["shop=variety_store"], "nome": ""}}
+"acha um Don Quijote" -> {{"tags": [], "nome": "Don Quijote|ドン・キホーテ|MEGAドン・キホーテ"}}
+"""
+    try:
+        resp = chamar_deepseek_simples(prompt, max_tokens=150, modelo="deepseek-v4-flash")
+        log(f"OSM IA resposta: {resp!r}", "busca")
+        m = _re_ia.search(r'\{.*\}', resp or "", _re_ia.S)
+        if not m:
+            return []
+        dados = json.loads(m.group(0))
+    except Exception as e:
+        log(f"OSM IA erro: {e}", "busca")
+        return []
+    filtros = []
+    for tag in dados.get("tags", []) or []:
+        if "=" not in str(tag):
+            continue
+        k, v = str(tag).split("=", 1)
+        k, v = k.strip(), v.strip()
+        if not _re_ia.fullmatch(r'[a-z_:]{1,40}', k) or not _re_ia.fullmatch(r'[A-Za-z0-9_;| -]{1,80}', v):
+            continue
+        if "|" in v:
+            filtros.append(f'["{k}"~"^({v})$"]')
+        else:
+            filtros.append(f'["{k}"="{v}"]')
+    nome = _re_ia.sub(r'["\\]', '', str(dados.get("nome", "") or "")).strip()
+    if nome and len(nome) < 120:
+        filtros.append(f'["name"~"{nome}",i]')
+        filtros.append(f'["brand"~"{nome}",i]')
+    return filtros
+
+
+def _buscar_lugares_osm(texto, lat, lon, cidade="", max_res=5, usar_ia=False):
+    """Busca lugares reais perto das coordenadas. Retorna texto formatado ou ''."""
+    import math
+    import re as _re_osm
+    if not lat or not lon:
+        return ""
+    t = (texto or "").lower()
+    filtros = None
+    for chaves, f in ([] if usar_ia else _OSM_TIPOS):
+        for k in chaves:
+            if k.isascii():
+                achou = _re_osm.search(r'(?<!\w)' + _re_osm.escape(k) + r'(?!\w)', t)
+            else:
+                achou = k in t
+            if achou:
+                filtros = f
+                break
+        if filtros:
+            break
+    if not filtros and usar_ia:
+        filtros = _osm_filtros_ia(texto)
+        log(f"OSM filtros da IA: {filtros}", "busca")
+    if not filtros:
+        return ""
+
+    lugares = []
+    for raio in (5000, 15000):
+        partes = "".join(f'nwr{f}(around:{raio},{lat},{lon});' for f in filtros)
+        q = f'[out:json][timeout:10];({partes});out center 40;'
+        dados = urllib.parse.urlencode({"data": q}).encode()
+        req = urllib.request.Request(
+            "https://overpass-api.de/api/interpreter", data=dados,
+            headers={"User-Agent": "MargoApp/1.0 (orbiby.com)"})
+        resp = json.loads(urllib.request.urlopen(req, timeout=12).read())
+        for el in resp.get("elements", []):
+            tags = el.get("tags", {})
+            nome = tags.get("name")
+            if not nome:
+                continue
+            plat = el.get("lat") or el.get("center", {}).get("lat")
+            plon = el.get("lon") or el.get("center", {}).get("lon")
+            if plat is None or plon is None:
+                continue
+            p1, p2 = math.radians(float(lat)), math.radians(plat)
+            dp = p2 - p1
+            dl = math.radians(plon - float(lon))
+            a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+            dist = 6371 * 2 * math.asin(math.sqrt(a))
+            nome_alt = tags.get("name:en") or tags.get("name:pt") or ""
+            endereco = tags.get("addr:full") or " ".join(filter(None, [
+                tags.get("addr:province"), tags.get("addr:city"), tags.get("addr:quarter"),
+                tags.get("addr:neighbourhood"), tags.get("addr:street"),
+                tags.get("addr:block_number"), tags.get("addr:housenumber")]))
+            lugares.append((dist, nome, nome_alt, endereco, tags.get("opening_hours", "")))
+        if lugares:
+            break
+    if not lugares:
+        return ""
+
+    lugares.sort(key=lambda x: x[0])
+    linhas = []
+    for i, (dist, nome, nome_alt, endereco, horario) in enumerate(lugares[:max_res], 1):
+        n = f"{nome} ({nome_alt})" if nome_alt and nome_alt != nome else nome
+        end = endereco if endereco else (f"{nome}, {cidade}" if cidade else nome)
+        linha = f"{i}. {n} — {dist:.1f} km daqui — endereço: {end}"
+        if horario:
+            linha += f" — horário: {horario}"
+        linhas.append(linha)
+    return "Lugares reais encontrados no mapa (ordenados por distância):\n" + "\n".join(linhas)
+
+
 def buscar_open_meteo(latitude, longitude) -> str:
     """Consulta clima atual e previsão via Open-Meteo (gratuito, global, sem chave)"""
     try:
@@ -3261,7 +3429,21 @@ IMPORTANTE: Use os valores exatos acima. Responda de forma natural sobre o clima
         query_busca = f"{q_limpo} {cidade}" if cidade else q_limpo
         
         log(f"Brave Maps Search: query='{query_busca}' lat={latitude} lng={longitude} cidade={cidade}", "busca")
-        resultados_maps = buscar_brave(query_busca, max_results=5)
+        # ── Primeiro tenta lugares reais (OpenStreetMap); Brave vira reserva
+        resultados_maps = ""
+        try:
+            _txt_osm = f"{query_maps} {q_limpo} {ferramenta.get('query_en', '')}"
+            resultados_maps = (_buscar_lugares_osm(_txt_osm, latitude, longitude, cidade)
+                               or _buscar_lugares_osm(mensagem, latitude, longitude, cidade)
+                               or _buscar_lugares_osm(mensagem, latitude, longitude, cidade, usar_ia=True))
+            if resultados_maps:
+                log(f"OSM encontrou lugares para '{query_maps}'", "busca")
+            else:
+                log(f"OSM sem resultado para '{query_maps}' — usando Brave", "busca")
+        except Exception as osm_err:
+            log(f"OSM erro: {osm_err} — usando Brave", "busca")
+        if not resultados_maps:
+            resultados_maps = buscar_brave(query_busca, max_results=5)
         if resultados_maps:
             # Extrai o melhor lugar para eventual navegação
             prompt_lugar = f"""O usuário está em {cidade or 'localização desconhecida'} e quer: "{query_maps}"
